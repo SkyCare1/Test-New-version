@@ -2964,12 +2964,22 @@ display:none !important;
     ──────────────────────────────────────────────────────────────────── */
     function getUserLockedBranch() {
       try {
+        // Try live profile first, then fall back to session/localStorage cache
         const profile = window.currentFirebaseUserProfile
-          || (window.firebaseSSC && typeof window.firebaseSSC.getCurrentProfile === "function"
-              && window.firebaseSSC.getCurrentProfile());
+          || (window.firebaseSSC && typeof window.firebaseSSC.getCurrentProfile === "function" && window.firebaseSSC.getCurrentProfile())
+          || (function(){
+               try {
+                 const raw = sessionStorage.getItem('ssc_profile_v3') || localStorage.getItem('ssc_profile_v3');
+                 if (!raw) return null;
+                 const parsed = JSON.parse(raw);
+                 return parsed && parsed.profile ? parsed.profile : null;
+               } catch(e){ return null; }
+             })();
         if (!profile) return null;
+        // ADMIN sees everything — no lock
         if (String(profile.role || "").toUpperCase() === "ADMIN") return null;
         const username = String(profile.username || profile.email || "").trim();
+        // Match "Faisal Branch" → "Faisal", "Sayeda Branch" → "Sayeda", etc.
         const m = username.match(/^(.+?)\s+Branch\s*$/i);
         return m ? m[1].trim() : null;
       } catch (e) { return null; }
@@ -19026,6 +19036,8 @@ window.addEventListener('beforeunload', function() {
     const savedKey = window.__fbActiveTabKey || (function(){ try{ return localStorage.getItem('serviceEyeActiveTab'); }catch(e){ return null; } })();
     const targetKey = (savedKey && allowedKeys(profile).includes(savedKey)) ? savedKey : (firstAllowed()||'gspn');
     setTimeout(()=>showTab(targetKey), 50);
+    // Re-render GSPN after auth so branch-lock filter is applied immediately
+    setTimeout(()=>{ try{ if(typeof render === 'function') render(); }catch(e){} }, 300);
   }
 
   function setUnauthenticated(){
