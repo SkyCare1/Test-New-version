@@ -2964,9 +2964,10 @@ display:none !important;
     ──────────────────────────────────────────────────────────────────── */
     function getUserLockedBranch() {
       try {
-        // Try live profile first, then fall back to session/localStorage cache
+        // Read profile from all possible sources
         const profile = window.currentFirebaseUserProfile
-          || (window.firebaseSSC && typeof window.firebaseSSC.getCurrentProfile === "function" && window.firebaseSSC.getCurrentProfile())
+          || (window.firebaseSSC && typeof window.firebaseSSC.getCurrentProfile === "function"
+              && window.firebaseSSC.getCurrentProfile())
           || (function(){
                try {
                  const raw = sessionStorage.getItem('ssc_profile_v3') || localStorage.getItem('ssc_profile_v3');
@@ -2975,13 +2976,34 @@ display:none !important;
                  return parsed && parsed.profile ? parsed.profile : null;
                } catch(e){ return null; }
              })();
+
         if (!profile) return null;
-        // ADMIN sees everything — no lock
+        // ADMIN sees everything — no lock applied
         if (String(profile.role || "").toUpperCase() === "ADMIN") return null;
+
         const username = String(profile.username || profile.email || "").trim();
-        // Match "Faisal Branch" → "Faisal", "Sayeda Branch" → "Sayeda", etc.
-        const m = username.match(/^(.+?)\s+Branch\s*$/i);
-        return m ? m[1].trim() : null;
+        if (!username) return null;
+
+        // Strategy 1: "Faisal Branch" → "Faisal"  (username ends with " Branch")
+        const mBranch = username.match(/^(.+?)\s+Branch\s*$/i);
+        if (mBranch) return mBranch[1].trim();
+
+        // Strategy 2: username exactly matches a known branch name in the loaded data
+        // e.g. username is "Faisal" and there are rows with GSPN_Branch === "Faisal"
+        if (allRows && allRows.length) {
+          const knownBranches = [...new Set(allRows.map(r => r.GSPN_Branch).filter(Boolean))];
+          // Case-insensitive exact match
+          const exactMatch = knownBranches.find(b => b.toLowerCase() === username.toLowerCase());
+          if (exactMatch) return exactMatch;
+          // Case-insensitive "contains" match — username is part of branch name or vice-versa
+          const partialMatch = knownBranches.find(b =>
+            b.toLowerCase().includes(username.toLowerCase()) ||
+            username.toLowerCase().includes(b.toLowerCase())
+          );
+          if (partialMatch) return partialMatch;
+        }
+
+        return null;
       } catch (e) { return null; }
     }
 
@@ -3066,7 +3088,9 @@ display:none !important;
     }
 
     function getFilteredRows() {
-      const branches = getSelectedValues("branchFilter");
+      // Branch-lock: enforce at data level so it works regardless of UI state
+      const lockedBranch = getUserLockedBranch();
+      const branches = lockedBranch ? [lockedBranch] : getSelectedValues("branchFilter");
       const techs = getSelectedValues("techFilter");
       const warranties = getSelectedValues("warrantyFilter");
       const alerts = getSelectedValues("alertFilter");
