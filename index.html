@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- Performance optimized: duplicate initial GitHub/XLSX refresh calls removed; first load runs once at DOM-ready. -->
 <script id="perf-logo-store">
 /* Performance Fix #5: Centralise logo blobs — defined once, referenced everywhere.
    Must appear before any script that uses window._SITE_LOGO or window._ANALYSIS_LOGO. */
@@ -5600,7 +5601,7 @@ const d = safeParseDate(out.Open_Date);
 
   function install(){ fixLogos(); addCardMenus(); fixChartClearButtons(); addAnalysisFileToGraphPanel(); }
   document.addEventListener('DOMContentLoaded',()=>{ setTimeout(install,800); });
-void(install, 15000);
+/* removed duplicate delayed install at 15s */
 })();
 </script>
 
@@ -6714,7 +6715,7 @@ void(install, 15000);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 500); });
   else setTimeout(install, 500);
   window.addEventListener('load', function(){ setTimeout(install, 1000); });
-void(install, 15000);
+/* removed duplicate delayed install at 15s */
 })();
 </script>
 
@@ -7937,7 +7938,7 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
   document.addEventListener('click',e=>{ if(!e.target.closest('#gspnPage .gspn-v50-filter')) closeAll(); });
   document.addEventListener('DOMContentLoaded',()=>{ setTimeout(ensure,250); });
   window.addEventListener('load',()=>{ setTimeout(ensure,800); });
-void(ensure, 15000);
+/* removed duplicate delayed ensure at 15s */
 })();
 </script>
 
@@ -13071,10 +13072,9 @@ async function autoLoadSKYFromGitHub() {
   }
 }
 
-setTimeout(async function () {
-  await autoLoadGSPNFromGitHub();
-  await autoLoadSKYFromGitHub();
-}, 1500);
+/* Performance fix: legacy first auto-load removed.
+   The unified GitHub loader below is the only initial data loader.
+   Keeping this disabled prevents duplicate XLSX downloads/parsing during refresh. */
 
 /* ===== SKY targeted fix: export filtered rows only ===== */
 function exportSkyExcel() {
@@ -16807,12 +16807,21 @@ void(boot, 2500);
   window.autoLoadGSPNFromGitHub=function(){return loadGithub('gspn');};
   window.autoLoadSKYFromGitHub=function(){return loadGithub('sky');};
   window.autoLoadProfitFromGitHub=function(){return loadGithub('profit');};
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ensureAll); else ensureAll();
-  window.addEventListener('load',function(){ setTimeout(ensureAll,600); });
-  // Single interval for UI refresh (every 15s) — removed duplicate 1-hour interval to avoid redundant fetches
-  (window._ivals=window._ivals||[]).push(setInterval(function(){ ensureAll(); },15000));
-  // Auto-fetch on load (once) and then every hour
-  window.addEventListener('load',function(){ setTimeout(function(){ window.reloadServiceEyeGithubExcelData(); },1200); });
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ensureAll,{once:true}); else ensureAll();
+
+  // Performance fix: one lightweight UI refresh timer only.
+  (window._ivals=window._ivals||[]).push(setInterval(function(){ ensureAll(); },30000));
+
+  // Performance fix: run the first GitHub load once, at DOM ready, not after full window load.
+  // This prevents duplicate heavy XLSX downloads/parsing that were causing slow refreshes.
+  function scheduleInitialGithubLoad(){
+    if(window.__githubImmediateFirstLoadDone) return;
+    window.__githubImmediateFirstLoadDone = true;
+    var run=function(){ window.reloadServiceEyeGithubExcelData(); };
+    if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:800});
+    else setTimeout(run,100);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',scheduleInitialGithubLoad,{once:true}); else scheduleInitialGithubLoad();
   (window._ivals=window._ivals||[]).push(setInterval(function(){ window.reloadServiceEyeGithubExcelData(); },60*60*1000));
 })();
 </script>
@@ -19077,9 +19086,15 @@ window.addEventListener('beforeunload', function() {
     ensurePalette();
     ensureRefreshButton();
     startLiveRefresh();
+    // Performance fix: initial GitHub load is handled once by the unified loader above.
+    // Do not start four additional refresh calls here.
     if(!window.__githubImmediateFirstLoadDone){
       window.__githubImmediateFirstLoadDone = true;
-      setTimeout(function(){ runGithubRefresh('gspn', false); runGithubRefresh('sky', false); runGithubRefresh('profit', false); runGithubRefresh('preBooking', false); }, 900);
+      if(typeof window.reloadServiceEyeGithubExcelData === 'function'){
+        var run=function(){ window.reloadServiceEyeGithubExcelData(); };
+        if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:800});
+        else setTimeout(run,100);
+      }
     }
   }
 
