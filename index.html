@@ -16900,7 +16900,26 @@ void(boot, 2500);
   // Performance fix: one lightweight UI refresh timer only.
   (window._ivals=window._ivals||[]).push(setInterval(function(){ ensureAll(); },30000));
 
-  // Performance fix: on refresh, load only the visible tab first instead of parsing every workbook immediately.
+  // Performance fix: on refresh, load only the visible tab first.
+  // Dashboard is an exception because its tables depend on GSPN + SKY + Pre_Booking data.
+  async function loadDashboardSourceData(){
+    if(window.__dashboardSourceLoadInProgress) return window.__dashboardSourceLoadInProgress;
+    window.__dashboardSourceLoadInProgress = (async function(){
+      try{
+        await Promise.all([
+          loadGithub('gspn'),
+          loadGithub('sky'),
+          (typeof window.loadPreBooking === 'function' ? window.loadPreBooking(false) : Promise.resolve())
+        ]);
+      } finally {
+        try { if (typeof window.renderDashboardTables === 'function') window.renderDashboardTables(); } catch(e) {}
+        window.__dashboardSourceLoadInProgress = null;
+      }
+    })();
+    return window.__dashboardSourceLoadInProgress;
+  }
+  window.loadDashboardSourceData = loadDashboardSourceData;
+
   function scheduleInitialGithubLoad(){
     if(window.__githubImmediateFirstLoadDone) return;
     window.__githubImmediateFirstLoadDone = true;
@@ -16909,14 +16928,10 @@ void(boot, 2500);
       if(active === 'sky') loadGithub('sky');
       else if(active === 'profit') loadGithub('profit');
       else if(active === 'preBooking' && typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
-      else if(active === 'dashboard') {
-        if(typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
-        setTimeout(function(){ loadGithub('sky'); }, 1800);
-        setTimeout(function(){ loadGithub('gspn'); }, 3200);
-      } else loadGithub('gspn');
+      else if(active === 'dashboard') loadDashboardSourceData();
+      else loadGithub('gspn');
     };
-    if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:1200});
-    else setTimeout(run,250);
+    setTimeout(run,80);
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',scheduleInitialGithubLoad,{once:true}); else scheduleInitialGithubLoad();
   (window._ivals=window._ivals||[]).push(setInterval(function(){ window.reloadServiceEyeGithubExcelData(); },3*60*60*1000));
@@ -18797,7 +18812,11 @@ window.addEventListener('beforeunload', function() {
       document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active', sideKey(el)===tab);});
       localStorage.setItem('serviceEyeActiveTab',tab);
       if(tab==='preBooking'){ if(!pbRows.length) loadPreBooking(false); else renderPB(); }
-      if(tab==='dashboard'){ if(!pbRows.length) loadPreBooking(false); else renderDashboardTables(); }
+      if(tab==='dashboard'){
+        if (typeof window.loadDashboardSourceData === 'function') window.loadDashboardSourceData();
+        else if(!pbRows.length) loadPreBooking(false);
+        else renderDashboardTables();
+      }
       return;
     }
     if(typeof oldSwitch==='function'){
@@ -18807,7 +18826,7 @@ window.addEventListener('beforeunload', function() {
     }
   };
   window.loadPreBooking=loadPreBooking; window.renderDashboardTables=renderDashboardTables;
-  document.addEventListener('DOMContentLoaded',function(){ setTimeout(function(){ ensureTabs(); var a=localStorage.getItem('serviceEyeActiveTab')||''; if(a==='preBooking'||a==='dashboard') loadPreBooking(false); setInterval(function(){ var t=localStorage.getItem('serviceEyeActiveTab')||''; if(t==='preBooking'||t==='dashboard') loadPreBooking(false); },3*60*60*1000); }, 2000); });
+  document.addEventListener('DOMContentLoaded',function(){ setTimeout(function(){ ensureTabs(); var a=localStorage.getItem('serviceEyeActiveTab')||''; if(a==='preBooking') loadPreBooking(false); if(a==='dashboard'){ if(typeof window.loadDashboardSourceData==='function') window.loadDashboardSourceData(); else loadPreBooking(false); } setInterval(function(){ var t=localStorage.getItem('serviceEyeActiveTab')||''; if(t==='preBooking') loadPreBooking(false); if(t==='dashboard'){ if(typeof window.loadDashboardSourceData==='function') window.loadDashboardSourceData(); else loadPreBooking(false); } },3*60*60*1000); }, 2000); });
 })();
 </script>
 </body>
