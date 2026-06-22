@@ -143,7 +143,7 @@ window.v57_getPresenceCounts = function(){return{gspn:0,sky:0,analysis:0};};
 function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
 
 function switchTab(tab) {
-      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement + dashboard + preBooking;
+      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement + dashboard + preBooking;
 
       localStorage.setItem("serviceEyeActiveTab", safeTab);
       document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; el.classList.toggle("active", oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
@@ -13127,14 +13127,54 @@ void(removeExportButtons, 10000);
   requestAnimationFrame(applyFinalGspnFix);
 })();
 
+
+/* ================= SHARED GITHUB DATA VERSIONING =================
+   Shared data source is GitHub files only.
+   Normal page loads use an ETag/Last-Modified based version so the browser can cache.
+   Manual Refresh uses a force token to guarantee a fresh file immediately.
+===================================================================== */
+const SERVICE_DATA_FILES = {
+  gspn: { file: 'datagspn.xlsx', sheet: 'GSPN Cases Tracking' },
+  sky: { file: 'datasky.xlsx', sheet: '' },
+  profit: { file: 'Profitability & commission.xlsx', sheet: '' },
+  preBooking: { file: 'Pre_Booking.xlsx', sheet: 'Pre_Booking' },
+  returnCases: { file: 'Return Cases.xlsx', sheet: 'Return Cases' }
+};
+window.__serviceDataVersionCache = window.__serviceDataVersionCache || {};
+function serviceEncodePath(file) {
+  return String(file).split('/').map(encodeURIComponent).join('/');
+}
+async function serviceGetDataVersion(file, force) {
+  if (force) return 'manual_' + Date.now();
+  const cached = window.__serviceDataVersionCache[file];
+  if (cached) return cached;
+  try {
+    const res = await fetch(serviceEncodePath(file), { method: 'HEAD', cache: 'no-cache' });
+    const v = res.headers.get('etag') || res.headers.get('last-modified') || 'stable';
+    window.__serviceDataVersionCache[file] = encodeURIComponent(v.replace(/^W\//, '').replace(/"/g, ''));
+    return window.__serviceDataVersionCache[file];
+  } catch (e) {
+    window.__serviceDataVersionCache[file] = 'stable';
+    return 'stable';
+  }
+}
+async function serviceDataUrl(file, force) {
+  const v = await serviceGetDataVersion(file, !!force);
+  return serviceEncodePath(file) + (String(file).includes('?') ? '&' : '?') + 'v=' + v;
+}
+function serviceClearDataVersion(file) {
+  try { delete window.__serviceDataVersionCache[file]; } catch(e) {}
+}
+
 /* ================= AUTO LOAD EXCEL FILES FROM GITHUB =================
    Files must be in the same GitHub folder as index.html:
    - datagspn.xlsx
    - datasky.xlsx
    This forces a fresh copy every time to reduce old cached data.
 ===================================================================== */
-async function loadExcelRowsFromUrl(url, preferredSheetName) {
-  const response = await fetch(url + '?v=' + Date.now(), { cache: 'no-store' });
+async function loadExcelRowsFromUrl(url, preferredSheetName, forceRefresh) {
+  const finalUrl = await serviceDataUrl(url, !!forceRefresh);
+  const response = await fetch(finalUrl, { cache: forceRefresh ? 'no-store' : 'default' });
   if (!response.ok) throw new Error(url + ' not found or cannot be loaded. HTTP ' + response.status);
 
   const arrayBuffer = await response.arrayBuffer();
@@ -13147,10 +13187,10 @@ async function loadExcelRowsFromUrl(url, preferredSheetName) {
   return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
 }
 
-async function autoLoadGSPNFromGitHub() {
+async function autoLoadGSPNFromGitHub(forceRefresh = false) {
   try {
     setUploadProgress(25, 'Loading GSPN data from GitHub...', 'Reading datagspn.xlsx from the shared GitHub repository.', true);
-    const rawRows = await loadExcelRowsFromUrl('datagspn.xlsx', 'GSPN Cases Tracking');
+    const rawRows = await loadExcelRowsFromUrl('datagspn.xlsx', 'GSPN Cases Tracking', forceRefresh);
     await setRows(rawRows);
     setUploadProgress(100, 'GSPN GitHub data loaded', `${allRows.length} GSPN rows loaded from datagspn.xlsx.`, true);
 
@@ -13160,12 +13200,11 @@ async function autoLoadGSPNFromGitHub() {
   }
 }
 
-async function autoLoadSKYFromGitHub() {
+async function autoLoadSKYFromGitHub(forceRefresh = false) {
   try {
     setUploadProgress(25, 'Loading SKY data from GitHub...', 'Reading datasky.xlsx from the shared GitHub repository.', true);
-    const rawRows = await loadExcelRowsFromUrl('datasky.xlsx');
+    const rawRows = await loadExcelRowsFromUrl('datasky.xlsx', '', forceRefresh);
     skyRows = rawRows.map(normalizeSkyRow).filter(r => r.Job_Number || r.IMEI || r.SerialNumber || r.Customer_Mobile || r.Customer_phone);
-    await saveSkyRowsToBrowser(rawRows);
     resetSkyFiltersToAll();
     refreshSkyFilters();
     renderSky();
@@ -13578,7 +13617,7 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
         const raw = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:true });
         workbookRowsLoaded = true;
         const rows = setSkyRows(raw);
-        try { if (typeof saveSkyRowsToBrowser === 'function') saveSkyRowsToBrowser(raw); } catch(e) {}
+        
         return rows;
       })
       .catch(function(error){
@@ -16515,6 +16554,7 @@ void(boot, 2500);
     profit:{title:'Profitability & commission',pageId:'profitPage',inputId:'profitFileInput',files:['Profitability & commission.xlsx','Profitability & commission.xlsm','Profitability & commission.xls','Profitability & commission.xlsb','Profitability & commission.csv'],sheet:''},
     cashTarget:{title:'Cash & Target',pageId:'cashTargetPage',inputId:'cashTargetFileInput',manualOnly:true},
     preBooking:{title:'Pre_Booking',pageId:'preBookingPage',inputId:null,files:['Pre_Booking.xlsx'],sheet:'Pre_Booking',noHeaderTools:true,githubOnly:true},
+    returnCases:{title:'Return Cases',pageId:'returnCasesPage',inputId:null,files:['Return Cases.xlsx'],sheet:'Return Cases',noHeaderTools:true,githubOnly:true},
     dashboard:{title:'Dashboard',pageId:'dashboardPage',manualOnly:true,noHeaderTools:true,noNotice:true}
   };
   const OLD_CACHE=['serviceEyeProfitRowsCache_v5','serviceEyeRowsCache','serviceEyeSkyRowsCache','serviceEyeProfitabilityRowsCache','serviceEyeOnlineTabs_v58','serviceEyeOnlineTabs_v65'];
@@ -16525,7 +16565,7 @@ void(boot, 2500);
   const fmt=()=>new Date().toLocaleString();
   function clearCaches(){OLD_CACHE.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}})}
   function encodePath(x){return String(x).split('/').map(encodeURIComponent).join('/')}
-  function cb(url){return encodePath(url)+(String(url).includes('?')?'&':'?')+'v='+Date.now()+'&noCache='+(performance.now?performance.now():Math.random())}
+  async function cb(url, force){return await serviceDataUrl(url, !!force)}
   function rowsCount(tab){
     if(tab==='gspn')return Array.isArray(window.allRows)?window.allRows.length:0;
     if(tab==='sky')return Array.isArray(window.skyRows)?window.skyRows.length:0;
@@ -16602,12 +16642,12 @@ void(boot, 2500);
       if(!label){label=document.createElement('label');label.className='upload';label.textContent='Upload Excel manually';label.appendChild(input);actions.appendChild(label)}
       label.style.display='inline-flex'; label.classList.remove('github-source-lock'); input.disabled=false;
       if(!input.dataset.serviceV2Manual){input.dataset.serviceV2Manual='1';input.addEventListener('change',()=>{const name=input.files&&input.files[0]?input.files[0].name:'manual upload';clearCaches();notice(tab,'loading','Manual upload: '+name,0,'Processing file');setTimeout(()=>notice(tab,'success','Manual upload: '+name,rowsCount(tab),''),900);setTimeout(()=>notice(tab,'success','Manual upload: '+name,rowsCount(tab),''),2500)},true)}
-      if(tab!=='cashTarget'&&!$('serviceV2Github_'+tab)){const b=document.createElement('button');b.type='button';b.id='serviceV2Github_'+tab;b.className='service-v2-btn';b.textContent='Refresh from GitHub';b.onclick=()=>{window.__serviceV2ManualRefresh=true;loadGithub(tab);};actions.appendChild(b)}
+      if(tab!=='cashTarget'&&!$('serviceV2Github_'+tab)){const b=document.createElement('button');b.type='button';b.id='serviceV2Github_'+tab;b.className='service-v2-btn';b.textContent='Refresh from GitHub';b.onclick=()=>{window.__serviceV2ManualRefresh=true;loadGithub(tab,{force:true});};actions.appendChild(b)}
       if(!actions.querySelector('.service-v2-visitors')){const v=document.createElement('span');v.className='service-v2-visitors';v.innerHTML=''; v.style.display='none';actions.insertBefore(v,actions.firstChild)}
     });
   }
   async function readRows(files,sheetName){
-    let lastErr; for(const f of files){try{const res=await fetch(cb(f),{cache:'no-store',headers:{'Cache-Control':'no-cache, no-store, must-revalidate','Pragma':'no-cache','Expires':'0'}}); if(!res.ok)throw new Error(f+' HTTP '+res.status); const buf=await res.arrayBuffer(); let wb;if(/\.csv$/i.test(f)){wb=XLSX.read(new TextDecoder('utf-8').decode(buf),{type:'string',raw:true,cellDates:true})}else{wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true})} const sn=sheetName&&wb.SheetNames.includes(sheetName)?sheetName:wb.SheetNames[0];return{file:f,rows:XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true})}}catch(e){lastErr=e}}
+    let lastErr; for(const f of files){try{const res=await fetch(await cb(f, window.__serviceV2ForceRefresh),{cache:window.__serviceV2ForceRefresh?'no-store':'default'}); if(!res.ok)throw new Error(f+' HTTP '+res.status); const buf=await res.arrayBuffer(); let wb;if(/\.csv$/i.test(f)){wb=XLSX.read(new TextDecoder('utf-8').decode(buf),{type:'string',raw:true,cellDates:true})}else{wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true})} const sn=sheetName&&wb.SheetNames.includes(sheetName)?sheetName:wb.SheetNames[0];return{file:f,rows:XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true})}}catch(e){lastErr=e}}
     throw lastErr||new Error('No GitHub file loaded');
   }
   async function applyRows(tab,rows){
@@ -16730,6 +16770,7 @@ void(boot, 2500);
     profit:{title:'Profitability & commission',pageId:'profitPage',inputId:'profitFileInput',files:['Profitability & commission.xlsx','Profitability & commission.xlsm','Profitability & commission.xls','Profitability & commission.xlsb','Profitability & commission.csv'],sheet:''},
     cashTarget:{title:'Cash & Target',pageId:'cashTargetPage',inputId:'cashTargetFileInput',manualOnly:true},
     preBooking:{title:'Pre_Booking',pageId:'preBookingPage',inputId:null,files:['Pre_Booking.xlsx'],sheet:'Pre_Booking',noHeaderTools:true,githubOnly:true},
+    returnCases:{title:'Return Cases',pageId:'returnCasesPage',inputId:null,files:['Return Cases.xlsx'],sheet:'Return Cases',noHeaderTools:true,githubOnly:true},
     dashboard:{title:'Dashboard',pageId:'dashboardPage',manualOnly:true,noHeaderTools:true,noNotice:true}
   };
   const $=id=>document.getElementById(id);
@@ -16789,12 +16830,12 @@ void(boot, 2500);
     try{ localStorage.setItem('serviceV2Last_'+tab, JSON.stringify({state:state,source:source,rows:r,time:time,msg:msg||''})); }catch(e){}
   }
   function encodePath(x){return String(x).split('/').map(encodeURIComponent).join('/');}
-  function freshUrl(file){return encodePath(file)+(String(file).includes('?')?'&':'?')+'v='+Date.now()+'&nocache='+Math.random().toString(36).slice(2);}
+  async function freshUrl(file, force){return await serviceDataUrl(file, !!force);}
   async function readRows(files,sheetName){
     let lastErr;
     for(const f of files){
       try{
-        const res=await fetch(freshUrl(f),{cache:'no-store',headers:{'Cache-Control':'no-cache, no-store, must-revalidate','Pragma':'no-cache','Expires':'0'}});
+        const res=await fetch(await freshUrl(f, window.__serviceV2ForceRefresh),{cache:window.__serviceV2ForceRefresh?'no-store':'default'});
         if(!res.ok) throw new Error(f+' HTTP '+res.status);
         const buf=await res.arrayBuffer();
         let wb;
@@ -16810,18 +16851,15 @@ void(boot, 2500);
   async function applyRows(tab,rows){
     if(tab==='gspn'){
       if(typeof window.setRows==='function') await window.setRows(rows); else { window.allRows=rows; try{ allRows=rows; }catch(e){} }
-      try{ if(typeof window.saveRowsToBrowser==='function') window.saveRowsToBrowser(rows); }catch(e){}
       try{ if(typeof window.render==='function') window.render(); }catch(e){}
     }
     if(tab==='sky'){
       const out=typeof window.normalizeSkyRow==='function'?rows.map(window.normalizeSkyRow).filter(function(r){return r.Job_Number||r.IMEI||r.SerialNumber||r.Customer_Mobile||r.Customer_phone||r.Branch||r.Stage;}):rows;
       window.skyRows=out; try{ skyRows=out; }catch(e){}
-      try{ if(typeof window.saveSkyRowsToBrowser==='function') window.saveSkyRowsToBrowser(rows); }catch(e){}
       try{ if(typeof window.refreshSkyFilters==='function') window.refreshSkyFilters(); if(typeof window.renderSky==='function') window.renderSky(); }catch(e){}
     }
     if(tab==='profit'){
       if(typeof window.setProfitRows==='function') window.setProfitRows(rows); else { window.profitRows=rows; try{ profitRows=rows; }catch(e){} }
-      try{ localStorage.setItem('serviceEyeProfitRowsCache_v6', JSON.stringify(rows)); }catch(e){}
       try{ if(typeof window.renderProfit==='function') window.renderProfit(); }catch(e){}
     }
     try{
@@ -16832,8 +16870,11 @@ void(boot, 2500);
       }
     }catch(e){}
   }
-  async function loadGithub(tab){
+  async function loadGithub(tab, opts){
     const c=TABS[tab]; if(!c || c.manualOnly) return;
+    const forceRefresh = !!(opts && opts.force);
+    window.__serviceV2ForceRefresh = forceRefresh;
+    if(forceRefresh && c.files){ c.files.forEach(function(f){ serviceClearDataVersion(f); }); }
     const before=rowsCount(tab);
     notice(tab,'loading','GitHub',before,'Downloading fresh file');
     try{
@@ -16844,10 +16885,12 @@ void(boot, 2500);
       const _src='GitHub: '+got.file;
       const _msg='Fresh data loaded by Auto sync';
       notice(tab,'success',_src,rowsCount(tab)||got.rows.length,_msg);
+      window.__serviceV2ForceRefresh = false;
     }catch(e){
       const kept=rowsCount(tab)||before;
       notice(tab,'error','GitHub',kept, kept>0?'GitHub not reachable — existing/manual data kept':((e&&e.message)||String(e)));
 
+      window.__serviceV2ForceRefresh = false;
     }
   }
   function ensureManualUpload(tab){
@@ -16892,16 +16935,16 @@ void(boot, 2500);
         else if(saved) notice(tab,saved.state||'success',saved.source,saved.rows,saved.msg||'');
       } finally { window.__serviceV2RenderingSavedNotice=false; }
       if(tab!=='cashTarget'){
-        const b=$('serviceV2Github_'+tab); if(b) b.onclick=function(){window.__serviceV2ManualRefresh=true;loadGithub(tab);};
+        const b=$('serviceV2Github_'+tab); if(b) b.onclick=function(){window.__serviceV2ManualRefresh=true;loadGithub(tab,{force:true});};
       }
     });
   }
   // Register as the authoritative GitHub loader — earlier scripts delegate here
   window.__finalGithubLoad = loadGithub;
-  window.reloadServiceEyeGithubExcelData=async function(){ for(const t of ['gspn','sky','profit']) await loadGithub(t); if(typeof window.loadPreBooking==='function') await window.loadPreBooking(true); };
-  window.autoLoadGSPNFromGitHub=function(){return loadGithub('gspn');};
-  window.autoLoadSKYFromGitHub=function(){return loadGithub('sky');};
-  window.autoLoadProfitFromGitHub=function(){return loadGithub('profit');};
+  window.reloadServiceEyeGithubExcelData=async function(force){ for(const t of ['gspn','sky','profit']) await loadGithub(t,{force:!!force}); if(typeof window.loadPreBooking==='function') await window.loadPreBooking(!!force); };
+  window.autoLoadGSPNFromGitHub=function(force){return loadGithub('gspn',{force:!!force});};
+  window.autoLoadSKYFromGitHub=function(force){return loadGithub('sky',{force:!!force});};
+  window.autoLoadProfitFromGitHub=function(force){return loadGithub('profit',{force:!!force});};
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ensureAll,{once:true}); else ensureAll();
 
   // Performance fix: one lightweight UI refresh timer only.
@@ -16913,21 +16956,21 @@ void(boot, 2500);
     window.__githubImmediateFirstLoadDone = true;
     var run=function(){
       var active = localStorage.getItem('serviceEyeActiveTab') || 'gspn';
-      if(active === 'sky') loadGithub('sky');
-      else if(active === 'profit') loadGithub('profit');
+      if(active === 'sky') loadGithub('sky',{force:false});
+      else if(active === 'profit') loadGithub('profit',{force:false});
       else if(active === 'preBooking' && typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
       else if(active === 'dashboard') {
         if(typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
         if(typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
-        setTimeout(function(){ loadGithub('sky'); }, 350);
-        setTimeout(function(){ loadGithub('gspn'); }, 700);
-      } else loadGithub('gspn');
+        setTimeout(function(){ loadGithub('sky',{force:false}); }, 350);
+        setTimeout(function(){ loadGithub('gspn',{force:false}); }, 700);
+      } else loadGithub('gspn',{force:false});
     };
     if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:1200});
     else setTimeout(run,250);
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',scheduleInitialGithubLoad,{once:true}); else scheduleInitialGithubLoad();
-  (window._ivals=window._ivals||[]).push(setInterval(function(){ window.reloadServiceEyeGithubExcelData(); },3*60*60*1000));
+  (window._ivals=window._ivals||[]).push(setInterval(function(){ var t=(localStorage.getItem('serviceEyeActiveTab')||'gspn'); if(t==='dashboard' && typeof window.loadDashboardSources==='function') window.loadDashboardSources(false); else if(t==='preBooking' && typeof window.loadPreBooking==='function') window.loadPreBooking(false); else if(['gspn','sky','profit'].includes(t)) loadGithub(t,{force:false}); },3*60*60*1000));
 })();
 </script>
 
@@ -16981,9 +17024,9 @@ void(boot, 2500);
   // We only clear caches that are from old versions (v5 and below). v6 cache is kept.
   try{
     const STALE_KEYS = [
-      // 'serviceEyeProfitRowsCache_v6',  // REMOVED: kept so profit data survives refresh
+      'serviceEyeProfitRowsCache_v6',
       // 'serviceEyeGspnRowsCache',        // REMOVED: kept so GSPN data survives refresh
-      // 'serviceEyeSkyRowsCache',          // REMOVED: kept so SKY data survives refresh
+      'serviceEyeSkyRowsCache',
       'serviceEyeOnlineTabsLocalFallback_v2',
       'v57_presence'
     ];
@@ -17658,7 +17701,9 @@ void(scrubDom,2000);
       ['gspn', document.getElementById('gspnPage')],
       ['sky', document.getElementById('skyPage')],
       ['profit', document.getElementById('profitPage')],
-      ['cashTarget', document.getElementById('cashTargetPage')]
+      ['cashTarget', document.getElementById('cashTargetPage')],
+      ['preBooking', document.getElementById('preBookingPage')],
+      ['dashboard', document.getElementById('dashboardPage')]
     ];
     for(const [tab,page] of pairs){
       if(page && page.style.display !== 'none' && visible(page)) return tab;
@@ -17669,10 +17714,12 @@ void(scrubDom,2000);
   async function refreshActiveTab(){
     const tab = activeTab();
     try{
-      if(tab === 'gspn' && typeof window.autoLoadGSPNFromGitHub === 'function') return await window.autoLoadGSPNFromGitHub();
-      if(tab === 'sky' && typeof window.autoLoadSKYFromGitHub === 'function') return await window.autoLoadSKYFromGitHub();
-      if(tab === 'profit' && typeof window.autoLoadProfitFromGitHub === 'function') return await window.autoLoadProfitFromGitHub();
-      alert('Refresh Data is available for GSPN Tracking Cases, SKY Tracking Cases, and Profitability & commission.');
+      if(tab === 'gspn' && typeof window.autoLoadGSPNFromGitHub === 'function') return await window.autoLoadGSPNFromGitHub(true);
+      if(tab === 'sky' && typeof window.autoLoadSKYFromGitHub === 'function') return await window.autoLoadSKYFromGitHub(true);
+      if(tab === 'profit' && typeof window.autoLoadProfitFromGitHub === 'function') return await window.autoLoadProfitFromGitHub(true);
+      if(tab === 'preBooking' && typeof window.loadPreBooking === 'function') return await window.loadPreBooking(true);
+      if(tab === 'dashboard' && typeof window.loadDashboardSources === 'function') return await window.loadDashboardSources(true);
+      alert('Refresh Data is available for GSPN, SKY, Profitability, Pre_Booking, and Dashboard.');
     }catch(err){
 
       alert('Refresh Data failed. Please check the console or try again.');
@@ -17782,17 +17829,19 @@ void(scrubDom,2000);
 (function(){
   'use strict';
   function activeTab(){
-    var pairs=[['gspn',document.getElementById('gspnPage')],['sky',document.getElementById('skyPage')],['profit',document.getElementById('profitPage')],['cashTarget',document.getElementById('cashTargetPage')]];
+    var pairs=[['gspn',document.getElementById('gspnPage')],['sky',document.getElementById('skyPage')],['profit',document.getElementById('profitPage')],['cashTarget',document.getElementById('cashTargetPage')],['preBooking',document.getElementById('preBookingPage')],['dashboard',document.getElementById('dashboardPage')]];
     for(var i=0;i<pairs.length;i++){var page=pairs[i][1]; if(page && page.style.display!=='none') return pairs[i][0];}
     try{return localStorage.getItem('serviceEyeActiveTab')||'gspn'}catch(e){return 'gspn'}
   }
   async function runRefresh(){
     var tab=activeTab();
     try{
-      if(tab==='gspn' && typeof window.autoLoadGSPNFromGitHub==='function') return await window.autoLoadGSPNFromGitHub();
-      if(tab==='sky' && typeof window.autoLoadSKYFromGitHub==='function') return await window.autoLoadSKYFromGitHub();
-      if(tab==='profit' && typeof window.autoLoadProfitFromGitHub==='function') return await window.autoLoadProfitFromGitHub();
-      alert('Refresh Data is available for GSPN Tracking Cases, SKY Tracking Cases, and Profitability & commission.');
+      if(tab==='gspn' && typeof window.autoLoadGSPNFromGitHub==='function') return await window.autoLoadGSPNFromGitHub(true);
+      if(tab==='sky' && typeof window.autoLoadSKYFromGitHub==='function') return await window.autoLoadSKYFromGitHub(true);
+      if(tab==='profit' && typeof window.autoLoadProfitFromGitHub==='function') return await window.autoLoadProfitFromGitHub(true);
+      if(tab==='preBooking' && typeof window.loadPreBooking==='function') return await window.loadPreBooking(true);
+      if(tab==='dashboard' && typeof window.loadDashboardSources==='function') return await window.loadDashboardSources(true);
+      alert('Refresh Data is available for GSPN, SKY, Profitability, Pre_Booking, and Dashboard.');
     }catch(err){
 
       alert('Refresh Data failed. Please check the console or try again.');
@@ -18019,6 +18068,7 @@ window.addEventListener('beforeunload', function() {
     {key:'gspn',       title:'GSPN Tracking Cases',       pageId:'gspnPage'},
     {key:'sky',        title:'SKY Tracking Cases',        pageId:'skyPage'},
     {key:'preBooking', title:'Pre_Booking',              pageId:'preBookingPage'},
+    {key:'returnCases', title:'Return Cases',           pageId:'returnCasesPage'},
     {key:'profit',     title:'Profitability & commission', pageId:'profitPage'},
     {key:'cashTarget', title:'Cash & Target',             pageId:'cashTargetPage'}
   ];
@@ -18151,6 +18201,7 @@ window.addEventListener('beforeunload', function() {
     const oc=el.getAttribute('onclick')||''; const txt=lower(el.textContent);
     if(oc.includes("'dashboard'")||oc.includes('"dashboard"')||txt.includes('dashboard')) return 'dashboard';
     if(oc.includes("'preBooking'")||oc.includes('"preBooking"')||txt.includes('pre_booking')||txt.includes('pre booking')) return 'preBooking';
+    if(oc.includes("'returnCases'")||oc.includes('"returnCases"')||txt.includes('return cases')) return 'returnCases';
     if(oc.includes("'gspn'")||oc.includes('"gspn"')||txt.includes('gspn')) return 'gspn';
     if(oc.includes("'sky'")||oc.includes('"sky"')||txt.includes('sky')) return 'sky';
     if(oc.includes("'profit'")||oc.includes('"profit"')||txt.includes('profitability')) return 'profit';
@@ -18506,7 +18557,7 @@ window.addEventListener('beforeunload', function() {
 <!-- tab-restore-final-fix removed: root cause fixed in cashTargetRouterLockV6 -->
 
 <style id="prebooking-dashboard-style">
-  #preBookingPage, #dashboardPage { display:none; }
+  #preBookingPage, #returnCasesPage, #dashboardPage { display:none; }
   .pb-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:14px 0; }
   .pb-card { background:#fff; border:1px solid #dbe3ef; border-radius:16px; padding:14px; box-shadow:0 10px 24px rgba(15,23,42,.06); cursor:pointer; transition:transform .15s ease, box-shadow .15s ease; }
   .pb-card:hover { transform:translateY(-2px); box-shadow:0 14px 30px rgba(15,23,42,.10); }
@@ -18675,6 +18726,7 @@ window.addEventListener('beforeunload', function() {
     if(t.indexOf('gspn')>=0)return 'gspn';
     if(t.indexOf('sky')>=0)return 'sky';
     if(t.indexOf('pre_booking')>=0||t.indexOf('pre booking')>=0)return 'preBooking';
+    if(t.indexOf('return cases')>=0)return 'returnCases';
     if(t.indexOf('profit')>=0||t.indexOf('commission')>=0)return 'profit';
     if(t.indexOf('cash')>=0||t.indexOf('target')>=0)return 'cashTarget';
     if(t.indexOf('user management')>=0)return 'userManagement';
@@ -18692,11 +18744,12 @@ window.addEventListener('beforeunload', function() {
   function orderSideTabs(){
     var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return;
     var bottom=sidebarBottom();
-    var order=['dashboard','gspn','sky','preBooking','profit','cashTarget','userManagement'];
+    var order=['dashboard','gspn','sky','preBooking','returnCases','profit','cashTarget','userManagement'];
     var tabs=Array.from(side.querySelectorAll('.side-tab'));
     tabs.forEach(function(el){ var k=sideKey(el); if(k){ el.setAttribute('data-pb-tab',k); el.setAttribute('data-fb-tab-key',k); }
       if(k==='dashboard' && !el.querySelector('.side-icon,.side-tab-logo,.tab-logo-img')) el.insertAdjacentHTML('afterbegin','<span class="side-icon dashboard-side-icon">📊</span>');
       if(k==='preBooking' && !el.querySelector('.side-icon,.side-tab-logo,.tab-logo-img')) el.insertAdjacentHTML('afterbegin','<span class="side-icon prebooking-side-icon">📋</span>');
+      if(k==='returnCases' && !el.querySelector('.side-icon,.side-tab-logo,.tab-logo-img')) el.insertAdjacentHTML('afterbegin','<span class="side-icon returncases-side-icon">↩️</span>');
     });
     var workspace=Array.from(side.querySelectorAll('.side-section-title')).find(function(x){return /workspace/i.test(x.textContent||'');});
     var anchor=workspace ? workspace.nextSibling : (bottom || null);
@@ -18740,12 +18793,58 @@ window.addEventListener('beforeunload', function() {
   function filterBox(id,title){ return '<div class="pb-filter-box" id="'+id+'" data-title="'+esc(title)+'"></div>'; }
   function preBookingPageHtml(){ return '<div class="page-shell" id="preBookingPage"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Pre_Booking</div></div></div><div class="header-actions"></div></header><main><div class="pb-filters">'+filterBox('pbBranchFilter','Branch')+filterBox('pbRequesterFilter','Requester')+filterBox('pbStatusFilter','Status')+filterBox('pbCancelFilter','Cancellation Reason')+filterBox('pbMonthFilter','Months only')+'<div><div class="filter-label">Search</div><input id="pbSearch" placeholder="Search all columns"></div></div><div class="pb-grid"><div class="pb-card" data-pb-status="Done"><div class="label">Done</div><div class="value" id="pbDone">0</div></div><div class="pb-card" data-pb-status="Waiting"><div class="label">Waiting</div><div class="value" id="pbWaiting">0</div></div><div class="pb-card" data-pb-status="Cancelled"><div class="label">Cancelled</div><div class="value" id="pbCancelled">0</div></div></div><section class="pb-section"><h2>Pre_Booking Data <span><button class="pb-btn" onclick="window.pbDownloadFiltered()">Download Data</button> <button class="pb-btn light" onclick="window.pbClearFilters()">Clear Filters</button></span></h2><div class="pb-table-wrap"><table class="pb-table" id="pbTable"></table></div></section></main></div>'; }
   function dashboardPageHtml(){ return '<div class="page-shell" id="dashboardPage"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Dashboard</h1><div class="sub">Interactive summary tables from SKY, GSPN, and Pre_Booking</div></div></div><div class="header-actions"></div></header><main><div class="pb-filters">'+filterBox('dashBranchFilter','Branch')+'</div><div class="pb-dashboard-row"><section class="pb-section"><h2>Open Cases with Aging</h2><div class="pb-table-wrap"><table class="pb-table" id="dashSkyOpenAging"></table></div></section><section class="pb-section"><h2>Ready Cases with Aging</h2><div class="pb-table-wrap"><table class="pb-table" id="dashSkyReadyAging"></table></div></section></div><div class="pb-dashboard-row"><section class="pb-section"><h2>GSPN Cases with Aging</h2><div class="pb-table-wrap"><table class="pb-table" id="dashGspnAging"></table></div></section><section class="pb-section"><h2>GSPN Cases with Stage</h2><div class="pb-table-wrap"><table class="pb-table" id="dashGspnStage"></table></div></section></div><section class="pb-section"><h2>Pre Booking Cases</h2><div class="pb-table-wrap"><table class="pb-table" id="dashPreBooking"></table></div></section></main></div>'; }
-  async function fetchWorkbook(){
+  async function waitForXLSX(){
+    if(window.XLSX) return true;
+    var start=Date.now();
+    while(!window.XLSX && Date.now()-start<8000){
+      await new Promise(function(resolve){ setTimeout(resolve,120); });
+    }
     if(!window.XLSX) throw new Error('XLSX library is not loaded');
-    var files=['Pre_Booking.xlsx']; var last;
-    for(var i=0;i<files.length;i++){ try{ var res=await fetch(files[i]+'?v='+Date.now(),{cache:'no-store'}); if(!res.ok) throw new Error(files[i]+' HTTP '+res.status); var buf=await res.arrayBuffer(); var wb=/\.csv$/i.test(files[i])?XLSX.read(new TextDecoder().decode(buf),{type:'string',raw:true,cellDates:true}):XLSX.read(new Uint8Array(buf),{type:'array',raw:true,cellDates:true}); var sn=wb.SheetNames.includes('Pre_Booking')?'Pre_Booking':wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:false}); }catch(e){ last=e; } } throw last||new Error('Pre_Booking file not found');
+    return true;
   }
-  async function loadPreBooking(manual){ ensureTabs(); try{localStorage.removeItem('serviceV2Last_preBooking');}catch(_e){} var raw=null, source='Embedded fallback'; try{ raw=await fetchWorkbook(); source='GitHub: Pre_Booking.xlsx'; }catch(e){ raw=EMBEDDED_PRE_BOOKING; if(manual) console.warn(e); } pbRows=(raw||[]).map(normalizePB).filter(function(r){return txt(r.Branch)||txt(r.Status)||txt(r['SO NO']);}); window.preBookingRows=pbRows; initPBFilters(); renderPB(); if($('pbUpdated'))$('pbUpdated').textContent=new Date().toLocaleString()+' - '+source; try{var n=document.getElementById('serviceV2Notice_preBooking'); if(n){ n.innerHTML='<span class="source">Pre_Booking — Data updated</span><span>Source: <b>Auto sync</b></span><span>Rows: <b>'+pbRows.length.toLocaleString()+'</b></span><span>Last Update: <b>'+new Date().toLocaleString()+'</b></span><span>Fresh data loaded by Auto sync</span>'; }}catch(_e){} renderDashboardTables(); }
+  async function fetchWorkbook(manual){
+    await waitForXLSX();
+    var files=['Pre_Booking.xlsx']; var last;
+    for(var i=0;i<files.length;i++){
+      try{
+        var url=await serviceDataUrl(files[i], !!manual);
+        var res=await fetch(url,{cache: manual ? 'no-store' : 'no-cache'});
+        if(!res.ok) throw new Error(files[i]+' HTTP '+res.status);
+        var buf=await res.arrayBuffer();
+        var wb=/\.csv$/i.test(files[i])
+          ? XLSX.read(new TextDecoder().decode(buf),{type:'string',raw:true,cellDates:true})
+          : XLSX.read(new Uint8Array(buf),{type:'array',raw:true,cellDates:true});
+        var sn=wb.SheetNames.includes('Pre_Booking')?'Pre_Booking':wb.SheetNames[0];
+        return XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:false});
+      }catch(e){ last=e; }
+    }
+    throw last||new Error('Pre_Booking file not found');
+  }
+  async function loadPreBooking(manual){
+    ensureTabs();
+    if(window.__preBookingLoadInFlight) return window.__preBookingLoadInFlight;
+    window.__preBookingLoadInFlight = (async function(){
+      try{localStorage.removeItem('serviceV2Last_preBooking');}catch(_e){}
+      var raw=null, source='GitHub: Pre_Booking.xlsx';
+      try{
+        if(manual) serviceClearDataVersion('Pre_Booking.xlsx');
+        raw=await fetchWorkbook(!!manual);
+      }catch(e){
+        console.error(e);
+        raw=[];
+        source='GitHub load failed';
+      }
+      pbRows=(raw||[]).map(normalizePB).filter(function(r){return txt(r.Branch)||txt(r.Status)||txt(r['SO NO']);});
+      window.preBookingRows=pbRows;
+      initPBFilters();
+      renderPB();
+      if($('pbUpdated'))$('pbUpdated').textContent=new Date().toLocaleString()+' - '+source;
+      try{var n=document.getElementById('serviceV2Notice_preBooking'); if(n){ n.innerHTML='<span class="source">Pre_Booking — Data updated</span><span>Source: <b>Auto sync</b></span><span>Rows: <b>'+pbRows.length.toLocaleString()+'</b></span><span>Last Update: <b>'+new Date().toLocaleString()+'</b></span><span>Fresh data loaded by Auto sync</span>'; }}catch(_e){}
+      renderDashboardTables();
+      return pbRows;
+    })();
+    try{return await window.__preBookingLoadInFlight;} finally{ window.__preBookingLoadInFlight=null; }
+  }
   function initPBFilters(){ fillMulti('pbBranchFilter',uniq(pbRows.map(function(r){return r.Branch;}))); fillMulti('pbRequesterFilter',uniq(pbRows.map(function(r){return r.Requester;}))); fillMulti('pbStatusFilter',uniq(pbRows.map(function(r){return r.Status;}))); fillMulti('pbCancelFilter',uniq(pbRows.map(function(r){return r['Cancellation Reason'];}))); fillMulti('pbMonthFilter',uniq(pbRows.map(function(r){return r.Month;}))); ensureFilterClearButton('#preBookingPage .pb-filters','pbClearFilterDataBtn','Clear Filter Data',function(){ window.pbClearFilters&&window.pbClearFilters(true); }); ['pbBranchFilter','pbRequesterFilter','pbStatusFilter','pbCancelFilter','pbMonthFilter'].forEach(function(id){ var el=$(id); if(el&&!el.__pbListen){ el.__pbListen=true; el.addEventListener('pbchange',renderPB); } }); var s=$('pbSearch'); if(s&&!s.__pb){ s.__pb=true; s.addEventListener('input',renderPB); } document.querySelectorAll('#preBookingPage .pb-card[data-pb-status]').forEach(function(card){ if(!card.__pb){ card.__pb=true; card.onclick=function(){ var st=card.getAttribute('data-pb-status'); pbStatusCard=(pbStatusCard===st?'':st); renderPB(); }; } }); }
   function statusMatches(rowStatus, cardStatus){ var s=txt(rowStatus).toLowerCase(); var c=txt(cardStatus).toLowerCase(); if(!c)return true; if(c==='waiting') return s.indexOf('wait')>=0||s==='pending'||s==='open'; return s===c.toLowerCase()||s.indexOf(c.toLowerCase())>=0; }
   function renderPB(){ var b=selected('pbBranchFilter'), req=selected('pbRequesterFilter'), st=selected('pbStatusFilter'), ca=selected('pbCancelFilter'), mo=selected('pbMonthFilter'), q=txt(($('pbSearch')||{}).value).toLowerCase(); var base=pbRows.filter(function(r){return (!b.length||b.indexOf(r.Branch)>=0)&&(!req.length||req.indexOf(r.Requester)>=0)&&(!st.length||st.indexOf(r.Status)>=0)&&(!ca.length||ca.indexOf(r['Cancellation Reason'])>=0)&&(!mo.length||mo.indexOf(r.Month)>=0)&&(!q||PB_COLS.some(function(c){return txt(r[c]).toLowerCase().indexOf(q)>=0;}));}); var counts={Done:0,Waiting:0,Cancelled:0}; base.forEach(function(r){ Object.keys(counts).forEach(function(k){ if(statusMatches(r.Status,k))counts[k]++; }); }); ['Done','Waiting','Cancelled'].forEach(function(k){ var el=$('pb'+k); if(el)el.textContent=counts[k].toLocaleString(); var card=document.querySelector('#preBookingPage .pb-card[data-pb-status="'+k+'"]'); if(card)card.classList.toggle('active',pbStatusCard===k); }); pbFiltered=pbStatusCard?base.filter(function(r){return statusMatches(r.Status,pbStatusCard);}):base; renderTable('pbTable',pbFiltered,PB_COLS,'preBooking'); }
@@ -18764,6 +18863,18 @@ window.addEventListener('beforeunload', function() {
     });
   }
   function downloadRows(rows, cols, name){ if(!window.XLSX){ alert('XLSX library is not loaded'); return; } var ws=XLSX.utils.json_to_sheet(rows.map(function(r){ var o={}; cols.forEach(function(c){o[c]=r[c];}); return o;})); var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,name); }
+
+  async function loadDashboardSources(forceRefresh){
+    ensureTabs();
+    var jobs=[];
+    if(typeof window.autoLoadSKYFromGitHub==='function') jobs.push(window.autoLoadSKYFromGitHub(!!forceRefresh));
+    if(typeof window.autoLoadGSPNFromGitHub==='function') jobs.push(window.autoLoadGSPNFromGitHub(!!forceRefresh));
+    if(typeof window.loadPreBooking==='function') jobs.push(window.loadPreBooking(!!forceRefresh));
+    await Promise.allSettled(jobs);
+    if(typeof renderDashboardTables==='function') renderDashboardTables();
+  }
+  window.loadDashboardSources = loadDashboardSources;
+
   window.pbDownloadFiltered=function(){ downloadRows(pbFiltered,PB_COLS,'Pre_Booking_Filtered.xlsx'); };
   window.pbClearFilters=function(){ ['pbBranchFilter','pbRequesterFilter','pbStatusFilter','pbCancelFilter','pbMonthFilter'].forEach(function(id){ var e=$(id); if(e){ e.__pbSelected=[]; e.__pbTemp=new Set(); updateMultiCaption(e); drawFilterList(e,''); }}); if($('pbSearch'))$('pbSearch').value=''; pbStatusCard=''; renderPB(); };
   function getSkyRows(){ return Array.isArray(window.skyRows)?window.skyRows:(Array.isArray(window.currentSkyRows)?window.currentSkyRows:[]); }
@@ -18801,10 +18912,13 @@ window.addEventListener('beforeunload', function() {
   window.switchTab=function(tab){
     ensureTabs();
     if(tab==='preBooking'||tab==='dashboard'){
-      ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','dashboardPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id===(tab+'Page')?'block':'none');});
+      ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','returnCasesPage','dashboardPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id===(tab+'Page')?'block':'none');});
       document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active', sideKey(el)===tab);});
       localStorage.setItem('serviceEyeActiveTab',tab);
-      if(tab==='preBooking'){ if(!pbRows.length) loadPreBooking(false); else renderPB(); }
+      if(tab==='preBooking'){
+        if(!Array.isArray(pbRows) || !pbRows.length || !Array.isArray(window.preBookingRows) || !window.preBookingRows.length) loadPreBooking(false);
+        else renderPB();
+      }
       if(tab==='dashboard'){
         renderDashboardTables();
         if(!pbRows.length && typeof loadPreBooking==='function') loadPreBooking(false);
@@ -18820,9 +18934,61 @@ window.addEventListener('beforeunload', function() {
     }
   };
   window.loadPreBooking=loadPreBooking; window.renderDashboardTables=renderDashboardTables;
-  document.addEventListener('DOMContentLoaded',function(){ setTimeout(function(){ ensureTabs(); var a=localStorage.getItem('serviceEyeActiveTab')||''; if(a==='preBooking'||a==='dashboard') loadPreBooking(false); setInterval(function(){ var t=localStorage.getItem('serviceEyeActiveTab')||''; if(t==='preBooking'||t==='dashboard') loadPreBooking(false); },3*60*60*1000); }, 2000); });
+  document.addEventListener('DOMContentLoaded',function(){ setTimeout(function(){ ensureTabs(); var a=localStorage.getItem('serviceEyeActiveTab')||''; var pb=document.getElementById('preBookingPage'); if(a==='preBooking' || (pb && pb.style.display!=='none')) loadPreBooking(false); if(a==='dashboard' && typeof window.loadDashboardSources==='function') window.loadDashboardSources(false); setInterval(function(){ var t=localStorage.getItem('serviceEyeActiveTab')||''; if(t==='preBooking') loadPreBooking(false); if(t==='dashboard' && typeof window.loadDashboardSources==='function') window.loadDashboardSources(false); },3*60*60*1000); }, 700); });
 })();
 </script>
+
+<script id="returnCasesTabPatch">
+(function(){
+  'use strict';
+  var FILE_CANDIDATES=['Return Cases.xlsx','Return_Cases.xlsx','Return Cases(1).xlsx'];
+  var SHEET='Return Cases';
+  var rcRows=[], rcFiltered=[], rcCols=[], rcSort={col:null,dir:1};
+  var monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function $(id){return document.getElementById(id);} function txt(v){return String(v==null?'':v).trim();}
+  function esc(v){return txt(v).replace(/[&<>"']/g,function(s){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s];});}
+  function val(r,names){for(var i=0;i<names.length;i++){if(r && r[names[i]]!==undefined && r[names[i]]!==null && txt(r[names[i]])!=='')return r[names[i]];} return '';}
+  function toDate(v){ if(!v)return null; if(v instanceof Date&&!isNaN(v))return v; if(typeof v==='number'){var d=new Date(Math.round((v-25569)*86400*1000)); return isNaN(d)?null:d;} var s=txt(v); var d=new Date(s); return isNaN(d)?null:d; }
+  function fmtDate(v){var d=toDate(v); if(!d)return txt(v); return String(d.getDate()).padStart(2,'0')+'-'+monthNames[d.getMonth()]+'-'+d.getFullYear();}
+  function isFirst(r){return /first\s*received/i.test(txt(val(r,['Days since Last Received','Days Since Last Received','Return Status','Return_Status'])));}
+  function countBy(rows,field){var m={}; rows.forEach(function(r){var k=txt(val(r,Array.isArray(field)?field:[field]))||'(blank)'; m[k]=(m[k]||0)+1;}); return m;}
+  function topEntry(map){var arr=Object.entries(map).sort(function(a,b){return b[1]-a[1]||a[0].localeCompare(b[0]);}); return arr[0]||['-',0];}
+  function ensureSide(){var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return; var exists=Array.from(side.querySelectorAll('.side-tab')).some(function(e){return keyOf(e)==='returnCases';}); if(!exists){var ref=Array.from(side.querySelectorAll('.side-tab')).find(function(e){return keyOf(e)==='preBooking';}); var html='<div class="side-tab" data-pb-tab="returnCases" data-fb-tab-key="returnCases" onclick="switchTab(\'returnCases\')"><span class="side-icon returncases-side-icon">↩️</span><span class="side-label">Return Cases</span></div>'; if(ref&&ref.parentNode)ref.insertAdjacentHTML('afterend',html); else side.insertAdjacentHTML('beforeend',html);} orderSide();}
+  function keyOf(el){var k=el&&(el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||''); if(k)return k; var t=txt(el?el.textContent:'').toLowerCase(); if(t.includes('pre_booking')||t.includes('pre booking'))return 'preBooking'; if(t.includes('return cases'))return 'returnCases'; if(t.includes('dashboard'))return 'dashboard'; if(t.includes('gspn'))return 'gspn'; if(t.includes('sky'))return 'sky'; if(t.includes('profit'))return 'profit'; if(t.includes('cash'))return 'cashTarget'; if(t.includes('user management'))return 'userManagement'; return '';}
+  function orderSide(){var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return; ['dashboard','gspn','sky','preBooking','returnCases','profit','cashTarget','userManagement'].forEach(function(k){var el=Array.from(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)===k;}); if(el){el.setAttribute('data-pb-tab',k);el.setAttribute('data-fb-tab-key',k);side.appendChild(el);}});}
+  function pageHtml(){return '<div class="page-shell" id="returnCasesPage" style="display:none"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Return Cases</div></div></div><div class="header-actions"></div></header><div id="serviceV2Notice_returnCases" class="service-v2-update-notice"><span class="source">Return Cases</span><span>Source: <b>Auto sync</b></span><span>Rows: <b>0</b></span><span>Waiting for data</span></div><main><div class="rc-filters">'+filterBox('rcBrandFilter','Brand')+filterBox('rcBranchFilter','Branch')+filterBox('rcAssignedFilter','Assigned_To')+filterBox('rcModelFilter','Model')+'<div><div class="rc-filter-label">Open_Date From</div><input type="date" id="rcDateFrom"></div><div><div class="rc-filter-label">Open_Date To</div><input type="date" id="rcDateTo"></div><div><div class="rc-filter-label">Search</div><input id="rcSearch" placeholder="Search all columns"></div><div class="rc-filter-actions"><button class="rc-btn light" id="rcClearBtn">Clear Filters</button><button class="rc-btn" id="rcRefreshBtn">Refresh GitHub Data</button></div></div><div class="rc-cards"><div class="rc-card"><div class="label">Top Return Branch</div><div class="value" id="rcTopBranch">-</div><div class="percent" id="rcTopBranchCount">0 cases</div></div><div class="rc-card"><div class="label">Top Return Technician</div><div class="value" id="rcTopTech">-</div><div class="percent" id="rcTopTechCount">0 cases</div></div></div><section class="rc-section"><h2>Return Cases Data <span><button class="rc-btn" onclick="window.rcDownloadFiltered()">Download Excel</button></span></h2><div class="rc-table-wrap"><table class="rc-table" id="rcTable"></table></div></section><section class="rc-section"><h2>Return Cases by Branch and Technician</h2><div class="rc-table-wrap"><table class="rc-table" id="rcTechTable"></table></div></section><section class="rc-section"><h2>Return Cases by Model</h2><div class="rc-table-wrap small"><table class="rc-table" id="rcModelTable"></table></div></section></main></div>';}
+  function filterBox(id,label){return '<div class="rc-filter-box" id="'+id+'"><div class="rc-filter-label">'+label+'</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>';}
+  function ensurePage(){ if(!$('returnCasesPage')){var shell=document.querySelector('.page-shell')||document.body; document.body.insertAdjacentHTML('beforeend',pageHtml());} bindEvents(); }
+  function selected(id){var b=$(id); return b&&Array.isArray(b.__sel)?b.__sel:[];}
+  function setOptions(id,vals){var b=$(id); if(!b)return; b.__values=Array.from(new Set(vals.map(txt).filter(Boolean))).sort(); b.__sel=(b.__sel||[]).filter(function(v){return b.__values.indexOf(v)>=0;}); caption(b); drawList(b,'');}
+  function caption(b){var a=b.__sel||[], btn=b.querySelector('.rc-filter-btn'); if(btn)btn.textContent=!a.length?'All':(a.length===1?a[0]:a.length+' selected');}
+  function drawList(b,term){var list=b.querySelector('.rc-filter-list'); if(!list)return; var t=txt(term).toLowerCase(), vals=(b.__values||[]).filter(function(v){return !t||v.toLowerCase().includes(t);}); var temp=b.__temp||new Set(b.__sel||[]); list.innerHTML='<label class="rc-filter-option"><input type="checkbox" data-all="1" '+(!temp.size?'checked':'')+'>Select All</label>'+vals.map(function(v){return '<label class="rc-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.has(v)?'checked':'')+'>'+esc(v)+'</label>';}).join('');}
+  function bindEvents(){ if(window.__rcEventsBound)return; window.__rcEventsBound=true; document.addEventListener('click',function(e){var box=e.target.closest&&e.target.closest('.rc-filter-box'); document.querySelectorAll('.rc-filter-box.open').forEach(function(b){if(b!==box)b.classList.remove('open');}); if(e.target.closest&&e.target.closest('.rc-filter-btn')){var b=e.target.closest('.rc-filter-box'); b.__temp=new Set(b.__sel||[]); drawList(b,''); b.classList.toggle('open'); setTimeout(function(){var s=b.querySelector('.rc-filter-search'); if(s)s.focus();},0);} if(e.target.closest&&e.target.closest('.rc-filter-option input')){var b=e.target.closest('.rc-filter-box'), cb=e.target, tmp=b.__temp||new Set(); if(cb.dataset.all){tmp=cb.checked?new Set():new Set();} else {if(cb.checked)tmp.add(cb.value); else tmp.delete(cb.value);} b.__temp=tmp; drawList(b,b.querySelector('.rc-filter-search').value);} if(e.target.closest&&e.target.closest('.rc-filter-actions-menu .ok')){var b=e.target.closest('.rc-filter-box'); b.__sel=Array.from(b.__temp||[]); caption(b); b.classList.remove('open'); render();} if(e.target.closest&&e.target.closest('.rc-filter-actions-menu .cancel')){e.target.closest('.rc-filter-box').classList.remove('open');}},true); document.addEventListener('input',function(e){if(e.target.matches('.rc-filter-search'))drawList(e.target.closest('.rc-filter-box'),e.target.value); if(e.target.matches('#rcSearch,#rcDateFrom,#rcDateTo'))render();}); document.addEventListener('click',function(e){if(e.target.id==='rcClearBtn')clearFilters(); if(e.target.id==='rcRefreshBtn')loadReturnCases(true);});}
+  function clearFilters(){['rcBrandFilter','rcBranchFilter','rcAssignedFilter','rcModelFilter'].forEach(function(id){var b=$(id); if(b){b.__sel=[];caption(b);drawList(b,'');}}); ['rcDateFrom','rcDateTo','rcSearch'].forEach(function(id){var e=$(id); if(e)e.value='';}); render();}
+  async function loadRows(force){ if(typeof XLSX==='undefined')throw new Error('XLSX library is not ready.'); var lastErr=null; for(var i=0;i<FILE_CANDIDATES.length;i++){try{var rows=typeof loadExcelRowsFromUrl==='function'?await loadExcelRowsFromUrl(FILE_CANDIDATES[i],SHEET,force):await fallbackLoad(FILE_CANDIDATES[i],force); return {rows:rows,file:FILE_CANDIDATES[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Return Cases file not found.');}
+  async function fallbackLoad(file,force){var url=(typeof serviceDataUrl==='function')?await serviceDataUrl(file,force):file+(force?'?v='+Date.now():''); var res=await fetch(url,{cache:force?'no-store':'default'}); if(!res.ok)throw new Error(file+' HTTP '+res.status); var ab=await res.arrayBuffer(); var wb=XLSX.read(new Uint8Array(ab),{type:'array',cellDates:true}); var sn=wb.SheetNames.includes(SHEET)?SHEET:wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true});}
+  async function loadReturnCases(force){ensurePage(); notice('loading','GitHub: Return Cases.xlsx',rcRows.length,'Loading data...'); try{var r=await loadRows(!!force); rcRows=r.rows.filter(function(x){return Object.values(x).some(function(v){return txt(v)!=='';});}); window.returnCasesRows=rcRows; rcCols=Object.keys(rcRows[0]||{}); setupFilters(); render(); notice('ok','GitHub: '+r.file,rcRows.length,'Fresh data loaded by Auto sync');}catch(e){notice('error','GitHub: Return Cases.xlsx',rcRows.length,e&&e.message?e.message:'Load failed');}}
+  function notice(state,source,rows,msg){var n=$('serviceV2Notice_returnCases'); if(!n)return; n.className='service-v2-update-notice '+state; n.innerHTML='<span class="source">Return Cases — Data updated</span><span>Source: <b>'+esc(source)+'</b></span><span>Rows: <b>'+Number(rows||0).toLocaleString()+'</b></span><span>Last Update: <b>'+new Date().toLocaleString()+'</b></span><span>'+esc(msg)+'</span>';}
+  function setupFilters(){setOptions('rcBrandFilter',rcRows.map(function(r){return val(r,['Brand']);})); setOptions('rcBranchFilter',rcRows.map(function(r){return val(r,['Branch']);})); setOptions('rcAssignedFilter',rcRows.map(function(r){return val(r,['Assigned_To','Assigned To']);})); setOptions('rcModelFilter',rcRows.map(function(r){return val(r,['Model']);}));}
+  function filtered(){var fBrand=selected('rcBrandFilter'),fBranch=selected('rcBranchFilter'),fAss=selected('rcAssignedFilter'),fModel=selected('rcModelFilter'), q=txt($('rcSearch')&&$('rcSearch').value).toLowerCase(), d1=$('rcDateFrom')&&$('rcDateFrom').value?new Date($('rcDateFrom').value):null, d2=$('rcDateTo')&&$('rcDateTo').value?new Date($('rcDateTo').value):null; if(d2)d2.setHours(23,59,59,999); return rcRows.filter(function(r){var od=toDate(val(r,['Open_Date','Open Date'])); return (!fBrand.length||fBrand.includes(txt(val(r,['Brand']))))&&(!fBranch.length||fBranch.includes(txt(val(r,['Branch']))))&&(!fAss.length||fAss.includes(txt(val(r,['Assigned_To','Assigned To']))))&&(!fModel.length||fModel.includes(txt(val(r,['Model']))))&&(!d1||od>=d1)&&(!d2||od<=d2)&&(!q||Object.values(r).some(function(v){return txt(v).toLowerCase().includes(q);}));});}
+  function render(){rcFiltered=filtered(); renderCards(); renderMainTable(); renderTechTable(); renderModelTable();}
+  function renderCards(){var rows=rcFiltered.filter(function(r){return !isFirst(r);}); var b=topEntry(countBy(rows,'Branch')), t=topEntry(countBy(rows,['Assigned_To','Assigned To'])); $('rcTopBranch').textContent=b[0]; $('rcTopBranchCount').textContent=Number(b[1]||0).toLocaleString()+' cases'; $('rcTopTech').textContent=t[0]; $('rcTopTechCount').textContent=Number(t[1]||0).toLocaleString()+' cases';}
+  function cell(r,c){var v=r[c]; return (c==='Open_Date'||c==='CloseDate')?fmtDate(v):txt(v);}
+  function renderMainTable(){var tbl=$('rcTable'); if(!tbl)return; if(!rcCols.length){tbl.innerHTML='<tbody><tr><td>No data</td></tr></tbody>';return;} var rows=rcFiltered.slice(); if(rcSort.col){rows.sort(function(a,b){var av=cell(a,rcSort.col), bv=cell(b,rcSort.col); return av.localeCompare(bv,undefined,{numeric:true})*rcSort.dir;});} tbl.innerHTML='<thead><tr>'+rcCols.map(function(c){return '<th draggable="true" data-col="'+esc(c)+'">'+esc(c)+(rcSort.col===c?(rcSort.dir>0?' ▲':' ▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+rcCols.map(function(c){return '<td>'+esc(cell(r,c))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>'; bindTableHeader(tbl);}
+  function bindTableHeader(tbl){tbl.querySelectorAll('th').forEach(function(th,idx){th.onclick=function(){var c=th.dataset.col; rcSort.dir=rcSort.col===c?-rcSort.dir:1; rcSort.col=c; renderMainTable();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault(); var from=+e.dataTransfer.getData('text/plain'), to=idx; if(isNaN(from)||from===to)return; var c=rcCols.splice(from,1)[0]; rcCols.splice(to,0,c); renderMainTable();};});}
+  function renderTechTable(){var tbl=$('rcTechTable'), rows=rcFiltered.filter(function(r){return !isFirst(r);}); if(!tbl)return; var branchCounts=countBy(rows,'Branch'), tech={}; rows.forEach(function(r){var name=txt(val(r,['Assigned_To','Assigned To']))||'(blank)', br=txt(val(r,['Branch']))||'(blank)', k=name+'||'+br; if(!tech[k])tech[k]={tech:name,count:0,branch:br}; tech[k].count++;}); var arr=Object.values(tech).map(function(x){x.branchCount=branchCounts[x.branch]||0; return x;}).sort(function(a,b){return b.count-a.count||a.tech.localeCompare(b.tech)||a.branch.localeCompare(b.branch);}); tbl.innerHTML='<thead><tr><th>(Assigned_To)</th><th>Count Cases</th><th>Branch</th><th>Count Cases for Branch</th></tr></thead><tbody>'+arr.map(function(x){return '<tr><td>'+esc(x.tech)+'</td><td>'+x.count.toLocaleString()+'</td><td>'+esc(x.branch)+'</td><td>'+x.branchCount.toLocaleString()+'</td></tr>';}).join('')+'</tbody>'; simpleSort(tbl);}
+  function renderModelTable(){var tbl=$('rcModelTable'), rows=rcFiltered.filter(function(r){return !isFirst(r);}); if(!tbl)return; var m=countBy(rows,'Model'); var arr=Object.entries(m).sort(function(a,b){return b[1]-a[1]||a[0].localeCompare(b[0]);}); tbl.innerHTML='<thead><tr><th>Model</th><th>Count cases</th></tr></thead><tbody>'+arr.map(function(x){return '<tr><td>'+esc(x[0])+'</td><td>'+Number(x[1]).toLocaleString()+'</td></tr>';}).join('')+'</tbody>'; simpleSort(tbl);}
+  function simpleSort(tbl){tbl.querySelectorAll('th').forEach(function(th,i){th.onclick=function(){var dir=th.dataset.dir==='1'?-1:1; th.dataset.dir=String(dir); var tb=tbl.tBodies[0], trs=Array.from(tb.rows); trs.sort(function(a,b){return txt(a.cells[i].innerText).localeCompare(txt(b.cells[i].innerText),undefined,{numeric:true})*dir;}); tb.innerHTML=''; trs.forEach(function(r){tb.appendChild(r);});};});}
+  window.rcDownloadFiltered=function(){var rows=rcFiltered.map(function(r){var o={}; rcCols.forEach(function(c){o[c]=(c==='Open_Date'||c==='CloseDate')?fmtDate(r[c]):r[c];}); return o;}); var ws=XLSX.utils.json_to_sheet(rows), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Return Cases'); XLSX.writeFile(wb,'Return_Cases_Filtered.xlsx');};
+  var oldSwitch=window.switchTab; window.switchTab=function(tab){ensureSide(); ensurePage(); if(tab==='returnCases'){['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','returnCasesPage','dashboardPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id==='returnCasesPage'?'block':'none');}); document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active',keyOf(el)==='returnCases');}); try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){} if(!rcRows.length)loadReturnCases(false); else render(); return;} return typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined;};
+  window.loadReturnCases=loadReturnCases; window.renderReturnCases=render;
+  function boot(){ensureSide(); ensurePage(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='returnCases')window.switchTab('returnCases');}
+  document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,850); setInterval(function(){try{if(localStorage.getItem('serviceEyeActiveTab')==='returnCases')loadReturnCases(false);}catch(e){}},3*60*60*1000);});
+})();
+</script>
+<style id="returnCasesTabStyle">
+#returnCasesPage{display:none}.rc-filters{background:#fff;border:1px solid var(--border);border-radius:20px;padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px;box-shadow:0 12px 30px rgba(15,23,42,.08)}.rc-filter-label{font-size:12px;color:var(--muted);font-weight:800;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em}.rc-filter-box{position:relative}.rc-filter-btn{width:100%;min-height:40px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-weight:700;text-align:left;padding:9px 11px;cursor:pointer}.rc-filter-btn:after{content:'▾';float:right;color:var(--muted)}.rc-filter-menu{display:none;position:absolute;z-index:100000;top:calc(100% + 6px);left:0;width:min(330px,92vw);background:#fff;border:1px solid #8d99a6;border-radius:10px;box-shadow:0 18px 35px rgba(0,0,0,.28);padding:10px;color:#111827}.rc-filter-box.open .rc-filter-menu{display:block}.rc-filter-search{margin-bottom:8px}.rc-filter-list{max-height:220px;overflow:auto;border:1px solid #d8dee6;padding:5px}.rc-filter-option{display:flex;gap:7px;align-items:center;padding:5px;color:#111827;cursor:pointer}.rc-filter-option input{width:14px!important}.rc-filter-actions,.rc-filter-actions-menu{display:flex;gap:8px;align-items:end}.rc-filter-actions-menu{justify-content:flex-end;margin-top:9px}.rc-btn{background:var(--primary,#0f4c81);color:#fff;border:1px solid var(--primary,#0f4c81);border-radius:12px;padding:9px 12px;font-weight:800;cursor:pointer}.rc-btn.light{background:#eef5fb;color:var(--navy);border:1px solid var(--border)}.rc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:18px}.rc-card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:16px;box-shadow:0 12px 30px rgba(15,23,42,.08);border-top:5px solid var(--primary-2,#2b78b8)}.rc-card .label{color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.rc-card .value{font-size:22px;font-weight:900;margin-top:8px}.rc-card .percent{color:var(--muted);font-size:13px;font-weight:800;margin-top:6px}.rc-section{background:var(--card);border:1px solid var(--border);border-radius:20px;overflow:hidden;box-shadow:0 12px 30px rgba(15,23,42,.08);margin-bottom:22px}.rc-section h2{margin:0;padding:12px 14px;background:linear-gradient(135deg,var(--primary,#0f4c81),var(--primary-2,#2b78b8));color:#fff;font-size:17px;display:flex;justify-content:space-between;align-items:center}.rc-table-wrap{overflow:auto;max-height:520px}.rc-table-wrap.small{max-height:420px}.rc-table{width:100%;border-collapse:collapse;font-size:13px}.rc-table th,.rc-table td{padding:8px 10px;border-bottom:1px solid #edf1f5;white-space:nowrap;text-align:left}.rc-table th{position:sticky;top:0;background:#e7eef6;color:#102a43;font-weight:900;z-index:2;cursor:pointer;user-select:none}.rc-table th[draggable=true]{cursor:grab}body.theme-volta #returnCasesPage .rc-filters,body.theme-volta #returnCasesPage .rc-card,body.theme-volta #returnCasesPage .rc-section{background:rgba(255,250,240,.88)!important;border-radius:8px!important;box-shadow:10px 10px 0 rgba(10,10,10,.08)!important}body.theme-volta #returnCasesPage .rc-section h2{background:#0a0a0a!important;border-bottom:5px solid var(--coral)}body.theme-volta #returnCasesPage .rc-btn{background:var(--coral)!important;border-color:var(--coral-deep)!important;color:#f4f0e8!important;border-radius:999px!important}body.theme-volta #returnCasesPage .rc-filter-btn,body.theme-volta #returnCasesPage input{background:#f4f0e8!important;color:#0a0a0a!important;border:1px solid var(--rule)!important}body.theme-volta #returnCasesPage .rc-filter-menu{background:#fffaf0!important}#sideMenu .side-tab[data-pb-tab="returnCases"]{display:flex;align-items:center;gap:12px;order:24!important}
+</style>
 </body>
 </html>
 
@@ -19281,7 +19447,7 @@ window.addEventListener('beforeunload', function() {
 
   function startLiveRefresh(){
     if(liveTimer) clearInterval(liveTimer);
-    liveTimer=setInterval(function(){ runGithubRefresh('gspn', false); runGithubRefresh('sky', false); runGithubRefresh('profit', false); runGithubRefresh('preBooking', false); }, 60*60*1000); (window._ivals=window._ivals||[]).push(liveTimer);
+    liveTimer=setInterval(function(){ var t=visibleTab(); if(t==='dashboard' && window.loadDashboardSources) window.loadDashboardSources(false); else runGithubRefresh(t, false); }, 3*60*60*1000); (window._ivals=window._ivals||[]).push(liveTimer);
     /* Auto refresh on focus/visibility disabled: hourly schedule only. */
   }
 
@@ -19295,7 +19461,7 @@ window.addEventListener('beforeunload', function() {
     if(!window.__githubImmediateFirstLoadDone){
       window.__githubImmediateFirstLoadDone = true;
       if(typeof window.reloadServiceEyeGithubExcelData === 'function'){
-        var run=function(){ window.reloadServiceEyeGithubExcelData(); };
+        var run=function(){ var t=localStorage.getItem('serviceEyeActiveTab')||'gspn'; if(t==='dashboard'&&window.loadDashboardSources) window.loadDashboardSources(false); else if(t==='preBooking'&&window.loadPreBooking) window.loadPreBooking(false); else if(t==='gspn'&&window.autoLoadGSPNFromGitHub) window.autoLoadGSPNFromGitHub(false); else if(t==='sky'&&window.autoLoadSKYFromGitHub) window.autoLoadSKYFromGitHub(false); else if(t==='profit'&&window.autoLoadProfitFromGitHub) window.autoLoadProfitFromGitHub(false); };
         if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:800});
         else setTimeout(run,100);
       }
