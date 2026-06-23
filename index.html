@@ -5392,18 +5392,14 @@ const d = safeParseDate(out.Open_Date);
   window.setPageColor = function(color){ applyColor(color, activeTab()); };
 
   function ensureColorSelector(){
-    if(q('v25ColorOptions')) return;
-    const side = document.querySelector('.side-menu'); if(!side) return;
-    const block = document.createElement('div');
-    block.innerHTML = `<div class="side-section-title side-label">Page Color</div>
-      <div class="color-options side-label" id="v25ColorOptions">
-        <button type="button" class="color-dot blue" data-color="blue" onclick="setPageColor('blue')" title="Blue"></button>
-        <button type="button" class="color-dot green" data-color="green" onclick="setPageColor('green')" title="Green"></button>
-        <button type="button" class="color-dot orange" data-color="orange" onclick="setPageColor('orange')" title="Orange"></button>
-        <button type="button" class="color-dot purple" data-color="purple" onclick="setPageColor('purple')" title="Purple"></button>
-        <button type="button" class="color-dot black" data-color="black" onclick="setPageColor('black')" title="Midnight Black"></button>
-      </div>`;
-    var bottom=document.getElementById('codexSidebarBottom'); if(!bottom){ bottom=document.createElement('div'); bottom.id='codexSidebarBottom'; bottom.className='codex-sidebar-bottom'; side.appendChild(bottom); } bottom.appendChild(block);
+    /* Removed duplicate legacy PAGE COLOR block.
+       The single active Page Color control is codexPageColorPanel in the sidebar bottom. */
+    var legacy=document.getElementById('v25ColorOptions');
+    if(legacy){
+      var title=legacy.previousElementSibling;
+      if(title && title.classList && title.classList.contains('side-section-title')) title.remove();
+      legacy.remove();
+    }
   }
 
   function updateExcelLabel(id){
@@ -18261,9 +18257,14 @@ window.addEventListener('beforeunload', function() {
       box.id = 'sscLiveUsersPanel';
       box.className = 'ssc-live-users-panel side-label admin-only';
       box.innerHTML = '<div class="ssc-live-users-head">🟢 Online Users (0)</div><div class="ssc-live-users-list"><div class="ssc-live-users-empty">Waiting for users...</div></div>';
-      const design = side.querySelector('.design-options');
-      if(design && design.parentNode) design.insertAdjacentElement('afterend', box);
-      else side.appendChild(box);
+      let bottom = document.getElementById('codexSidebarBottom');
+      if(!bottom){
+        bottom = document.createElement('div');
+        bottom.id = 'codexSidebarBottom';
+        bottom.className = 'codex-sidebar-bottom';
+        side.appendChild(bottom);
+      }
+      bottom.appendChild(box);
     }
     return box;
   }
@@ -18804,8 +18805,8 @@ window.addEventListener('beforeunload', function() {
 #sideMenu .side-tab { order: 20 !important; flex: 0 0 auto !important; }
 #sideMenu #codexSidebarBottom,
 #sideMenu .codex-sidebar-bottom { order: 80 !important; width:100%; }
-#sideMenu .codex-refresh-btn { order: 81 !important; }
-#sideMenu .codex-page-color-panel { order: 82 !important; }
+#sideMenu .codex-refresh-btn { order: 10 !important; }
+#sideMenu .codex-page-color-panel { order: 20 !important; }
 #sideMenu #v25ColorOptions,
 #sideMenu .color-options { order: 84 !important; }
 #sideMenu .side-section-title { order: 10; }
@@ -19526,6 +19527,180 @@ window.addEventListener('beforeunload', function() {
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
 })();
 </script>
+
+
+<style id="codex-page-color-full-page-final-style">
+  /* Page Color now changes the whole page, not table headers only. */
+  body[data-page-color="coral"] { --codex-accent:#ff4d2e!important; --codex-accent-2:#ff7a45!important; --codex-bg-1:#fff7ed!important; --codex-bg-2:#ffe9e2!important; --codex-surface:#fffaf0!important; --codex-text:#0a0a0a!important; --codex-muted:#374151!important; --codex-table-head:#ffe2d6!important; }
+  body[data-page-color="blue"] { --codex-accent:#2563eb!important; --codex-accent-2:#38bdf8!important; --codex-bg-1:#eff6ff!important; --codex-bg-2:#dbeafe!important; --codex-surface:#f8fbff!important; --codex-text:#0f172a!important; --codex-muted:#334155!important; --codex-table-head:#dbeafe!important; }
+  body[data-page-color="green"] { --codex-accent:#16a34a!important; --codex-accent-2:#34d399!important; --codex-bg-1:#f0fdf4!important; --codex-bg-2:#dcfce7!important; --codex-surface:#fbfffd!important; --codex-text:#052e16!important; --codex-muted:#166534!important; --codex-table-head:#dcfce7!important; }
+  body[data-page-color="purple"] { --codex-accent:#7c3aed!important; --codex-accent-2:#a78bfa!important; --codex-bg-1:#f5f3ff!important; --codex-bg-2:#ede9fe!important; --codex-surface:#fdfcff!important; --codex-text:#1e1b4b!important; --codex-muted:#4c1d95!important; --codex-table-head:#ede9fe!important; }
+  body[data-page-color="teal"] { --codex-accent:#0f766e!important; --codex-accent-2:#14b8a6!important; --codex-bg-1:#f0fdfa!important; --codex-bg-2:#ccfbf1!important; --codex-surface:#fbfffe!important; --codex-text:#042f2e!important; --codex-muted:#115e59!important; --codex-table-head:#ccfbf1!important; }
+  body[data-page-color="dark"] { --codex-accent:#60a5fa!important; --codex-accent-2:#a78bfa!important; --codex-bg-1:#020617!important; --codex-bg-2:#111827!important; --codex-surface:#0f172a!important; --codex-text:#e5e7eb!important; --codex-muted:#cbd5e1!important; --codex-table-head:#1e293b!important; --coral:#60a5fa!important; --coral-deep:#3b82f6!important; --coral-soft:#1e293b!important; --navy:#020617!important; --primary:#0f172a!important; --primary-2:#334155!important; --card:#0f172a!important; --text:#e5e7eb!important; --muted:#cbd5e1!important; --border:rgba(255,255,255,.16)!important; }
+
+  body[data-page-color] {
+    background: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--codex-accent) 22%, transparent), transparent 30%), linear-gradient(135deg, var(--codex-bg-1), var(--codex-bg-2)) !important;
+    color: var(--codex-text) !important;
+  }
+  body[data-page-color] .page-shell,
+  body[data-page-color] main,
+  body[data-page-color] #dashboardPage,
+  body[data-page-color] #gspnPage,
+  body[data-page-color] #skyPage,
+  body[data-page-color] #profitPage,
+  body[data-page-color] #cashTargetPage,
+  body[data-page-color] #preBookingPage,
+  body[data-page-color] #returnCasesPage,
+  body[data-page-color] #receivedDeliveredPage,
+  body[data-page-color] #userManagementPage {
+    background: transparent !important;
+    color: var(--codex-text) !important;
+  }
+  body[data-page-color] .side-menu {
+    background: linear-gradient(180deg, #07192f 0%, color-mix(in srgb, var(--codex-accent) 60%, #07192f) 58%, #0b1324 100%) !important;
+    border-right-color: color-mix(in srgb, var(--codex-accent) 40%, transparent) !important;
+  }
+  body[data-page-color] header,
+  body[data-page-color] .page-shell > header,
+  body[data-page-color] #gspnPage > header,
+  body[data-page-color] #skyPage > header,
+  body[data-page-color] #profitPage > header,
+  body[data-page-color] #cashTargetPage > header,
+  body[data-page-color] #preBookingPage > header,
+  body[data-page-color] #returnCasesPage > header,
+  body[data-page-color] #receivedDeliveredPage > header,
+  body[data-page-color] #dashboardPage > header {
+    background: linear-gradient(135deg, var(--codex-accent), var(--codex-accent-2)) !important;
+    color: #ffffff !important;
+    border-bottom-color: var(--codex-accent) !important;
+  }
+  body[data-page-color] .filters,
+  body[data-page-color] section,
+  body[data-page-color] .chart-card,
+  body[data-page-color] .card,
+  body[data-page-color] .table-wrap,
+  body[data-page-color] .data-table-wrap,
+  body[data-page-color] .upload-progress-wrap,
+  body[data-page-color] .service-v2-notice,
+  body[data-page-color] .profit-v5-section,
+  body[data-page-color] .profit-v7-section,
+  body[data-page-color] .cash-panel,
+  body[data-page-color] .pb-card,
+  body[data-page-color] .rd-card {
+    background: var(--codex-surface) !important;
+    color: var(--codex-text) !important;
+    border-color: color-mix(in srgb, var(--codex-accent) 35%, transparent) !important;
+    border-top-color: var(--codex-accent) !important;
+  }
+  body[data-page-color] section h2,
+  body[data-page-color] section h2.warn,
+  body[data-page-color] section h2.good,
+  body[data-page-color] section h2.bad,
+  body[data-page-color] .chart-card h2,
+  body[data-page-color] .rd-section-title,
+  body[data-page-color] .pb-section-title {
+    background: linear-gradient(135deg, var(--codex-accent), var(--codex-accent-2)) !important;
+    color: #ffffff !important;
+    border-color: var(--codex-accent) !important;
+  }
+  body[data-page-color] .filter-label,
+  body[data-page-color] label,
+  body[data-page-color] .card .label,
+  body[data-page-color] .percent,
+  body[data-page-color] .subtle,
+  body[data-page-color] .note { color: var(--codex-muted) !important; }
+  body[data-page-color] h1,
+  body[data-page-color] h2,
+  body[data-page-color] h3,
+  body[data-page-color] .card .value,
+  body[data-page-color] .value,
+  body[data-page-color] strong,
+  body[data-page-color] b { color: var(--codex-text) !important; }
+  body[data-page-color] header h1,
+  body[data-page-color] header .sub,
+  body[data-page-color] section h2 *,
+  body[data-page-color] .chart-card h2 * { color: #ffffff !important; }
+  body[data-page-color] input,
+  body[data-page-color] select,
+  body[data-page-color] textarea,
+  body[data-page-color] .excel-filter-button,
+  body[data-page-color] .cash-filter-btn,
+  body[data-page-color] .profit-filter-button,
+  body[data-page-color] .profit-v5-button,
+  body[data-page-color] .profit-v6-button,
+  body[data-page-color] .profit-v7-button {
+    background: color-mix(in srgb, var(--codex-surface) 82%, #ffffff) !important;
+    color: var(--codex-text) !important;
+    border-color: color-mix(in srgb, var(--codex-accent) 30%, #cbd5e1) !important;
+  }
+  body[data-page-color] table { background: var(--codex-surface) !important; color: var(--codex-text) !important; }
+  body[data-page-color] table th { background: var(--codex-table-head) !important; color: var(--codex-text) !important; border-bottom-color: color-mix(in srgb, var(--codex-accent) 35%, transparent) !important; }
+  body[data-page-color] table td { background: var(--codex-surface) !important; color: var(--codex-text) !important; border-bottom-color: color-mix(in srgb, var(--codex-accent) 18%, transparent) !important; }
+  body[data-page-color] table tr:nth-child(even) td { background: color-mix(in srgb, var(--codex-surface) 92%, var(--codex-accent)) !important; }
+  body[data-page-color] table tr:hover td { background: color-mix(in srgb, var(--codex-accent) 18%, var(--codex-surface)) !important; color: var(--codex-text) !important; }
+  body[data-page-color] .btn-primary,
+  body[data-page-color] .auth-btn,
+  body[data-page-color] .section-actions button:not(.btn-light),
+  body[data-page-color] .codex-refresh-btn,
+  body[data-page-color] .side-tab.active,
+  body[data-page-color] .side-tab:hover {
+    background: linear-gradient(135deg, var(--codex-accent), var(--codex-accent-2)) !important;
+    color:#ffffff !important;
+    border-color: var(--codex-accent) !important;
+  }
+  body[data-page-color="dark"] .logo-box,
+  body[data-page-color="dark"] .side-logo-mark { background:#111827!important; border-color:rgba(255,255,255,.16)!important; }
+  body[data-page-color="dark"] .excel-filter-panel,
+  body[data-page-color="dark"] .profit-filter-panel,
+  body[data-page-color="dark"] .cash-filter-panel { background:#111827!important; color:#e5e7eb!important; border-color:rgba(255,255,255,.22)!important; }
+  body[data-page-color="dark"] .excel-filter-option { color:#e5e7eb!important; }
+  body[data-page-color="dark"] .excel-filter-option:hover { background:#1e293b!important; }
+</style>
+<script id="codex-page-color-full-page-final-script">
+(function(){
+  function applyStoredColor(){
+    try{
+      var key = localStorage.getItem('serviceEyePageColor_v2') || document.body.dataset.pageColor || 'coral';
+      document.body.dataset.pageColor = key;
+      document.querySelectorAll('.codex-color-swatch').forEach(function(btn){ btn.classList.toggle('active', btn.dataset.color === key); });
+    }catch(e){}
+  }
+  function ensureDarkSwatch(){
+    var box = document.querySelector('#codexPageColorPanel .codex-page-color-swatches');
+    if(!box || box.querySelector('[data-color="dark"]')) return;
+    var btn=document.createElement('button');
+    btn.type='button'; btn.className='codex-color-swatch'; btn.dataset.color='dark'; btn.title='Dark Mode'; btn.style.background='linear-gradient(135deg,#020617,#334155)';
+    btn.onclick=function(){ if(window.setPageColor) window.setPageColor('dark'); else { localStorage.setItem('serviceEyePageColor_v2','dark'); document.body.dataset.pageColor='dark'; applyStoredColor(); } };
+    box.appendChild(btn);
+    applyStoredColor();
+  }
+  function patchSetPageColor(){
+    if(!window.setPageColor || window.setPageColor.__fullPageColorPatch) return;
+    var original = window.setPageColor;
+    window.setPageColor = function(color){
+      var key = color || 'coral';
+      try { localStorage.setItem('serviceEyePageColor_v2', key); } catch(e) {}
+      document.body.dataset.pageColor = key;
+      var r = original.apply(this, arguments);
+      applyStoredColor();
+      return r;
+    };
+    window.setPageColor.__fullPageColorPatch = true;
+  }
+  function boot(){ patchSetPageColor(); ensureDarkSwatch(); applyStoredColor(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  window.addEventListener('load', function(){ setTimeout(boot,300); setTimeout(boot,1000); });
+  try{ new MutationObserver(function(){ clearTimeout(window.__pageColorFullTimer); window.__pageColorFullTimer=setTimeout(boot,120); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
+})();
+</script>
+
+<style id="ssc-sidebar-final-order-cleanup">
+  #sideMenu #codexSidebarBottom{display:flex!important;flex-direction:column!important;gap:14px!important;}
+  #sideMenu #codexGithubRefreshBtn{order:10!important;background:linear-gradient(135deg,#ff4d2e 0%,#ff7a45 100%)!important;color:#fff!important;border:1px solid rgba(255,255,255,.42)!important;box-shadow:0 10px 22px rgba(255,77,46,.28)!important;}
+  #sideMenu #codexPageColorPanel{order:20!important;}
+  #sideMenu #sscLiveUsersPanel{order:30!important;}
+  #sideMenu #v25ColorOptions, #sideMenu #v25ColorOptions + *, #sideMenu .color-options#v25ColorOptions{display:none!important;}
+</style>
 </body>
 </html>
 
@@ -19734,16 +19909,17 @@ window.addEventListener('beforeunload', function() {
     gap: 10px !important;
   }
   .codex-refresh-btn {
-    order: 20 !important;
-    width: 100%; border: 1px solid rgba(255,255,255,.14);
-    background: rgba(255,255,255,.08); color: #f4f0e8;
+    order: 10 !important;
+    width: 100%; border: 1px solid rgba(255,255,255,.40);
+    background: linear-gradient(135deg, #ff4d2e 0%, #ff7a45 100%) !important; color: #ffffff !important;
     border-radius: 10px; padding: 11px 12px;
     font-weight: 900; font-size: 12px; cursor: pointer;
     display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 10px 22px rgba(255,77,46,.28);
   }
-  .codex-refresh-btn:hover { background: var(--codex-accent, #ff4d2e); color: #fff; }
+  .codex-refresh-btn:hover { background: linear-gradient(135deg, #ff6a3d 0%, #ff8f5f 100%) !important; color: #fff !important; }
   .codex-refresh-btn[disabled] { opacity: .6; cursor: wait; }
-  .codex-page-color-panel { order: 10 !important; padding: 0 4px 8px; }
+  .codex-page-color-panel { order: 20 !important; padding: 0 4px 8px; }
   .codex-page-color-title { color: #ffb3a3; font-size: 11px; letter-spacing: 1.6px; font-weight: 900; text-transform: uppercase; margin: 0 0 9px; }
   .codex-page-color-swatches { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .codex-color-swatch {
@@ -19836,7 +20012,8 @@ window.addEventListener('beforeunload', function() {
     blue:   { label:'Blue',   value:'#2563eb', chart:['#2563eb','#0f766e','#f97316','#7c3aed','#16a34a','#e11d48','#0891b2'] },
     green:  { label:'Green',  value:'#16a34a', chart:['#16a34a','#2563eb','#f97316','#7c3aed','#0f766e','#e11d48','#eab308'] },
     purple: { label:'Purple', value:'#7c3aed', chart:['#7c3aed','#2563eb','#16a34a','#f97316','#0f766e','#e11d48','#eab308'] },
-    teal:   { label:'Teal',   value:'#0f766e', chart:['#0f766e','#2563eb','#f97316','#7c3aed','#16a34a','#e11d48','#eab308'] }
+    teal:   { label:'Teal',   value:'#0f766e', chart:['#0f766e','#2563eb','#f97316','#7c3aed','#16a34a','#e11d48','#eab308'] },
+    dark:   { label:'Dark Mode', value:'#050816', chart:['#60a5fa','#34d399','#f97316','#a78bfa','#22d3ee','#facc15','#fb7185'] }
   };
   var GITHUB_TABS = ['gspn','sky','profit','preBooking','returnCases','receivedDelivered'];
   var liveTimer = null;
@@ -19880,8 +20057,9 @@ window.addEventListener('beforeunload', function() {
     document.documentElement.style.setProperty('--codex-accent', cfg.value);
     try {
       if(window.Chart){
-        Chart.defaults.color = '#0a0a0a';
-        Chart.defaults.borderColor = 'rgba(10,10,10,.12)';
+        var isDarkMode = key === 'dark';
+        Chart.defaults.color = isDarkMode ? '#e5e7eb' : '#0a0a0a';
+        Chart.defaults.borderColor = isDarkMode ? 'rgba(255,255,255,.18)' : 'rgba(10,10,10,.12)';
         Chart.defaults.backgroundColor = cfg.value;
       }
       window.COLORS = cfg.chart.slice();
@@ -20813,3 +20991,223 @@ body.theme-volta .filters,body.theme-volta .pb-filters,body.theme-volta #returnC
 #sideMenu .side-tab[data-pb-tab="cashTarget"]{order:26!important;}
 #sideMenu .side-tab[data-pb-tab="userManagement"]{order:27!important;}
 </style>
+
+<!-- DARK MODE FIX: placed last so it overrides the generic readability rules. -->
+<style id="codex-dark-mode-final-working-style">
+  body[data-page-color="dark"]{
+    --codex-accent:#60a5fa!important;
+    --codex-accent-2:#a78bfa!important;
+    --codex-bg-1:#020617!important;
+    --codex-bg-2:#0f172a!important;
+    --codex-surface:#111827!important;
+    --codex-surface-2:#1e293b!important;
+    --codex-text:#e5e7eb!important;
+    --codex-muted:#cbd5e1!important;
+    --codex-table-head:#1e293b!important;
+    --coral:#60a5fa!important;
+    --coral-deep:#3b82f6!important;
+    --coral-soft:#1e293b!important;
+    --navy:#020617!important;
+    --primary:#020617!important;
+    --primary-2:#334155!important;
+    --card:#111827!important;
+    --text:#e5e7eb!important;
+    --muted:#cbd5e1!important;
+    --border:rgba(255,255,255,.16)!important;
+    background:radial-gradient(circle at 12% 0%, rgba(96,165,250,.20), transparent 30%),linear-gradient(135deg,#020617,#0f172a)!important;
+    color:#e5e7eb!important;
+    color-scheme:dark!important;
+  }
+  body[data-page-color="dark"] .page-shell,
+  body[data-page-color="dark"] main,
+  body[data-page-color="dark"] #dashboardPage,
+  body[data-page-color="dark"] #gspnPage,
+  body[data-page-color="dark"] #skyPage,
+  body[data-page-color="dark"] #profitPage,
+  body[data-page-color="dark"] #cashTargetPage,
+  body[data-page-color="dark"] #preBookingPage,
+  body[data-page-color="dark"] #returnCasesPage,
+  body[data-page-color="dark"] #receivedDeliveredPage,
+  body[data-page-color="dark"] #userManagementPage{
+    background:transparent!important;
+    color:#e5e7eb!important;
+  }
+  body[data-page-color="dark"] header,
+  body[data-page-color="dark"] .page-shell>header,
+  body[data-page-color="dark"] #gspnPage>header,
+  body[data-page-color="dark"] #skyPage>header,
+  body[data-page-color="dark"] #profitPage>header,
+  body[data-page-color="dark"] #cashTargetPage>header,
+  body[data-page-color="dark"] #preBookingPage>header,
+  body[data-page-color="dark"] #returnCasesPage>header,
+  body[data-page-color="dark"] #receivedDeliveredPage>header,
+  body[data-page-color="dark"] #dashboardPage>header{
+    background:linear-gradient(135deg,#020617,#1e293b)!important;
+    color:#fff!important;
+    border-bottom-color:#60a5fa!important;
+  }
+  body[data-page-color="dark"] .side-menu{
+    background:linear-gradient(180deg,#020617 0%,#0f172a 58%,#020617 100%)!important;
+    color:#e5e7eb!important;
+    border-right-color:rgba(96,165,250,.30)!important;
+  }
+  body[data-page-color="dark"] .filters,
+  body[data-page-color="dark"] section,
+  body[data-page-color="dark"] .chart-card,
+  body[data-page-color="dark"] .card,
+  body[data-page-color="dark"] .table-wrap,
+  body[data-page-color="dark"] .data-table-wrap,
+  body[data-page-color="dark"] .upload-progress-wrap,
+  body[data-page-color="dark"] .service-v2-notice,
+  body[data-page-color="dark"] [id^="serviceV2Notice_"],
+  body[data-page-color="dark"] .profit-v5-section,
+  body[data-page-color="dark"] .profit-v7-section,
+  body[data-page-color="dark"] .cash-panel,
+  body[data-page-color="dark"] .pb-card,
+  body[data-page-color="dark"] .rd-card,
+  body[data-page-color="dark"] .admin-panel,
+  body[data-page-color="dark"] .user-card,
+  body[data-page-color="dark"] .codex-header-user,
+  body[data-page-color="dark"] #sscLiveUsersPanel{
+    background:#111827!important;
+    color:#e5e7eb!important;
+    border-color:rgba(255,255,255,.16)!important;
+    border-top-color:#60a5fa!important;
+    box-shadow:0 12px 30px rgba(0,0,0,.35)!important;
+  }
+  body[data-page-color="dark"] section h2,
+  body[data-page-color="dark"] section h2.warn,
+  body[data-page-color="dark"] section h2.good,
+  body[data-page-color="dark"] section h2.bad,
+  body[data-page-color="dark"] .chart-card h2,
+  body[data-page-color="dark"] .rd-section-title,
+  body[data-page-color="dark"] .pb-section-title{
+    background:linear-gradient(135deg,#1e293b,#334155)!important;
+    color:#fff!important;
+    border-color:#60a5fa!important;
+  }
+  body[data-page-color="dark"] h1,
+  body[data-page-color="dark"] h2,
+  body[data-page-color="dark"] h3,
+  body[data-page-color="dark"] h4,
+  body[data-page-color="dark"] .card .value,
+  body[data-page-color="dark"] .value,
+  body[data-page-color="dark"] strong,
+  body[data-page-color="dark"] b,
+  body[data-page-color="dark"] .side-label,
+  body[data-page-color="dark"] .online-user-name{
+    color:#f8fafc!important;
+  }
+  body[data-page-color="dark"] .filter-label,
+  body[data-page-color="dark"] label,
+  body[data-page-color="dark"] .card .label,
+  body[data-page-color="dark"] .card .k,
+  body[data-page-color="dark"] .percent,
+  body[data-page-color="dark"] .subtle,
+  body[data-page-color="dark"] .note,
+  body[data-page-color="dark"] .profit-note,
+  body[data-page-color="dark"] .cash-target-note,
+  body[data-page-color="dark"] .sky-chart-summary,
+  body[data-page-color="dark"] .sky-chart-chip{
+    color:#cbd5e1!important;
+  }
+  body[data-page-color="dark"] input,
+  body[data-page-color="dark"] select,
+  body[data-page-color="dark"] textarea,
+  body[data-page-color="dark"] .excel-filter-button,
+  body[data-page-color="dark"] .cash-filter-btn,
+  body[data-page-color="dark"] .profit-filter-button,
+  body[data-page-color="dark"] .profit-v5-button,
+  body[data-page-color="dark"] .profit-v6-button,
+  body[data-page-color="dark"] .profit-v7-button{
+    background:#0f172a!important;
+    color:#e5e7eb!important;
+    border-color:rgba(255,255,255,.22)!important;
+  }
+  body[data-page-color="dark"] input::placeholder,
+  body[data-page-color="dark"] textarea::placeholder{color:#94a3b8!important;opacity:1!important;}
+  body[data-page-color="dark"] .excel-filter-panel,
+  body[data-page-color="dark"] .profit-filter-panel,
+  body[data-page-color="dark"] .cash-filter-panel{
+    background:#111827!important;
+    color:#e5e7eb!important;
+    border-color:rgba(255,255,255,.22)!important;
+  }
+  body[data-page-color="dark"] .excel-filter-list{background:#0f172a!important;border-color:rgba(255,255,255,.18)!important;}
+  body[data-page-color="dark"] .excel-filter-option{color:#e5e7eb!important;}
+  body[data-page-color="dark"] .excel-filter-option:hover{background:#1e293b!important;}
+  body[data-page-color="dark"] table{background:#111827!important;color:#e5e7eb!important;}
+  body[data-page-color="dark"] table th{
+    background:#1e293b!important;
+    color:#f8fafc!important;
+    border-bottom-color:rgba(255,255,255,.18)!important;
+  }
+  body[data-page-color="dark"] table td{
+    background:#111827!important;
+    color:#e5e7eb!important;
+    border-bottom-color:rgba(255,255,255,.10)!important;
+  }
+  body[data-page-color="dark"] table tr:nth-child(even) td{background:#0f172a!important;}
+  body[data-page-color="dark"] table tr:hover td{background:#1e293b!important;color:#fff!important;}
+  body[data-page-color="dark"] .btn,
+  body[data-page-color="dark"] button,
+  body[data-page-color="dark"] button[type="button"],
+  body[data-page-color="dark"] .btn-light,
+  body[data-page-color="dark"] .section-actions button{
+    background:#1e293b!important;
+    color:#e5e7eb!important;
+    border-color:rgba(255,255,255,.18)!important;
+  }
+  body[data-page-color="dark"] .btn-primary,
+  body[data-page-color="dark"] .auth-btn,
+  body[data-page-color="dark"] .section-actions button:not(.btn-light),
+  body[data-page-color="dark"] .codex-refresh-btn,
+  body[data-page-color="dark"] .side-tab.active,
+  body[data-page-color="dark"] .side-tab:hover{
+    background:linear-gradient(135deg,#2563eb,#60a5fa)!important;
+    color:#fff!important;
+    border-color:#60a5fa!important;
+  }
+  body[data-page-color="dark"] .logo-box,
+  body[data-page-color="dark"] .side-logo-mark{background:#f8fafc!important;border-color:rgba(255,255,255,.18)!important;}
+  body[data-page-color="dark"] canvas{color-scheme:dark!important;}
+</style>
+<script id="codex-dark-mode-final-working-script">
+(function(){
+  'use strict';
+  function activeColor(){ try{return localStorage.getItem('serviceEyePageColor_v2') || document.body.dataset.pageColor || 'coral';}catch(e){return document.body.dataset.pageColor || 'coral';} }
+  function applyDarkCharts(){
+    var isDark = document.body && document.body.dataset && document.body.dataset.pageColor === 'dark';
+    try{
+      if(window.Chart){
+        Chart.defaults.color = isDark ? '#e5e7eb' : '#111827';
+        Chart.defaults.borderColor = isDark ? 'rgba(255,255,255,.18)' : 'rgba(17,24,39,.16)';
+      }
+      if(window.dashboardCharts){ Object.keys(window.dashboardCharts).forEach(function(id){ var ch=window.dashboardCharts[id]; if(!ch||!ch.options)return; if(ch.options.plugins&&ch.options.plugins.legend&&ch.options.plugins.legend.labels) ch.options.plugins.legend.labels.color=isDark?'#e5e7eb':'#111827'; if(ch.options.scales){ Object.keys(ch.options.scales).forEach(function(k){ var s=ch.options.scales[k]; if(s.ticks)s.ticks.color=isDark?'#e5e7eb':'#111827'; if(s.grid)s.grid.color=isDark?'rgba(255,255,255,.16)':'rgba(17,24,39,.16)'; }); } ch.update('none'); }); }
+    }catch(e){}
+  }
+  function setPageColorFixed(key){
+    key = key || 'coral';
+    try{localStorage.setItem('serviceEyePageColor_v2', key);}catch(e){}
+    document.body.dataset.pageColor = key;
+    document.querySelectorAll('.codex-color-swatch').forEach(function(btn){ btn.classList.toggle('active', btn.dataset.color === key); });
+    setTimeout(applyDarkCharts,80);
+    setTimeout(function(){ try{ if(typeof window.renderSky==='function') window.renderSky(); if(typeof window.renderProfit==='function') window.renderProfit(); if(typeof window.renderCashTarget==='function') window.renderCashTarget(); }catch(e){} },120);
+  }
+  function ensureDarkButton(){
+    var panel=document.getElementById('codexPageColorPanel');
+    if(!panel) return;
+    var box=panel.querySelector('.codex-page-color-swatches');
+    if(!box){ box=document.createElement('div'); box.className='codex-page-color-swatches'; panel.appendChild(box); }
+    var dark=box.querySelector('[data-color="dark"]');
+    if(!dark){ dark=document.createElement('button'); dark.type='button'; dark.className='codex-color-swatch'; dark.dataset.color='dark'; dark.title='Dark Mode'; dark.style.background='linear-gradient(135deg,#020617,#334155)'; box.appendChild(dark); }
+    Array.prototype.slice.call(box.querySelectorAll('.codex-color-swatch')).forEach(function(btn){ btn.onclick=function(){ setPageColorFixed(btn.dataset.color || 'coral'); }; });
+  }
+  function boot(){ ensureDarkButton(); setPageColorFixed(activeColor()); }
+  window.setPageColor = setPageColorFixed;
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  window.addEventListener('load', function(){ setTimeout(boot,200); setTimeout(boot,1000); });
+  document.addEventListener('click', function(e){ if(e.target && e.target.closest && e.target.closest('.codex-color-swatch')) setTimeout(function(){ setPageColorFixed(e.target.closest('.codex-color-swatch').dataset.color); },0); }, true);
+  try{ new MutationObserver(function(){ clearTimeout(window.__darkModeFixTimer); window.__darkModeFixTimer=setTimeout(boot,150); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
+})();
+</script>
