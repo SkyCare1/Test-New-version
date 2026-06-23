@@ -19701,6 +19701,213 @@ window.addEventListener('beforeunload', function() {
   #sideMenu #sscLiveUsersPanel{order:30!important;}
   #sideMenu #v25ColorOptions, #sideMenu #v25ColorOptions + *, #sideMenu .color-options#v25ColorOptions{display:none!important;}
 </style>
+
+
+<!-- DARK MODE READABILITY PATCH: keep all text readable in Dark Mode without changing other modes. -->
+<style id="codex-dark-mode-readability-final">
+  body[data-page-color="dark"],
+  body[data-page-color="dark"] .page-shell,
+  body[data-page-color="dark"] main,
+  body[data-page-color="dark"] section,
+  body[data-page-color="dark"] .chart-card,
+  body[data-page-color="dark"] .filters,
+  body[data-page-color="dark"] .card,
+  body[data-page-color="dark"] .table-wrap,
+  body[data-page-color="dark"] .data-table-wrap,
+  body[data-page-color="dark"] .upload-progress-wrap,
+  body[data-page-color="dark"] .admin-panel,
+  body[data-page-color="dark"] .user-card,
+  body[data-page-color="dark"] .pb-card,
+  body[data-page-color="dark"] .rd-card,
+  body[data-page-color="dark"] #sscLiveUsersPanel{
+    color:#e5e7eb!important;
+  }
+
+  body[data-page-color="dark"] main *,
+  body[data-page-color="dark"] header *,
+  body[data-page-color="dark"] .side-menu *,
+  body[data-page-color="dark"] #sscLiveUsersPanel *,
+  body[data-page-color="dark"] .filters *,
+  body[data-page-color="dark"] .card *,
+  body[data-page-color="dark"] section *,
+  body[data-page-color="dark"] .chart-card *,
+  body[data-page-color="dark"] .table-wrap *,
+  body[data-page-color="dark"] .data-table-wrap *{
+    text-shadow:none!important;
+  }
+
+  body[data-page-color="dark"] main div:not(.badge):not(.status-badge):not(.Failed):not(.FailedLTP):not(.FailedTAT):not(.FixToday):not(.Watch):not(.OnTrack):not(.Done):not(.Review):not(.Excluded):not(.ExcludedfromKPI),
+  body[data-page-color="dark"] main span:not(.badge):not(.status-badge):not(.Failed):not(.FailedLTP):not(.FailedTAT):not(.FixToday):not(.Watch):not(.OnTrack):not(.Done):not(.Review):not(.Excluded):not(.ExcludedfromKPI),
+  body[data-page-color="dark"] main p,
+  body[data-page-color="dark"] main small,
+  body[data-page-color="dark"] main label,
+  body[data-page-color="dark"] main td,
+  body[data-page-color="dark"] main th,
+  body[data-page-color="dark"] main li,
+  body[data-page-color="dark"] main a,
+  body[data-page-color="dark"] main strong,
+  body[data-page-color="dark"] main b,
+  body[data-page-color="dark"] main em,
+  body[data-page-color="dark"] .side-menu div,
+  body[data-page-color="dark"] .side-menu span,
+  body[data-page-color="dark"] .side-menu button,
+  body[data-page-color="dark"] .online-user-name,
+  body[data-page-color="dark"] .online-user-tab{
+    color:#e5e7eb!important;
+  }
+
+  body[data-page-color="dark"] h1,
+  body[data-page-color="dark"] h2,
+  body[data-page-color="dark"] h3,
+  body[data-page-color="dark"] h4,
+  body[data-page-color="dark"] h5,
+  body[data-page-color="dark"] h6,
+  body[data-page-color="dark"] .value,
+  body[data-page-color="dark"] .card .value,
+  body[data-page-color="dark"] .metric-value,
+  body[data-page-color="dark"] .rd-card-value,
+  body[data-page-color="dark"] .pb-card-value{
+    color:#f8fafc!important;
+  }
+
+  body[data-page-color="dark"] .filter-label,
+  body[data-page-color="dark"] .label,
+  body[data-page-color="dark"] .card .label,
+  body[data-page-color="dark"] .percent,
+  body[data-page-color="dark"] .sub,
+  body[data-page-color="dark"] .subtle,
+  body[data-page-color="dark"] .note,
+  body[data-page-color="dark"] .upload-progress-note,
+  body[data-page-color="dark"] .sky-chart-summary,
+  body[data-page-color="dark"] .cash-target-note,
+  body[data-page-color="dark"] .profit-note{
+    color:#cbd5e1!important;
+  }
+
+  body[data-page-color="dark"] input,
+  body[data-page-color="dark"] select,
+  body[data-page-color="dark"] textarea,
+  body[data-page-color="dark"] option,
+  body[data-page-color="dark"] .excel-filter-button,
+  body[data-page-color="dark"] .excel-filter-search,
+  body[data-page-color="dark"] .profit-filter-button,
+  body[data-page-color="dark"] .cash-filter-btn{
+    background:#0f172a!important;
+    color:#f8fafc!important;
+    -webkit-text-fill-color:#f8fafc!important;
+    border-color:rgba(255,255,255,.24)!important;
+  }
+  body[data-page-color="dark"] input::placeholder,
+  body[data-page-color="dark"] textarea::placeholder{
+    color:#94a3b8!important;
+    -webkit-text-fill-color:#94a3b8!important;
+    opacity:1!important;
+  }
+
+  body[data-page-color="dark"] .excel-filter-panel,
+  body[data-page-color="dark"] .excel-filter-list,
+  body[data-page-color="dark"] .profit-filter-panel,
+  body[data-page-color="dark"] .cash-filter-panel,
+  body[data-page-color="dark"] .dropdown-menu,
+  body[data-page-color="dark"] .filter-dropdown{
+    background:#111827!important;
+    color:#e5e7eb!important;
+    border-color:rgba(255,255,255,.22)!important;
+  }
+  body[data-page-color="dark"] .excel-filter-option,
+  body[data-page-color="dark"] .excel-filter-option span,
+  body[data-page-color="dark"] .profit-filter-option,
+  body[data-page-color="dark"] .cash-filter-option{
+    color:#e5e7eb!important;
+  }
+  body[data-page-color="dark"] .excel-filter-option:hover,
+  body[data-page-color="dark"] .profit-filter-option:hover,
+  body[data-page-color="dark"] .cash-filter-option:hover{
+    background:#1e293b!important;
+    color:#fff!important;
+  }
+
+  body[data-page-color="dark"] table,
+  body[data-page-color="dark"] thead,
+  body[data-page-color="dark"] tbody,
+  body[data-page-color="dark"] tr,
+  body[data-page-color="dark"] th,
+  body[data-page-color="dark"] td{
+    color:#e5e7eb!important;
+  }
+  body[data-page-color="dark"] th,
+  body[data-page-color="dark"] th *{
+    background:#1e293b!important;
+    color:#f8fafc!important;
+  }
+  body[data-page-color="dark"] td,
+  body[data-page-color="dark"] td *:not(.badge):not(.status-badge):not(.Failed):not(.FailedLTP):not(.FailedTAT):not(.FixToday):not(.Watch):not(.OnTrack):not(.Done):not(.Review):not(.Excluded):not(.ExcludedfromKPI){
+    color:#e5e7eb!important;
+  }
+
+  body[data-page-color="dark"] .count-link,
+  body[data-page-color="dark"] .metric-link,
+  body[data-page-color="dark"] a{
+    color:#93c5fd!important;
+    text-decoration-color:#93c5fd!important;
+  }
+
+  body[data-page-color="dark"] .badge,
+  body[data-page-color="dark"] .status-badge{
+    border-color:rgba(255,255,255,.18)!important;
+    font-weight:900!important;
+  }
+  body[data-page-color="dark"] .Failed,
+  body[data-page-color="dark"] .FailedLTP,
+  body[data-page-color="dark"] .FailedTAT{
+    background:#7f1d1d!important;
+    color:#fecaca!important;
+  }
+  body[data-page-color="dark"] .FixToday{
+    background:#7c2d12!important;
+    color:#fed7aa!important;
+  }
+  body[data-page-color="dark"] .Watch{
+    background:#713f12!important;
+    color:#fef3c7!important;
+  }
+  body[data-page-color="dark"] .OnTrack{
+    background:#14532d!important;
+    color:#bbf7d0!important;
+  }
+  body[data-page-color="dark"] .Done{
+    background:#334155!important;
+    color:#f8fafc!important;
+  }
+  body[data-page-color="dark"] .Review{
+    background:#4c1d95!important;
+    color:#ddd6fe!important;
+  }
+  body[data-page-color="dark"] .Excluded,
+  body[data-page-color="dark"] .ExcludedfromKPI{
+    background:#075985!important;
+    color:#e0f2fe!important;
+  }
+
+  body[data-page-color="dark"] .btn,
+  body[data-page-color="dark"] button,
+  body[data-page-color="dark"] .section-actions button,
+  body[data-page-color="dark"] .excel-filter-actions button{
+    color:#f8fafc!important;
+    -webkit-text-fill-color:#f8fafc!important;
+  }
+  body[data-page-color="dark"] .excel-filter-actions .cancel{
+    background:#334155!important;
+    color:#f8fafc!important;
+  }
+  body[data-page-color="dark"] .excel-filter-actions .ok,
+  body[data-page-color="dark"] .btn-primary,
+  body[data-page-color="dark"] .codex-refresh-btn{
+    background:#2563eb!important;
+    color:#fff!important;
+  }
+</style>
+
 </body>
 </html>
 
