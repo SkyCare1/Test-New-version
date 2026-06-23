@@ -18594,7 +18594,7 @@ window.addEventListener('beforeunload', function() {
 
   /* Pre_Booking/Dashboard core fixes: readable labels and filter action buttons */
   #preBookingPage .pb-filter-label, #preBookingPage .pb-filters .filter-label,
-  #dashboardPage .pb-filter-label, #dashboardPage .pb-filters .filter-label { color:#ffffff !important; text-shadow:0 1px 2px rgba(0,0,0,.35); }
+  #dashboardPage .pb-filter-label, #dashboardPage .pb-filters .filter-label { color:#334155 !important; text-shadow:none !important; font-weight:900 !important; letter-spacing:.04em !important; }
   .pb-filter-menu { max-height:360px !important; overflow:hidden !important; }
   .pb-filter-search { width:100%; min-height:36px; border:1px solid #94a3b8; border-radius:8px; padding:7px 10px; margin-bottom:8px; color:#0f172a; background:#fff; font-weight:700; }
   .pb-filter-list { max-height:220px; overflow:auto; border-bottom:1px solid #e2e8f0; padding-bottom:6px; }
@@ -18957,7 +18957,7 @@ window.addEventListener('beforeunload', function() {
   function countBy(rows,field){var m={}; rows.forEach(function(r){var k=txt(val(r,Array.isArray(field)?field:[field]))||'(blank)'; m[k]=(m[k]||0)+1;}); return m;}
   function topEntry(map){var arr=Object.entries(map).sort(function(a,b){return b[1]-a[1]||a[0].localeCompare(b[0]);}); return arr[0]||['-',0];}
   function keyOf(el){var k=el&&(el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||''); if(k)return k; var t=txt(el?el.textContent:'').toLowerCase(); if(t.includes('dashboard'))return 'dashboard'; if(t.includes('gspn'))return 'gspn'; if(t.includes('sky'))return 'sky'; if(t.includes('pre_booking')||t.includes('pre booking'))return 'preBooking'; if(t.includes('return cases'))return 'returnCases'; if(t.includes('profit'))return 'profit'; if(t.includes('cash'))return 'cashTarget'; if(t.includes('user management'))return 'userManagement'; return '';}
-  function orderSide(){var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return; ['dashboard','gspn','sky','preBooking','returnCases','profit','cashTarget','userManagement'].forEach(function(k,i){var el=Array.from(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)===k;}); if(el){el.setAttribute('data-pb-tab',k);el.setAttribute('data-fb-tab-key',k);el.style.order=String(20+i);var bottom=document.getElementById('codexSidebarBottom');side.insertBefore(el,bottom||null);}});}
+  function orderSide(){var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return; var seen={}; Array.from(side.querySelectorAll('.side-tab')).forEach(function(x){var k=keyOf(x); if(!k)return; x.setAttribute('data-pb-tab',k); x.setAttribute('data-fb-tab-key',k); if(seen[k]) x.remove(); else seen[k]=x;}); ['dashboard','gspn','sky','preBooking','returnCases','profit','cashTarget','userManagement'].forEach(function(k,i){var el=Array.from(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)===k;}); if(el){el.setAttribute('data-pb-tab',k);el.setAttribute('data-fb-tab-key',k);el.style.order=String(20+i);var bottom=document.getElementById('codexSidebarBottom');side.insertBefore(el,bottom||null);}});}
   function ensureSide(){var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav'); if(!side)return; var exists=Array.from(side.querySelectorAll('.side-tab')).some(function(e){return keyOf(e)==='returnCases';}); if(!exists){var ref=Array.from(side.querySelectorAll('.side-tab')).find(function(e){return keyOf(e)==='preBooking';}); var html='<div class="side-tab" data-pb-tab="returnCases" data-fb-tab-key="returnCases" onclick="switchTab(\'returnCases\')"><span class="side-icon returncases-side-icon">↩️</span><span class="side-label">Return Cases</span></div>'; if(ref&&ref.parentNode)ref.insertAdjacentHTML('afterend',html); else side.insertAdjacentHTML('beforeend',html);} orderSide();}
   function filterBox(id,label){return '<div class="rc-filter-box" id="'+id+'"><div class="rc-filter-label">'+label+'</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>';}
   function pageHtml(){return '<div class="page-shell" id="returnCasesPage" style="display:none"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Return Cases</div></div></div><div class="header-actions"></div></header><div id="serviceV2Notice_returnCases" class="service-v2-update-notice"><span class="source">Return Cases — Waiting for data</span><span>Source: <b>Auto sync</b></span><span>Rows: <b>0</b></span><span>Last Update: <b>-</b></span><span>Waiting for data</span></div><main><div class="rc-filters">'+filterBox('rcBrandFilter','Brand')+filterBox('rcBranchFilter','Branch')+filterBox('rcAssignedFilter','Assigned_To')+filterBox('rcModelFilter','Model')+'<div><div class="rc-filter-label">Open_Date From</div><input type="date" id="rcDateFrom"></div><div><div class="rc-filter-label">Open_Date To</div><input type="date" id="rcDateTo"></div><div><div class="rc-filter-label">Search</div><input id="rcSearch" placeholder="Search all columns"></div><div class="rc-filter-actions"><button class="rc-btn light" id="rcClearBtn">Clear Filters</button></div></div><div class="rc-cards cards"><div class="card rc-card clickable blue" data-card="branch"><div class="label">Top Return Branch</div><div class="value" id="rcTopBranch">-</div><div class="percent" id="rcTopBranchCount">0 cases</div></div><div class="card rc-card clickable purple" data-card="tech"><div class="label">Top Return Technician</div><div class="value" id="rcTopTech">-</div><div class="percent" id="rcTopTechCount">0 cases</div></div><div class="card rc-card clickable green" data-card="model"><div class="label">Top Model</div><div class="value" id="rcTopModel">-</div><div class="percent" id="rcTopModelCount">0 cases</div></div></div><section class="rc-section"><h2>Return Cases Data <span><button class="rc-btn" onclick="window.rcDownloadFiltered()">⬇ Download Excel</button></span></h2><div class="rc-table-wrap"><table class="rc-table" id="rcTable"></table></div></section><section class="rc-section"><h2>Return Cases by Branch and Technician <span><button class="rc-btn" onclick="window.rcDownloadTechTable()">⬇ Download</button></span></h2><div class="rc-table-wrap"><table class="rc-table" id="rcTechTable"></table></div></section><section class="rc-section"><h2>Return Cases by Model <span><button class="rc-btn" onclick="window.rcDownloadModelTable()">⬇ Download</button></span></h2><div class="rc-table-wrap small"><table class="rc-table" id="rcModelTable"></table></div></section></main></div>';}
@@ -18975,7 +18975,7 @@ window.addEventListener('beforeunload', function() {
   function clearFilters(){['rcBrandFilter','rcBranchFilter','rcAssignedFilter','rcModelFilter'].forEach(function(id){var b=$(id); if(b){b.__sel=[];caption(b);drawList(b,'');}}); ['rcDateFrom','rcDateTo','rcSearch'].forEach(function(id){var e=$(id); if(e)e.value='';}); rcCardFilter={type:'',value:''}; render();}
   async function loadRows(force){ if(typeof XLSX==='undefined')throw new Error('XLSX library is not ready.'); var lastErr=null; for(var i=0;i<FILE_CANDIDATES.length;i++){try{var rows=typeof loadExcelRowsFromUrl==='function'?await loadExcelRowsFromUrl(FILE_CANDIDATES[i],SHEET,force):await fallbackLoad(FILE_CANDIDATES[i],force); return {rows:rows,file:FILE_CANDIDATES[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Return Cases file not found.');}
   async function fallbackLoad(file,force){var url=(typeof serviceDataUrl==='function')?await serviceDataUrl(file,force):file+(force?'?v='+Date.now():''); var res=await fetch(url,{cache:force?'no-store':'no-cache'}); if(!res.ok)throw new Error(file+' HTTP '+res.status); var ab=await res.arrayBuffer(); var wb=XLSX.read(new Uint8Array(ab),{type:'array',cellDates:true}); var sn=wb.SheetNames.includes(SHEET)?SHEET:wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true});}
-  async function loadReturnCases(force){ensurePage(); normalizeNotice(); notice('Updating now','Auto sync',rcRows.length,'Loading data...'); try{var r=await loadRows(!!force); rcRows=r.rows.filter(function(x){return Object.values(x).some(function(v){return txt(v)!=='');}); window.returnCasesRows=rcRows; rcCols=Object.keys(rcRows[0]||{}); setupFilters(); render(); notice('Data updated','Auto sync',rcRows.length,'Fresh data loaded by Auto sync');}catch(e){notice('Waiting for data','Auto sync',rcRows.length,e&&e.message?e.message:'Load failed');}}
+  async function loadReturnCases(force){ensurePage(); normalizeNotice(); notice('Updating now','Auto sync',rcRows.length,'Loading data...'); try{var r=await loadRows(!!force); rcRows=(r.rows||[]).filter(function(x){return Object.values(x).some(function(v){return txt(v)!=='';});}); window.returnCasesRows=rcRows; rcCols=Object.keys(rcRows[0]||{}); setupFilters(); render(); notice('Data updated','Auto sync',rcRows.length,'Fresh data loaded by Auto sync');}catch(e){notice('Waiting for data','Auto sync',rcRows.length,e&&e.message?e.message:'Load failed');}}
   function notice(status,source,rows,msg){normalizeNotice(); var n=$('serviceV2Notice_returnCases'); if(!n)return; var cls=status==='Updating now'?' loading':(rows?' ok':''); n.className='service-v2-update-notice'+cls; n.innerHTML='<span class="source">Return Cases — '+esc(status)+'</span><span>Source: <b>'+esc(source)+'</b></span><span>Rows: <b>'+Number(rows||0).toLocaleString()+'</b></span><span>Last Update: <b>'+(rows?new Date().toLocaleString():'-')+'</b></span><span>'+esc(msg)+'</span>';}
   function setupFilters(){setOptions('rcBrandFilter',rcRows.map(function(r){return val(r,['Brand']);})); setOptions('rcBranchFilter',rcRows.map(function(r){return val(r,['Branch']);})); setOptions('rcAssignedFilter',rcRows.map(function(r){return val(r,['Assigned_To','Assigned To']);})); setOptions('rcModelFilter',rcRows.map(function(r){return val(r,['Model']);}));}
   function filtered(){var fBrand=selected('rcBrandFilter'),fBranch=selected('rcBranchFilter'),fAss=selected('rcAssignedFilter'),fModel=selected('rcModelFilter'), q=txt($('rcSearch')&&$('rcSearch').value).toLowerCase(), d1=$('rcDateFrom')&&$('rcDateFrom').value?new Date($('rcDateFrom').value):null, d2=$('rcDateTo')&&$('rcDateTo').value?new Date($('rcDateTo').value):null; if(d2)d2.setHours(23,59,59,999); return rcRows.filter(function(r){var od=toDate(val(r,['Open_Date','Open Date'])); return (!fBrand.length||fBrand.includes(txt(val(r,['Brand']))))&&(!fBranch.length||fBranch.includes(txt(val(r,['Branch']))))&&(!fAss.length||fAss.includes(txt(val(r,['Assigned_To','Assigned To']))))&&(!fModel.length||fModel.includes(txt(val(r,['Model']))))&&(!d1||od>=d1)&&(!d2||od<=d2)&&(!q||Object.values(r).some(function(v){return txt(v).toLowerCase().includes(q);}));});}
@@ -19001,6 +19001,286 @@ window.addEventListener('beforeunload', function() {
 </script>
 <style id="returnCasesTabStyle">
 #returnCasesPage{display:none}.rc-filters{background:#fff;border:1px solid var(--border);border-radius:20px;padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:18px;box-shadow:0 12px 30px rgba(15,23,42,.08)}.rc-filter-label{font-size:12px;color:#111827!important;font-weight:900;margin-bottom:7px;text-transform:uppercase;letter-spacing:.06em}.rc-filter-box{position:relative}.rc-filter-btn{width:100%;min-height:40px;border:1px solid var(--border);border-radius:8px;background:#fff;color:#111827!important;font-weight:800;text-align:left;padding:9px 11px;cursor:pointer}.rc-filter-btn:after{content:'▾';float:right;color:#374151}.rc-filter-menu{display:none;position:absolute;z-index:100000;top:calc(100% + 6px);left:0;width:min(330px,92vw);background:#fff;border:1px solid #8d99a6;border-radius:10px;box-shadow:0 18px 35px rgba(0,0,0,.28);padding:10px;color:#111827}.rc-filter-box.open .rc-filter-menu{display:block}.rc-filter-search{margin-bottom:8px;color:#111827!important;background:#fff!important}.rc-filter-list{max-height:220px;overflow:auto;border:1px solid #d8dee6;padding:5px;background:#fff}.rc-filter-option{display:flex;gap:7px;align-items:center;padding:5px;color:#111827!important;cursor:pointer}.rc-filter-option:hover{background:#eef5fb}.rc-filter-option input{width:14px!important}.rc-filter-actions,.rc-filter-actions-menu{display:flex;gap:8px;align-items:end}.rc-filter-actions-menu{justify-content:flex-end;margin-top:9px}.rc-btn{background:var(--primary,#0f4c81);color:#fff;border:1px solid var(--primary,#0f4c81);border-radius:12px;padding:9px 12px;font-weight:900;cursor:pointer}.rc-btn.light{background:#eef5fb;color:#0f4c81;border:1px solid var(--border)}.rc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:18px}.rc-card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:16px;box-shadow:0 12px 30px rgba(15,23,42,.08);border-top:5px solid var(--primary-2,#2b78b8);min-height:118px}.rc-card.clickable{cursor:pointer}.rc-card.clickable:hover,.rc-card.active{transform:translateY(-3px);box-shadow:0 16px 34px rgba(15,23,42,.16)!important}.rc-card .label{color:#374151!important;font-size:12px;font-weight:900;text-transform:uppercase}.rc-card .value{font-size:22px;font-weight:900;margin-top:8px;color:#111827}.rc-card .percent{color:#4f46e5!important;font-size:13px;font-weight:900;margin-top:6px}.rc-section{background:var(--card);border:1px solid var(--border);border-radius:20px;overflow:hidden;box-shadow:0 12px 30px rgba(15,23,42,.08);margin-bottom:22px}.rc-section h2{margin:0;padding:12px 14px;background:linear-gradient(135deg,var(--primary,#0f4c81),var(--primary-2,#2b78b8));color:#fff;font-size:17px;display:flex;justify-content:space-between;align-items:center;gap:12px}.rc-table-wrap{overflow:auto;max-height:520px}.rc-table-wrap.small{max-height:420px}.rc-table{width:100%;border-collapse:collapse;font-size:13px}.rc-table th,.rc-table td{padding:8px 10px;border-bottom:1px solid #edf1f5;white-space:nowrap;text-align:left}.rc-table th{position:sticky;top:0;background:#e7eef6;color:#102a43;font-weight:900;z-index:2;cursor:pointer;user-select:none}.rc-table th[draggable=true]{cursor:grab}.rc-link{color:#0645ad!important;text-decoration:underline;text-underline-offset:3px;font-weight:900}body.theme-volta #returnCasesPage .rc-filters,body.theme-volta #returnCasesPage .rc-card,body.theme-volta #returnCasesPage .rc-section{background:rgba(255,250,240,.88)!important;border-radius:8px!important;box-shadow:10px 10px 0 rgba(10,10,10,.08)!important}body.theme-volta #returnCasesPage .rc-section h2{background:#0a0a0a!important;border-bottom:5px solid var(--coral)}body.theme-volta #returnCasesPage .rc-btn{background:var(--coral)!important;border-color:var(--coral-deep)!important;color:#f4f0e8!important;border-radius:999px!important}body.theme-volta #returnCasesPage .rc-filter-btn,body.theme-volta #returnCasesPage input{background:#f4f0e8!important;color:#0a0a0a!important;border:1px solid var(--rule)!important}body.theme-volta #returnCasesPage .rc-filter-menu{background:#fffaf0!important}body.theme-volta #returnCasesPage .rc-filter-label{color:#0a0a0a!important}#sideMenu .side-tab[data-pb-tab="returnCases"]{display:flex!important;align-items:center;gap:12px;order:24!important;visibility:visible!important;opacity:1!important}
+</style>
+
+
+<script id="return-cases-core-visibility-fix">
+(function(){
+  function $(id){return document.getElementById(id);}
+  function hideAllShowReturn(){
+    ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','dashboardPage'].forEach(function(id){
+      var el=$(id); if(el) el.style.display='none';
+    });
+    var rc=$('returnCasesPage');
+    if(rc){
+      rc.style.display='block';
+      rc.style.visibility='visible';
+      rc.style.opacity='1';
+      rc.removeAttribute('hidden');
+    }
+    document.querySelectorAll('.side-tab').forEach(function(el){
+      var oc=(el.getAttribute('onclick')||'').toLowerCase();
+      var txt=(el.textContent||'').toLowerCase();
+      var key=el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||'';
+      el.classList.toggle('active', key==='returnCases' || oc.indexOf('returncases')>-1 || txt.indexOf('return cases')>-1);
+    });
+    try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){}
+  }
+  function ensureReturnPage(){
+    var page=$('returnCasesPage');
+    if(page) return page;
+    var html = '<div class="page-shell" id="returnCasesPage" style="display:none">'+
+      '<header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Return Cases</div></div></div><div class="header-actions"></div></header>'+
+      '<div id="serviceV2Notice_returnCases" class="service-v2-update-notice"><span class="source">Return Cases — Waiting for data</span><span>Source: <b>Auto sync</b></span><span>Rows: <b>0</b></span><span>Last Update: <b>-</b></span><span>Waiting for data</span></div>'+
+      '<main><div class="rc-filters">'+
+      '<div class="rc-filter-box" id="rcBrandFilter"><div class="rc-filter-label">Brand</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>'+
+      '<div class="rc-filter-box" id="rcBranchFilter"><div class="rc-filter-label">Branch</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>'+
+      '<div class="rc-filter-box" id="rcAssignedFilter"><div class="rc-filter-label">Assigned_To</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>'+
+      '<div class="rc-filter-box" id="rcModelFilter"><div class="rc-filter-label">Model</div><button type="button" class="rc-filter-btn">All</button><div class="rc-filter-menu"><input class="rc-filter-search" placeholder="Search"><div class="rc-filter-list"></div><div class="rc-filter-actions-menu"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div></div>'+
+      '<div><div class="rc-filter-label">Open_Date From</div><input type="date" id="rcDateFrom"></div><div><div class="rc-filter-label">Open_Date To</div><input type="date" id="rcDateTo"></div><div><div class="rc-filter-label">Search</div><input id="rcSearch" placeholder="Search all columns"></div><div class="rc-filter-actions"><button class="rc-btn light" id="rcClearBtn">Clear Filters</button></div></div>'+
+      '<div class="rc-cards cards"><div class="card rc-card clickable blue" data-card="branch"><div class="label">Top Return Branch</div><div class="value" id="rcTopBranch">-</div><div class="percent" id="rcTopBranchCount">0 cases</div></div><div class="card rc-card clickable purple" data-card="tech"><div class="label">Top Return Technician</div><div class="value" id="rcTopTech">-</div><div class="percent" id="rcTopTechCount">0 cases</div></div><div class="card rc-card clickable green" data-card="model"><div class="label">Top Model</div><div class="value" id="rcTopModel">-</div><div class="percent" id="rcTopModelCount">0 cases</div></div></div>'+
+      '<section class="rc-section"><h2>Return Cases Data <span><button class="rc-btn" onclick="window.rcDownloadFiltered&&window.rcDownloadFiltered()">⬇ Download Excel</button></span></h2><div class="rc-table-wrap"><table class="rc-table" id="rcTable"><tbody><tr><td>Loading data...</td></tr></tbody></table></div></section>'+
+      '<section class="rc-section"><h2>Return Cases by Branch and Technician <span><button class="rc-btn" onclick="window.rcDownloadTechTable&&window.rcDownloadTechTable()">⬇ Download</button></span></h2><div class="rc-table-wrap"><table class="rc-table" id="rcTechTable"></table></div></section>'+
+      '<section class="rc-section"><h2>Return Cases by Model <span><button class="rc-btn" onclick="window.rcDownloadModelTable&&window.rcDownloadModelTable()">⬇ Download</button></span></h2><div class="rc-table-wrap small"><table class="rc-table" id="rcModelTable"></table></div></section></main></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    return $('returnCasesPage');
+  }
+  function removeDuplicateSidebarTabs(side){
+    var seen={};
+    Array.from(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var key=(el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||'');
+      var tx=(el.textContent||'').toLowerCase();
+      var oc=(el.getAttribute('onclick')||'').toLowerCase();
+      if(!key){
+        if(tx.indexOf('dashboard')>-1) key='dashboard';
+        else if(tx.indexOf('gspn')>-1) key='gspn';
+        else if(tx.indexOf('sky')>-1) key='sky';
+        else if(tx.indexOf('pre_booking')>-1||tx.indexOf('pre booking')>-1) key='preBooking';
+        else if(tx.indexOf('return cases')>-1||oc.indexOf('returncases')>-1) key='returnCases';
+        else if(tx.indexOf('profit')>-1) key='profit';
+        else if(tx.indexOf('cash')>-1) key='cashTarget';
+        else if(tx.indexOf('user management')>-1) key='userManagement';
+      }
+      if(!key) return;
+      el.setAttribute('data-pb-tab',key);
+      el.setAttribute('data-fb-tab-key',key);
+      if(seen[key]) el.remove(); else seen[key]=el;
+    });
+  }
+  function ensureSidebarOrder(){
+    var side=$('sideMenu')||document.querySelector('.side-menu');
+    if(!side) return;
+    removeDuplicateSidebarTabs(side);
+    var defs=[
+      ['dashboard','Dashboard','📊',"switchTab('dashboard')"],
+      ['gspn','GSPN Tracking cases','GSPN',"switchTab('gspn')"],
+      ['sky','SKY Tracking cases','SKY',"switchTab('sky')"],
+      ['preBooking','Pre_Booking','📋',"switchTab('preBooking')"],
+      ['returnCases','Return Cases','↩️',"switchTab('returnCases')"],
+      ['profit','Profitability & commission','💰',"switchTab('profit')"],
+      ['cashTarget','Cash & Target','🎯',"openCashTargetTab&&openCashTargetTab()"],
+      ['userManagement','User Management','👥',"switchTab('userManagement')"]
+    ];
+    defs.forEach(function(d,i){
+      var el=Array.from(side.querySelectorAll('.side-tab')).find(function(t){
+        var k=t.getAttribute('data-pb-tab')||t.getAttribute('data-fb-tab-key')||'';
+        var oc=(t.getAttribute('onclick')||'').toLowerCase();
+        var tx=(t.textContent||'').toLowerCase();
+        return k===d[0] || oc.indexOf(d[0].toLowerCase())>-1 || (d[0]==='returnCases'&&tx.indexOf('return cases')>-1);
+      });
+      if(!el){
+        el=document.createElement('div');
+        el.className='side-tab';
+        el.setAttribute('onclick',d[3]);
+        el.innerHTML='<span class="side-icon">'+d[2]+'</span><span class="side-label">'+d[1]+'</span>';
+        side.appendChild(el);
+      }
+      el.setAttribute('data-pb-tab',d[0]);
+      el.setAttribute('data-fb-tab-key',d[0]);
+      el.style.order=String(20+i);
+      if(d[0]==='returnCases'){
+        el.style.display='flex';
+        el.style.visibility='visible';
+        el.style.opacity='1';
+        el.removeAttribute('hidden');
+        el.setAttribute('aria-hidden','false');
+      }
+    });
+    removeDuplicateSidebarTabs(side);
+  }
+  var originalSwitch=window.switchTab;
+  window.switchTab=function(tab){
+    if(tab==='returnCases'){
+      ensureReturnPage();
+      ensureSidebarOrder();
+      hideAllShowReturn();
+      var run=function(){
+        if(typeof window.loadReturnCases==='function') window.loadReturnCases(false);
+        else if(typeof window.renderReturnCases==='function') window.renderReturnCases();
+      };
+      if(typeof XLSX==='undefined') setTimeout(run,500); else setTimeout(run,50);
+      return;
+    }
+    var r=typeof originalSwitch==='function'?originalSwitch.apply(this,arguments):undefined;
+    var rc=$('returnCasesPage'); if(rc) rc.style.display='none';
+    setTimeout(ensureSidebarOrder,80);
+    return r;
+  };
+  document.addEventListener('click',function(e){
+    var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null;
+    if(!tab) return;
+    var key=tab.getAttribute('data-pb-tab')||tab.getAttribute('data-fb-tab-key')||'';
+    var oc=(tab.getAttribute('onclick')||'').toLowerCase();
+    var tx=(tab.textContent||'').toLowerCase();
+    if(key==='returnCases'||oc.indexOf('returncases')>-1||tx.indexOf('return cases')>-1){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.switchTab('returnCases');
+    }
+  },true);
+  function boot(){
+    ensureSidebarOrder();
+    var active=''; try{active=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){}
+    if(active==='returnCases') window.switchTab('returnCases');
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  window.addEventListener('load',function(){setTimeout(boot,100);});
+})();
+</script>
+<style id="return-cases-visibility-readability-core-fix">
+#returnCasesPage{display:none;}
+#returnCasesPage .rc-filter-label,
+#returnCasesPage .filter-label{
+  color:#111827!important;
+  font-weight:900!important;
+  font-size:12px!important;
+  opacity:1!important;
+  text-transform:uppercase!important;
+  letter-spacing:.055em!important;
+  margin-bottom:7px!important;
+}
+#returnCasesPage .rc-cards{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important;gap:14px!important;margin-bottom:18px!important;}
+#returnCasesPage .rc-card{background:#fffaf0!important;color:#111827!important;border:1px solid rgba(10,10,10,.14)!important;border-top:5px solid var(--primary-2,#2b78b8)!important;border-radius:14px!important;min-height:112px!important;padding:16px!important;box-shadow:0 8px 22px rgba(15,23,42,.10)!important;}
+#returnCasesPage .rc-card .label{color:#374151!important;font-weight:900!important;font-size:12px!important;}
+#returnCasesPage .rc-card .value{color:#000!important;font-size:24px!important;font-weight:900!important;}
+#returnCasesPage .rc-card .percent{color:#0f766e!important;font-weight:900!important;}
+#returnCasesPage .rc-filters{background:#fffaf0!important;border-top:5px solid var(--primary-2,#2b78b8)!important;}
+#sideMenu{display:flex!important;flex-direction:column!important;}
+#sideMenu .side-tab[data-pb-tab="dashboard"]{order:20!important}
+#sideMenu .side-tab[data-pb-tab="gspn"]{order:21!important}
+#sideMenu .side-tab[data-pb-tab="sky"]{order:22!important}
+#sideMenu .side-tab[data-pb-tab="preBooking"]{order:23!important}
+#sideMenu .side-tab[data-pb-tab="returnCases"]{order:24!important;display:flex!important;visibility:visible!important;opacity:1!important}
+#sideMenu .side-tab[data-pb-tab="profit"]{order:25!important}
+#sideMenu .side-tab[data-pb-tab="cashTarget"]{order:26!important}
+#sideMenu .side-tab[data-pb-tab="userManagement"]{order:27!important}
+</style>
+
+
+<script id="final-root-fix-returncases-and-sidebar-dedupe">
+(function(){
+  'use strict';
+  function $(id){return document.getElementById(id);}
+  function txt(v){return String(v==null?'':v).trim();}
+  function low(v){return txt(v).toLowerCase();}
+  function keyOf(el){
+    if(!el) return '';
+    var k=el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||'';
+    if(k) return k;
+    var oc=el.getAttribute('onclick')||'', t=low(el.textContent);
+    if(oc.indexOf('dashboard')>-1||t.indexOf('dashboard')>-1) return 'dashboard';
+    if(oc.indexOf('gspn')>-1||t.indexOf('gspn')>-1) return 'gspn';
+    if(oc.indexOf('sky')>-1||t.indexOf('sky')>-1) return 'sky';
+    if(oc.indexOf('preBooking')>-1||t.indexOf('pre_booking')>-1||t.indexOf('pre booking')>-1) return 'preBooking';
+    if(oc.indexOf('returnCases')>-1||t.indexOf('return cases')>-1) return 'returnCases';
+    if(oc.indexOf('profit')>-1||t.indexOf('profit')>-1||t.indexOf('commission')>-1) return 'profit';
+    if(oc.indexOf('cashTarget')>-1||oc.indexOf('openCashTargetTab')>-1||t.indexOf('cash')>-1||t.indexOf('target')>-1) return 'cashTarget';
+    if(t.indexOf('user management')>-1||el.classList.contains('firebase-user-management-tab')) return 'userManagement';
+    return '';
+  }
+  var order=['dashboard','gspn','sky','preBooking','returnCases','profit','cashTarget','userManagement'];
+  function ensureReturnPage(){
+    if($('returnCasesPage')) return $('returnCasesPage');
+    if(typeof window.loadReturnCases==='function'){
+      try{ window.loadReturnCases(false); }catch(e){}
+    }
+    return $('returnCasesPage');
+  }
+  function normalizeSidebarHard(){
+    var side=$('sideMenu')||document.querySelector('.side-menu'); if(!side) return;
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k=keyOf(el); if(!k) return;
+      el.setAttribute('data-pb-tab',k); el.setAttribute('data-fb-tab-key',k);
+    });
+    var seen={};
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k=keyOf(el); if(!k) return;
+      if(seen[k]){ el.remove(); return; }
+      seen[k]=el;
+    });
+    order.forEach(function(k,i){
+      var el=seen[k]||Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)===k;});
+      if(!el) return;
+      el.style.order=String(20+i);
+      if(k==='userManagement') el.classList.add('firebase-user-management-tab','admin-only');
+      if(k==='returnCases'){
+        el.setAttribute('onclick',"switchTab('returnCases')");
+        el.classList.remove('fb-tab-denied');
+        el.style.display='flex'; el.style.visibility='visible'; el.style.opacity='1';
+      }
+    });
+  }
+  function showReturnCasesHard(){
+    normalizeSidebarHard();
+    var page=ensureReturnPage();
+    ['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage'].forEach(function(id){
+      var p=$(id); if(p) p.style.display=(id==='returnCasesPage'?'block':'none');
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='returnCases');});
+    try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){}
+    if(typeof window.loadReturnCases==='function') setTimeout(function(){try{window.loadReturnCases(false);}catch(e){}},80);
+  }
+  var oldSwitch=window.switchTab;
+  window.switchTab=function(tab){
+    if(tab==='returnCases') { showReturnCasesHard(); return; }
+    var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined;
+    setTimeout(normalizeSidebarHard,60); setTimeout(normalizeSidebarHard,500);
+    return r;
+  };
+  document.addEventListener('click',function(e){
+    var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(!tab) return;
+    if(keyOf(tab)==='returnCases'){ e.preventDefault(); e.stopImmediatePropagation(); showReturnCasesHard(); }
+  },true);
+  function boot(){ normalizeSidebarHard(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='returnCases') showReturnCasesHard(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(normalizeSidebarHard,800);setTimeout(normalizeSidebarHard,2000);});
+  try{new MutationObserver(normalizeSidebarHard).observe($('sideMenu')||document.body,{childList:true,subtree:true});}catch(e){}
+})();
+</script>
+<style id="final-prebooking-filter-label-readability-and-dedupe-style">
+#preBookingPage .filter-label,
+#preBookingPage .pb-filter-label,
+#preBookingPage label,
+#preBookingPage .filters .filter-label,
+#preBookingPage .pb-filters .filter-label,
+#preBookingPage .pb-filters label {
+  color:#111827!important;
+  opacity:1!important;
+  visibility:visible!important;
+  font-size:12px!important;
+  font-weight:900!important;
+  text-transform:uppercase!important;
+  letter-spacing:.055em!important;
+  text-shadow:none!important;
+}
+#sideMenu .side-tab[data-pb-tab="dashboard"]{order:20!important;}
+#sideMenu .side-tab[data-pb-tab="gspn"]{order:21!important;}
+#sideMenu .side-tab[data-pb-tab="sky"]{order:22!important;}
+#sideMenu .side-tab[data-pb-tab="preBooking"]{order:23!important;}
+#sideMenu .side-tab[data-pb-tab="returnCases"]{order:24!important;display:flex!important;visibility:visible!important;opacity:1!important;}
+#sideMenu .side-tab[data-pb-tab="profit"]{order:25!important;}
+#sideMenu .side-tab[data-pb-tab="cashTarget"]{order:26!important;}
+#sideMenu .side-tab[data-pb-tab="userManagement"]{order:27!important;}
 </style>
 
 </body>
@@ -19294,6 +19574,15 @@ window.addEventListener('beforeunload', function() {
     #sideMenu .side-tab .side-icon, #sideMenu .side-tab .side-tab-logo, #sideMenu .side-tab .tab-logo-img { width:34px !important; height:34px !important; min-width:34px !important; }
     #sideMenu #authUserWidget { padding: 10px 12px !important; }
     #sideMenu #authUserWidget .auth-btn, #sideMenu #authUserWidget button { min-height: 42px !important; padding: 8px 10px !important; }
+  }
+
+  /* Clear readable Pre_Booking filter headers */
+  #preBookingPage .pb-filters .filter-label,
+  #preBookingPage .pb-filter-label {
+    color:#334155 !important;
+    text-shadow:none !important;
+    font-weight:900 !important;
+    opacity:1 !important;
   }
 </style>
 <script id="codex-sidebar-color-github-live-script">
@@ -19988,4 +20277,296 @@ canvas { will-change: auto; }
 #dashboardPage .service-v2-update-notice{display:none!important;}
 body.theme-volta .card,body.theme-volta .pb-card,body.theme-volta #returnCasesPage .rc-card{background:#fffaf0!important;border-radius:14px!important;box-shadow:0 8px 22px rgba(15,23,42,.10)!important;}
 body.theme-volta .filters,body.theme-volta .pb-filters,body.theme-volta #returnCasesPage .rc-filters{background:#fffaf0!important;border-radius:14px!important;box-shadow:0 10px 24px rgba(15,23,42,.08)!important;}
+</style>
+
+
+<script id="return-cases-visibility-and-sidebar-final-fix">
+(function(){
+  'use strict';
+
+  var ORDER = [
+    ['dashboard','Dashboard','<span class="side-icon dashboard-side-icon">📊</span>',"switchTab('dashboard')"],
+    ['gspn','GSPN Tracking Cases','<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />',"switchTab('gspn')"],
+    ['sky','SKY Tracking Cases','<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />',"switchTab('sky')"],
+    ['preBooking','Pre_Booking','<span class="side-icon prebooking-side-icon">📋</span>',"switchTab('preBooking')"],
+    ['returnCases','Return Cases','<span class="side-icon returncases-side-icon">↩️</span>',"switchTab('returnCases')"],
+    ['profit','Profitability & commission','<span class="side-icon">💰</span>',"switchTab('profit')"],
+    ['cashTarget','Cash & Target','<span class="side-icon">🎯</span>',"openCashTargetTab()"],
+    ['userManagement','User Management','<span class="side-icon">👥</span>',"switchTab('userManagement')"]
+  ];
+  var PAGE_IDS = {
+    dashboard:'dashboardPage',
+    gspn:'gspnPage',
+    sky:'skyPage',
+    preBooking:'preBookingPage',
+    returnCases:'returnCasesPage',
+    profit:'profitPage',
+    cashTarget:'cashTargetPage',
+    userManagement:'userManagementPage'
+  };
+
+  function text(v){ return String(v == null ? '' : v).trim(); }
+  function lower(v){ return text(v).toLowerCase(); }
+  function $(id){ return document.getElementById(id); }
+
+  function keyFromTab(el){
+    if(!el) return '';
+    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || '';
+    if(k) return k;
+    var oc = el.getAttribute('onclick') || '';
+    var t = lower(el.textContent);
+    if(oc.indexOf('dashboard')>=0 || t.indexOf('dashboard')>=0) return 'dashboard';
+    if(oc.indexOf('preBooking')>=0 || t.indexOf('pre_booking')>=0 || t.indexOf('pre booking')>=0) return 'preBooking';
+    if(oc.indexOf('returnCases')>=0 || t.indexOf('return cases')>=0) return 'returnCases';
+    if(oc.indexOf('gspn')>=0 || t.indexOf('gspn')>=0) return 'gspn';
+    if(oc.indexOf('sky')>=0 || t.indexOf('sky')>=0) return 'sky';
+    if(oc.indexOf('profit')>=0 || t.indexOf('profit')>=0 || t.indexOf('commission')>=0) return 'profit';
+    if(oc.indexOf('openCashTargetTab')>=0 || oc.indexOf('cashTarget')>=0 || t.indexOf('cash')>=0 || t.indexOf('target')>=0) return 'cashTarget';
+    if(t.indexOf('user management')>=0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
+    return '';
+  }
+
+  function makeTab(def){
+    var el = document.createElement('div');
+    el.className = 'side-tab';
+    if(def[0] === 'userManagement') el.className += ' firebase-user-management-tab admin-only';
+    el.setAttribute('data-pb-tab', def[0]);
+    el.setAttribute('data-fb-tab-key', def[0]);
+    el.setAttribute('data-tip', def[1]);
+    el.setAttribute('onclick', def[3]);
+    el.innerHTML = def[2] + '<span class="side-label">' + def[1] + '</span>';
+    return el;
+  }
+
+  function canSeeTab(key){
+    var el = document.querySelector('.side-tab[data-pb-tab="'+key+'"],.side-tab[data-fb-tab-key="'+key+'"]');
+    if(!el) return true;
+    if(el.classList.contains('fb-tab-denied')) return false;
+    if(el.getAttribute('aria-hidden') === 'true') return false;
+    return true;
+  }
+
+  function normalizeSidebar(){
+    var side = $('sideMenu') || document.querySelector('.side-menu');
+    if(!side) return;
+
+    var tabs = Array.prototype.slice.call(side.querySelectorAll('.side-tab'));
+    tabs.forEach(function(el){
+      var k = keyFromTab(el);
+      if(k){
+        el.setAttribute('data-pb-tab', k);
+        el.setAttribute('data-fb-tab-key', k);
+        el.setAttribute('data-tip', (ORDER.find(function(d){return d[0]===k;}) || [,''])[1] || text(el.textContent));
+      }
+    });
+
+    var seenKeys = {};
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k = keyFromTab(el);
+      if(!k) return;
+      if(seenKeys[k]) {
+        try { el.remove(); } catch(e) { if(el.parentNode) el.parentNode.removeChild(el); }
+      } else {
+        seenKeys[k] = el;
+      }
+    });
+
+    ORDER.forEach(function(def){
+      if(def[0] === 'userManagement'){
+        var existingUM = side.querySelector('.side-tab.firebase-user-management-tab') || Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e)==='userManagement'; });
+        if(existingUM){
+          existingUM.setAttribute('data-pb-tab','userManagement');
+          existingUM.setAttribute('data-fb-tab-key','userManagement');
+          existingUM.setAttribute('data-tip','User Management');
+        }
+        return;
+      }
+      var existing = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
+      if(!existing) side.appendChild(makeTab(def));
+    });
+
+    var workspace = Array.prototype.slice.call(side.querySelectorAll('.side-section-title')).find(function(e){ return lower(e.textContent).indexOf('workspace')>=0; });
+    if(!workspace){
+      workspace = document.createElement('div');
+      workspace.className = 'side-section-title side-label';
+      workspace.textContent = 'Workspace';
+      var head = side.querySelector('.side-head');
+      if(head && head.nextSibling) side.insertBefore(workspace, head.nextSibling);
+      else side.insertBefore(workspace, side.firstChild);
+    }
+
+    var anchor = workspace;
+    ORDER.forEach(function(def, idx){
+      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
+      if(!el) return;
+      el.style.order = String(20 + idx);
+      if(def[0] === 'returnCases'){
+        el.classList.remove('fb-tab-denied');
+        el.setAttribute('aria-hidden','false');
+        el.style.removeProperty('display');
+        el.style.removeProperty('visibility');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('height');
+        el.style.removeProperty('width');
+      }
+      if(anchor.nextSibling !== el) side.insertBefore(el, anchor.nextSibling);
+      anchor = el;
+    });
+
+    var active = '';
+    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
+    if(active){
+      Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+        el.classList.toggle('active', keyFromTab(el) === active);
+      });
+    }
+  }
+
+  function setVisiblePage(key){
+    Object.keys(PAGE_IDS).forEach(function(k){
+      var page = $(PAGE_IDS[k]);
+      if(page) page.style.display = (k === key ? 'block' : 'none');
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){
+      el.classList.toggle('active', keyFromTab(el) === key);
+    });
+    try { localStorage.setItem('serviceEyeActiveTab', key); } catch(e) {}
+  }
+
+  var previousSwitch = window.switchTab;
+  window.switchTab = function(tab){
+    normalizeSidebar();
+
+    if(tab === 'returnCases'){
+      if(!$('returnCasesPage') && typeof window.loadReturnCases === 'function'){
+        try { window.loadReturnCases(false); } catch(e) {}
+      }
+      setVisiblePage('returnCases');
+      if(typeof window.loadReturnCases === 'function') setTimeout(function(){ window.loadReturnCases(false); }, 60);
+      else if(typeof window.renderReturnCases === 'function') setTimeout(window.renderReturnCases, 60);
+      return;
+    }
+
+    var result;
+    if(typeof previousSwitch === 'function') result = previousSwitch.apply(this, arguments);
+    var returnPage = $('returnCasesPage');
+    if(returnPage && tab !== 'returnCases') returnPage.style.display = 'none';
+    setTimeout(normalizeSidebar, 80);
+    return result;
+  };
+
+  function patchFirebaseShowTab(){
+    if(window.__returnCasesShowTabPatched) return;
+    window.__returnCasesShowTabPatched = true;
+    document.addEventListener('click', function(ev){
+      var tab = ev.target && ev.target.closest ? ev.target.closest('.side-tab') : null;
+      if(!tab) return;
+      var k = keyFromTab(tab);
+      if(k === 'returnCases'){
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        window.switchTab('returnCases');
+        return false;
+      }
+    }, true);
+  }
+
+  function boot(){
+    normalizeSidebar();
+    patchFirebaseShowTab();
+    var active = '';
+    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
+    if(active === 'returnCases') window.switchTab('returnCases');
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+  window.addEventListener('load', function(){ setTimeout(boot, 100); setTimeout(boot, 900); });
+
+  var runs = 0;
+  var timer = setInterval(function(){
+    normalizeSidebar();
+    runs += 1;
+    if(runs > 25) clearInterval(timer);
+  }, 400);
+
+  try {
+    new MutationObserver(function(){ normalizeSidebar(); }).observe(document.getElementById('sideMenu') || document.body, {childList:true, subtree:true});
+  } catch(e) {}
+})();
+</script>
+
+<style id="return-cases-filter-label-readability-final-fix">
+/* Clear, consistent filter headers across all tabs */
+.filter-label,
+.pb-filter-label,
+.rc-filter-label,
+#returnCasesPage .rc-filter-label,
+#returnCasesPage .filter-label,
+.sky-filters .filter-label,
+.filters .filter-label,
+.pb-filters .filter-label,
+.rc-filters .filter-label {
+  color: #111827 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .055em !important;
+  margin-bottom: 7px !important;
+  text-shadow: none !important;
+}
+
+/* Return Cases cards must use the same readable card style as GSPN cards */
+#returnCasesPage .rc-cards,
+#returnCasesPage .cards {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 14px !important;
+  margin-bottom: 18px !important;
+}
+#returnCasesPage .rc-card,
+#returnCasesPage .card {
+  background: #fffaf0 !important;
+  color: #111827 !important;
+  border: 1px solid rgba(10,10,10,.14) !important;
+  border-top: 4px solid var(--codex-accent,var(--coral,#7c3aed)) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 22px rgba(15,23,42,.10) !important;
+  min-height: 112px !important;
+  padding: 16px !important;
+}
+#returnCasesPage .rc-card .label,
+#returnCasesPage .card .label {
+  color: #374151 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+#returnCasesPage .rc-card .value,
+#returnCasesPage .card .value {
+  color: #000000 !important;
+  font-size: 24px !important;
+  font-weight: 900 !important;
+}
+#returnCasesPage .rc-card .percent,
+#returnCasesPage .card .percent {
+  color: #0f766e !important;
+  font-weight: 900 !important;
+}
+
+/* Sidebar order is physical and visual. Return Cases stays below Pre_Booking. */
+#sideMenu {
+  display: flex !important;
+  flex-direction: column !important;
+}
+#sideMenu .side-tab[data-pb-tab="dashboard"]{order:20!important;}
+#sideMenu .side-tab[data-pb-tab="gspn"]{order:21!important;}
+#sideMenu .side-tab[data-pb-tab="sky"]{order:22!important;}
+#sideMenu .side-tab[data-pb-tab="preBooking"]{order:23!important;}
+#sideMenu .side-tab[data-pb-tab="returnCases"]{order:24!important;display:flex!important;visibility:visible!important;opacity:1!important;}
+#sideMenu .side-tab[data-pb-tab="profit"]{order:25!important;}
+#sideMenu .side-tab[data-pb-tab="cashTarget"]{order:26!important;}
+#sideMenu .side-tab[data-pb-tab="userManagement"]{order:27!important;}
 </style>
