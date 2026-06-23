@@ -18037,16 +18037,79 @@ window.addEventListener('beforeunload', function() {
   body.firebase-auth-required #firebaseLoginOverlay h1,
   body.firebase-auth-required #firebaseLoginOverlay label { color:#0f172a !important; }
 </style>
+
+<style id="ssc-realtime-online-users-style">
+  #sscLiveUsersPanel {
+    margin: 14px 10px 14px;
+    padding: 12px;
+    min-height: 150px;
+    border-radius: 16px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.14);
+    color: #f8fafc;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  #sscLiveUsersPanel .ssc-live-users-head {
+    font-weight: 900;
+    font-size: 13px;
+    margin-bottom: 10px;
+    color: #ffffff;
+    letter-spacing: .02em;
+  }
+  #sscLiveUsersPanel .ssc-live-users-list { display: grid; gap: 8px; }
+  #sscLiveUsersPanel .ssc-live-user-row {
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) minmax(90px, 1.15fr);
+    gap: 8px;
+    align-items: center;
+    padding: 7px 8px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.10);
+  }
+  #sscLiveUsersPanel .ssc-live-user-name {
+    font-weight: 900;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #sscLiveUsersPanel .ssc-live-user-tab {
+    font-size: 11px;
+    font-weight: 800;
+    color: #dbeafe;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #sscLiveUsersPanel .ssc-live-users-empty {
+    font-size: 12px;
+    font-weight: 800;
+    opacity: .75;
+    padding: 8px;
+  }
+  body.theme-volta #sscLiveUsersPanel {
+    background: rgba(244,240,232,.07) !important;
+    border: 1px solid rgba(244,240,232,.16) !important;
+    border-radius: 10px !important;
+  }
+  body.theme-volta #sscLiveUsersPanel .ssc-live-users-head { color: #f4f0e8 !important; }
+  body.theme-volta #sscLiveUsersPanel .ssc-live-user-row { background: rgba(244,240,232,.08) !important; border-color: rgba(244,240,232,.13) !important; }
+  body.theme-volta #sscLiveUsersPanel .ssc-live-user-tab { color: #ffb3a3 !important; }
+  body.menu-collapsed #sscLiveUsersPanel { display: none !important; }
+</style>
+
 <script>
 /* ══ Firebase SDK loader — async so it never blocks page paint ══
-   Resolves window.__firebaseReady promise once all 3 SDKs are loaded.
+   Resolves window.__firebaseReady promise once all Firebase SDKs are loaded.
    The auth script below awaits this before calling initFirebase().      */
 (function(){
   var resolve;
   window.__firebaseReady = new Promise(function(res){ resolve = res; });
   var loaded = 0;
-  function onLoad(){ if(++loaded === 3) resolve(); }
-  ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js'].forEach(function(file){
+  function onLoad(){ if(++loaded === 4) resolve(); }
+  ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js','firebase-database-compat.js'].forEach(function(file){
     var s = document.createElement('script');
     s.src = 'https://www.gstatic.com/firebasejs/10.12.5/' + file;
     s.async = true;
@@ -18061,6 +18124,7 @@ window.addEventListener('beforeunload', function() {
   const firebaseConfig = {
     apiKey: "AIzaSyBP_THgBY6vL1cj1OxAG1ldC3GeKS-5mBQ",
     authDomain: "service-support-center-f44f0.firebaseapp.com",
+    databaseURL: "https://service-support-center-f44f0-default-rtdb.europe-west1.firebasedatabase.app",
     projectId: "service-support-center-f44f0",
     storageBucket: "service-support-center-f44f0.firebasestorage.app",
     messagingSenderId: "750313102449",
@@ -18080,7 +18144,8 @@ window.addEventListener('beforeunload', function() {
   const ADMIN_TAB = {key:'userManagement', title:'User Management', pageId:'userManagementPage'};
 
   /* ── State ── */
-  let app, auth, db, currentProfile = null, unsubscribeUsers = null;
+  let app, auth, db, rtdb, currentProfile = null, unsubscribeUsers = null;
+  let presenceUserRef = null, presenceTimer = null, unsubscribePresence = null;
   let firebasePersistenceReady = Promise.resolve();
 
   /* ── Profile Cache (Auth-only — no Firestore on reload) ── */
@@ -18145,8 +18210,9 @@ window.addEventListener('beforeunload', function() {
     app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
     auth = firebase.auth();
     db = firebase.firestore();
+    rtdb = firebase.database();
     try{ firebasePersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(e){ firebasePersistenceReady = Promise.resolve(); }
-    window.firebaseSSC = {app, auth, db, getCurrentProfile:()=>currentProfile, isAdmin};
+    window.firebaseSSC = {app, auth, db, rtdb, getCurrentProfile:()=>currentProfile, isAdmin};
   }
 
   /* ── Firestore profile (used only on first login & background refresh) ── */
@@ -18167,6 +18233,94 @@ window.addEventListener('beforeunload', function() {
     }catch(e){}
   }
 
+
+  /* ── Realtime online users ── */
+  function currentTabTitle(key){
+    const all = TABS.concat([ADMIN_TAB]);
+    const found = all.find(t=>t.key===key);
+    return found ? found.title : (key || 'Dashboard');
+  }
+  function safePresenceId(){
+    const base = (currentProfile && (currentProfile.id || currentProfile.email || currentProfile.username)) || 'guest';
+    return String(base).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'user';
+  }
+  function ensureLiveUsersPanel(){
+    const side = document.querySelector('.side-menu');
+    if(!side) return null;
+    let box = document.getElementById('sscLiveUsersPanel');
+    if(!box){
+      box = document.createElement('div');
+      box.id = 'sscLiveUsersPanel';
+      box.className = 'ssc-live-users-panel side-label';
+      box.innerHTML = '<div class="ssc-live-users-head">🟢 Online Users (0)</div><div class="ssc-live-users-list"><div class="ssc-live-users-empty">Waiting for users...</div></div>';
+      const design = side.querySelector('.design-options');
+      if(design && design.parentNode) design.insertAdjacentElement('afterend', box);
+      else side.appendChild(box);
+    }
+    return box;
+  }
+  function renderLiveUsers(snap){
+    const box = ensureLiveUsersPanel();
+    if(!box) return;
+    const raw = (snap && snap.val && snap.val()) || {};
+    const now = Date.now();
+    const grouped = {};
+    Object.keys(raw).forEach(id=>{
+      const u = raw[id] || {};
+      const seen = Number(u.lastSeen || 0);
+      if(!seen || now - seen > 120000) return;
+      const name = norm(u.name || u.email || id) || 'User';
+      if(!grouped[name] || Number(grouped[name].lastSeen||0) < seen) grouped[name] = u;
+    });
+    const users = Object.values(grouped).sort((a,b)=>norm(a.name||a.email).localeCompare(norm(b.name||b.email)));
+    const head = box.querySelector('.ssc-live-users-head');
+    const list = box.querySelector('.ssc-live-users-list');
+    if(head) head.textContent = '🟢 Online Users (' + users.length + ')';
+    if(list){
+      list.innerHTML = users.length ? users.map(u=>{
+        const name = esc(u.name || u.email || 'User');
+        const tab = esc(u.tabTitle || currentTabTitle(u.tabKey));
+        return '<div class="ssc-live-user-row"><span class="ssc-live-user-name">'+name+'</span><span class="ssc-live-user-tab">'+tab+'</span></div>';
+      }).join('') : '<div class="ssc-live-users-empty">No online users</div>';
+    }
+  }
+  function updatePresenceTab(key){
+    try{
+      if(!rtdb || !currentProfile || !presenceUserRef) return;
+      const tabKey = key || window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || 'dashboard';
+      presenceUserRef.update({
+        name: currentProfile.username || currentProfile.email || 'User',
+        email: currentProfile.email || '',
+        role: currentProfile.role || '',
+        tabKey: tabKey,
+        tabTitle: currentTabTitle(tabKey),
+        lastSeen: firebase.database.ServerValue.TIMESTAMP
+      });
+    }catch(e){}
+  }
+  function startPresence(){
+    try{
+      if(!rtdb || !currentProfile) return;
+      ensureLiveUsersPanel();
+      stopPresence(true);
+      presenceUserRef = rtdb.ref('presence/users/' + safePresenceId());
+      presenceUserRef.onDisconnect().remove();
+      updatePresenceTab(window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || firstAllowed() || 'dashboard');
+      presenceTimer = setInterval(()=>updatePresenceTab(window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || 'dashboard'), 30000);
+      unsubscribePresence = rtdb.ref('presence/users').on('value', renderLiveUsers);
+    }catch(e){}
+  }
+  function stopPresence(keepPanel){
+    try{ if(presenceTimer) clearInterval(presenceTimer); }catch(e){}
+    presenceTimer = null;
+    try{ if(unsubscribePresence && rtdb) rtdb.ref('presence/users').off('value', unsubscribePresence); }catch(e){}
+    unsubscribePresence = null;
+    try{ if(presenceUserRef) presenceUserRef.remove(); }catch(e){}
+    presenceUserRef = null;
+    if(!keepPanel){ const box=document.getElementById('sscLiveUsersPanel'); if(box) box.remove(); }
+  }
+  window.addEventListener('beforeunload', function(){ try{ if(presenceUserRef) presenceUserRef.remove(); }catch(e){} });
+
   /* ── Auth state ── */
   function ensureLoginOverlay(){ document.body.classList.add('firebase-auth-pending'); }
 
@@ -18180,8 +18334,9 @@ window.addEventListener('beforeunload', function() {
     document.documentElement.classList.toggle('admin', isAdmin());
     window.isAdmin = () => isAdmin();
     window.currentFirebaseUserProfile = profile;
-    ensureUserWidget(); ensureAdminTab(); markKnownTabs();
+    ensureUserWidget(); ensureAdminTab(); markKnownTabs(); ensureLiveUsersPanel();
     applyPermissions(true);
+    startPresence();
     const savedKey = window.__fbActiveTabKey || (function(){ try{ return localStorage.getItem('serviceEyeActiveTab'); }catch(e){ return null; } })();
     const targetKey = (savedKey && allowedKeys(profile).includes(savedKey)) ? savedKey : (firstAllowed()||'gspn');
     setTimeout(()=>showTab(targetKey), 50);
@@ -18193,6 +18348,7 @@ window.addEventListener('beforeunload', function() {
     document.body.classList.remove('firebase-auth-pending','firebase-admin','firebase-manager','firebase-viewer','firebase-authenticated');
     document.documentElement.classList.remove('admin');
     markKnownTabs(); applyPermissions();
+    stopPresence(false);
   }
 
   /* ── Tab helpers ── */
@@ -18206,6 +18362,7 @@ window.addEventListener('beforeunload', function() {
     if(oc.includes("'dashboard'")||oc.includes('"dashboard"')||txt.includes('dashboard')) return 'dashboard';
     if(oc.includes("'preBooking'")||oc.includes('"preBooking"')||txt.includes('pre_booking')||txt.includes('pre booking')) return 'preBooking';
     if(oc.includes("'returnCases'")||oc.includes('"returnCases"')||txt.includes('return cases')) return 'returnCases';
+    if(oc.includes("'receivedDelivered'")||oc.includes('"receivedDelivered"')||txt.includes('received')||txt.includes('delivered')) return 'receivedDelivered';
     if(oc.includes("'gspn'")||oc.includes('"gspn"')||txt.includes('gspn')) return 'gspn';
     if(oc.includes("'sky'")||oc.includes('"sky"')||txt.includes('sky')) return 'sky';
     if(oc.includes("'profit'")||oc.includes('"profit"')||txt.includes('profitability')) return 'profit';
@@ -18249,8 +18406,11 @@ window.addEventListener('beforeunload', function() {
       if(key==='profit'&&typeof window.renderProfit==='function') window.renderProfit();
       if(key==='cashTarget'&&typeof window.renderCashTarget==='function') window.renderCashTarget();
       if(key==='returnCases'&&typeof window.loadReturnCases==='function') window.loadReturnCases(false);
+      if(key==='receivedDelivered'&&typeof window.loadReceivedDelivered==='function') window.loadReceivedDelivered(false);
+      if(key==='receivedDelivered'&&typeof window.renderReceivedDelivered==='function') window.renderReceivedDelivered();
       if(key==='userManagement') renderUserManagement();
     }catch(e){} },80);
+    updatePresenceTab(key);
     return true;
   }
   function applyPermissions(skipRedirect){
@@ -18283,7 +18443,7 @@ window.addEventListener('beforeunload', function() {
     const oldSwitch=window.switchTab;
     window.switchTab=function(tab){
       if(tab==='cash') tab='cashTarget';
-      if(['gspn','sky','profit','cashTarget','preBooking','returnCases','dashboard','userManagement'].includes(tab)) return showTab(tab);
+      if(['gspn','sky','profit','cashTarget','preBooking','returnCases','receivedDelivered','dashboard','userManagement'].includes(tab)) return showTab(tab);
       if(typeof oldSwitch==='function') return oldSwitch.apply(this,arguments);
     };
     window.openCashTargetTab=function(){ return showTab('cashTarget'); };
