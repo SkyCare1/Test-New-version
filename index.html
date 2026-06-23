@@ -143,7 +143,7 @@ window.v57_getPresenceCounts = function(){return{gspn:0,sky:0,analysis:0};};
 function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
 
 function switchTab(tab) {
-      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement + dashboard + preBooking;
+      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases", "receivedDelivered"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement + dashboard + preBooking;
 
       localStorage.setItem("serviceEyeActiveTab", safeTab);
       document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; el.classList.toggle("active", oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
@@ -1979,6 +1979,10 @@ display:none !important;
   
 })();
 </script>
+
+<style id="ssc-online-users-admin-only-guard">
+  body:not(.firebase-admin) #sscLiveUsersPanel { display:none!important; visibility:hidden!important; }
+</style>
 </head>
 <body class="firebase-auth-pending theme-volta">
   <aside class="side-menu" id="sideMenu">
@@ -3225,7 +3229,7 @@ display:none !important;
     }
 
     function switchTab(tab) {
-      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement;
+      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases", "receivedDelivered"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement;
       localStorage.setItem("serviceEyeActiveTab", safeTab);
       document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; el.classList.toggle("active", oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
       const gspnPage = document.getElementById("gspnPage"); const skyPage = document.getElementById("skyPage"); const profitPage = document.getElementById("profitPage");
@@ -18246,12 +18250,16 @@ window.addEventListener('beforeunload', function() {
   }
   function ensureLiveUsersPanel(){
     const side = document.querySelector('.side-menu');
-    if(!side) return null;
     let box = document.getElementById('sscLiveUsersPanel');
+    if(!isAdmin()){
+      if(box) box.remove();
+      return null;
+    }
+    if(!side) return null;
     if(!box){
       box = document.createElement('div');
       box.id = 'sscLiveUsersPanel';
-      box.className = 'ssc-live-users-panel side-label';
+      box.className = 'ssc-live-users-panel side-label admin-only';
       box.innerHTML = '<div class="ssc-live-users-head">🟢 Online Users (0)</div><div class="ssc-live-users-list"><div class="ssc-live-users-empty">Waiting for users...</div></div>';
       const design = side.querySelector('.design-options');
       if(design && design.parentNode) design.insertAdjacentElement('afterend', box);
@@ -18260,6 +18268,11 @@ window.addEventListener('beforeunload', function() {
     return box;
   }
   function renderLiveUsers(snap){
+    if(!isAdmin()){
+      const hiddenBox = document.getElementById('sscLiveUsersPanel');
+      if(hiddenBox) hiddenBox.remove();
+      return;
+    }
     const box = ensureLiveUsersPanel();
     if(!box) return;
     const raw = (snap && snap.val && snap.val()) || {};
@@ -18298,16 +18311,22 @@ window.addEventListener('beforeunload', function() {
       });
     }catch(e){}
   }
+  window.sscUpdatePresenceTab = updatePresenceTab;
   function startPresence(){
     try{
       if(!rtdb || !currentProfile) return;
-      ensureLiveUsersPanel();
       stopPresence(true);
       presenceUserRef = rtdb.ref('presence/users/' + safePresenceId());
       presenceUserRef.onDisconnect().remove();
       updatePresenceTab(window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || firstAllowed() || 'dashboard');
       presenceTimer = setInterval(()=>updatePresenceTab(window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || 'dashboard'), 30000);
-      unsubscribePresence = rtdb.ref('presence/users').on('value', renderLiveUsers);
+      if(isAdmin()){
+        ensureLiveUsersPanel();
+        unsubscribePresence = rtdb.ref('presence/users').on('value', renderLiveUsers);
+      }else{
+        const box=document.getElementById('sscLiveUsersPanel');
+        if(box) box.remove();
+      }
     }catch(e){}
   }
   function stopPresence(keepPanel){
@@ -19498,7 +19517,7 @@ window.addEventListener('beforeunload', function() {
   window.rdDownloadDrill=function(){toXlsx(rdDrillRows,'Received Delivered Details');};
   window.rdClearFilters=function(){['rdBranchFilter','rdEmployeeFilter','rdTypeFilter','rdMonthFilter'].forEach(function(id){var b=$(id); if(b)b.__selected=[];}); rdCardFilter={type:'',value:''}; initFilters(); render();};
   window.loadReceivedDelivered=async function(manual){makePage(); ensureSide(); notice('Updating now','Auto Sync',rdRows.length,'Loading data...'); try{var raw=await fetchRows(!!manual); rdRows=(raw||[]).map(function(r){return Object.assign({},r,{Branch:txt(r.Branch),Employee:txt(r.Employee),Type:txt(r.Type)});}).filter(function(r){return r.Branch||r.Employee||r.Type;}); rdFlat=flatten(rdRows); window.receivedDeliveredRows=rdRows; window.receivedDeliveredFlatRows=rdFlat; initFilters(); render(); return rdRows;}catch(e){console.error(e); rdRows=[]; rdFlat=[]; initFilters(); render(); notice('Waiting for data','Auto Sync',0,e&&e.message?e.message:'Load failed'); return [];}};
-  function hideAllShow(){['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='receivedDelivered');}); try{localStorage.setItem('serviceEyeActiveTab','receivedDelivered');}catch(e){}}
+  function hideAllShow(){['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='receivedDelivered');}); try{localStorage.setItem('serviceEyeActiveTab','receivedDelivered');}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab('receivedDelivered'); }catch(e){}}
   function show(){makePage(); ensureSide(); hideAllShow(); if(!rdRows.length)window.loadReceivedDelivered(false); else render();}
   var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab==='receivedDelivered'){show();return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='none'; setTimeout(ensureSide,80); return r; };
   document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&keyOf(tab)==='receivedDelivered'){e.preventDefault();e.stopImmediatePropagation();show();}},true);
