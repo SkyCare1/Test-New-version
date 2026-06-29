@@ -699,20 +699,22 @@ function switchTab(tab) {
       const closedRows = rows.filter(r => r.StatusFinal === "Closed" || r.StatusFinal === "Ready");
       const failedRows = rows.filter(r => String(r.KPIResult).startsWith("Failed"));
       const ltpFailedRows = rows.filter(r => r.KPIResult === "Failed - LTP");
+      const ltpInWarrantyRows = ltpFailedRows.filter(isInWarrantyCase);
+      const ltpOutWarrantyRows = ltpFailedRows.filter(isOutWarrantyCase);
       const tatFailedRows = rows.filter(r => r.KPIResult === "Failed - TAT");
       const fixRows = rows.filter(r => r.KPIAlert === "Fix Today");
       const watchRows = rows.filter(r => r.KPIAlert === "Watch");
 
-      setText("totalCases", total);
-      setText("totalPercent", total ? "100%" : "0%");
       setText("openCases", openRows.length);
       setText("openPercent", `${pct(openRows.length, total)}% of Total`);
       setText("closedCases", closedRows.length);
       setText("closedPercent", `${pct(closedRows.length, total)}% of Total`);
       setText("failedCases", failedRows.length);
       setText("failedPercent", `${pct(failedRows.length, total)}% of Total`);
-      setText("ltpFailedCases", ltpFailedRows.length);
-      setText("ltpFailedPercent", `${pct(ltpFailedRows.length, failedRows.length)}% of Failed KPI`);
+      setText("ltpInWarrantyCases", ltpInWarrantyRows.length);
+      setText("ltpInWarrantyPercent", `${pct(ltpInWarrantyRows.length, failedRows.length)}% of Failed KPI`);
+      setText("ltpOutWarrantyCases", ltpOutWarrantyRows.length);
+      setText("ltpOutWarrantyPercent", `${pct(ltpOutWarrantyRows.length, failedRows.length)}% of Failed KPI`);
       setText("tatFailedCases", tatFailedRows.length);
       setText("tatFailedPercent", `${pct(tatFailedRows.length, failedRows.length)}% of Failed KPI`);
       setText("fixTodayCases", fixRows.length);
@@ -1031,6 +1033,8 @@ function switchTab(tab) {
         if (quickFilter === "Closed" && !(r.StatusFinal === "Closed" || r.StatusFinal === "Ready")) return false;
         if (quickFilter === "Failed" && !String(r.KPIResult).startsWith("Failed")) return false;
         if (quickFilter === "Failed - LTP" && r.KPIResult !== "Failed - LTP") return false;
+        if (quickFilter === "Failed - LTP In Warranty" && (r.KPIResult !== "Failed - LTP" || !isInWarrantyCase(r))) return false;
+        if (quickFilter === "Failed - LTP Out Warranty" && (r.KPIResult !== "Failed - LTP" || !isOutWarrantyCase(r))) return false;
         if (quickFilter === "Failed - TAT" && r.KPIResult !== "Failed - TAT") return false;
         if (["Fix Today", "Watch"].includes(quickFilter) && r.KPIAlert !== quickFilter) return false;
         if (quickFilter && typeof quickFilter === "object") {
@@ -1057,6 +1061,11 @@ function switchTab(tab) {
     function showOnlyStatus(status) { quickFilter = status; render(); scrollToCases(); }
     function showFailedCases() { quickFilter = "Failed"; render(); scrollToCases(); }
     function showFailedType(type) { quickFilter = `Failed - ${type}`; render(); scrollToCases(); }
+    function showLtpWarrantyFailed(warrantyType) {
+      quickFilter = warrantyType === "out" ? "Failed - LTP Out Warranty" : "Failed - LTP In Warranty";
+      render();
+      scrollToCases();
+    }
     function showOnlyAlert(alert) { quickFilter = alert; render(); scrollToCases(); }
     function filterByBranch(branch) { quickFilter = { type: "branch", value: branch }; render(); scrollToCases(); }
     function filterByGspnStatus(status) { quickFilter = { type: "gspnStatus", value: status }; render(); scrollToCases(); }
@@ -1262,7 +1271,17 @@ function switchTab(tab) {
     function unique(arr) { return [...new Set(arr.map(clean).filter(Boolean))].sort(); }
     function avg(arr) { return arr.reduce((a,b) => a + b, 0) / arr.length; }
     function pct(part, whole) { return whole ? ((part / whole) * 100).toFixed(1) : "0.0"; }
-    function setText(id, value) { document.getElementById(id).textContent = value; }
+    function isInWarrantyCase(row) {
+      const warranty = clean(row && row["GSPN Warranty"]).toLowerCase().replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+      if (!warranty) return false;
+      if (warranty.includes("out of warranty") || warranty === "oow" || warranty.includes("out warranty")) return false;
+      return warranty.includes("in warranty") || warranty === "iw" || warranty === "inwarranty";
+    }
+    function isOutWarrantyCase(row) {
+      const warranty = clean(row && row["GSPN Warranty"]).toLowerCase().replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+      return warranty.includes("out of warranty") || warranty === "oow" || warranty.includes("out warranty");
+    }
+    function setText(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
 
     function setUploadProgress(percent, title, note, show = true) {
       const wrap = document.getElementById("uploadProgressWrap");
@@ -2393,8 +2412,6 @@ const d = safeParseDate(out.Open_Date);
     if(oldRender) oldRender();
     try{
       const totalAll = Array.isArray(window.allRows) ? window.allRows.length : 0;
-      setText('totalCases', totalAll);
-      setText('totalPercent', totalAll ? '100%' : '0%');
       ensureGspnExcelFilters();
       updateGspnTimestamp();
     }catch(e){ }
@@ -2581,29 +2598,8 @@ const d = safeParseDate(out.Open_Date);
 
   function q(id){ return document.getElementById(id); }
   function text(v){ return String(v ?? '').trim(); }
-  const txt = text; /* GSPN cards fix: warranty helper uses txt(); keep it defined so render continues to tables. */
   function html(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
   function percent(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function isGspnInWarranty(row){
-    const w = txt(row && row['GSPN Warranty']).toLowerCase();
-    if(!w) return false;
-    if(w.includes('out') || w.includes('oow') || w.includes('out of warranty')) return false;
-    return w.includes('in') || w === 'iw' || w.includes('warranty');
-  }
-  function isGspnOutWarranty(row){
-    const w = txt(row && row['GSPN Warranty']).toLowerCase();
-    return !!w && (w.includes('out') || w.includes('oow') || w.includes('out of warranty'));
-  }
-  function updateGspnLtpWarrantyCards(rows, failedRows){
-    rows = Array.isArray(rows) ? rows : [];
-    failedRows = Array.isArray(failedRows) ? failedRows : rows.filter(r=>txt(r.KPIResult)==='Failed - LTP');
-    const inWarranty = failedRows.filter(isGspnInWarranty);
-    const outWarranty = failedRows.filter(isGspnOutWarranty);
-    setText('ltpInWarrantyCases', inWarranty.length);
-    setText('ltpInWarrantyPercent', `${percent(inWarranty.length, failedRows.length)}% of LTP Failed`);
-    setText('ltpOutWarrantyCases', outWarranty.length);
-    setText('ltpOutWarrantyPercent', `${percent(outWarranty.length, failedRows.length)}% of LTP Failed`);
-  }
   function setText(id, val){ const el=q(id); if(el) el.textContent = val; }
   function activeTab(){ const sky=q('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
   function safeAllRows(){ try { return Array.isArray(allRows) ? allRows : []; } catch(e){ return []; } }
@@ -2752,7 +2748,7 @@ const d = safeParseDate(out.Open_Date);
   window.renderSky=function(){ try{ if(!q('skyPage')) return; if(typeof getSkyFilteredRows==='function') currentSkyRows=getSkyFilteredRows(); else currentSkyRows=safeSkyRows(); const all=safeSkyRows(); const filtered=safeCurrentSkyRows(); setText('skyTotalCases', all.length); setText('skyOpenCases', all.filter(isSkyOpen).length); setText('skyReadyCases', all.filter(isSkyReady).length); setText('skyDeliveredCases', all.filter(isSkyDelivered).length); setText('skySamsungCases', all.filter(r=>text(r.Brand).toLowerCase()==='samsung').length); setText('skyAppleCases', all.filter(r=>text(r.Brand).toLowerCase()==='apple').length); setText('skyOpenPercent', `${percent(all.filter(isSkyOpen).length, all.length)}% of Total`); setText('skyReadyPercent', `${percent(all.filter(isSkyReady).length, all.length)}% of Total`); setText('skyDeliveredPercent', `${percent(all.filter(isSkyDelivered).length, all.length)}% of Total`); setText('skySamsungPercent', `${percent(all.filter(r=>text(r.Brand).toLowerCase()==='samsung').length, all.length)}% of Total`); setText('skyApplePercent', `${percent(all.filter(r=>text(r.Brand).toLowerCase()==='apple').length, all.length)}% of Total`); if(typeof renderTable==='function') renderTable('skyCasesTable', filtered.slice(0,1000), skyPreviewCols, false); ensureSkyFilters(); updateSkyCharts(filtered); renderLastUpdate('sky'); applyCurrentDesign(); } catch(e){ } };
 
   const originalRender=window.render;
-  window.render=function(){ if(originalRender) originalRender(); try{ const all=safeAllRows(); setText('totalCases', all.length); ensureGspnFilters(); renderLastUpdate('gspn'); applyCurrentDesign(); }catch(e){ } };
+  window.render=function(){ if(originalRender) originalRender(); try{ const all=safeAllRows(); ensureGspnFilters(); renderLastUpdate('gspn'); applyCurrentDesign(); }catch(e){ } };
 
   function renderLastUpdate(tab){
     const id=tab==='sky'?'skyLastUploadTime':'gspnLastUploadTime'; const wrapId=tab==='sky'?'skyUploadProgressWrap':'uploadProgressWrap'; const label=tab==='sky'?'Last SKY data update':'Last GSPN data update';
@@ -3049,7 +3045,7 @@ const d = safeParseDate(out.Open_Date);
   const oldRender=window.render;
   window.render=function(){
     const result=oldRender ? oldRender.apply(this,arguments) : undefined;
-    setTimeout(()=>{ try{ setText('totalCases', rowsGspnAll().length); updateGspnChartsV24(rowsGspnCurrent()); ensureClearButtons(); }catch(e){} },20);
+    setTimeout(()=>{ try{ updateGspnChartsV24(rowsGspnCurrent()); ensureClearButtons(); }catch(e){} },20);
     return result;
   };
 
@@ -3218,7 +3214,7 @@ const d = safeParseDate(out.Open_Date);
   }
   window.updateCharts=updateGspnV25;
   const previousRender=window.render;
-  window.render=function(){ const res=previousRender?previousRender.apply(this,arguments):undefined; setTimeout(()=>{ try{ setText('totalCases',allGspn().length); updateGspnV25(curGspn()); }catch(e){ } },30); return res; };
+  window.render=function(){ const res=previousRender?previousRender.apply(this,arguments):undefined; setTimeout(()=>{ try{ updateGspnV25(curGspn()); }catch(e){ } },30); return res; };
 
   function install(){
     ensureColorSelector();
@@ -7506,24 +7502,8 @@ void(removeExportButtons, 10000);
     }
     document.querySelectorAll('#gspnPage .card').forEach(card=>{
       const label=txt(card.querySelector('.label')?.textContent);
-      if(label==='Closed / Ready Cases' || label==='Avg Repair Days' || label==='Total Cases') card.remove();
+      if(label==='Closed / Ready Cases' || label==='Avg Repair Days') card.remove();
     });
-    const ltpCard = q('ltpFailedCases')?.closest('.card');
-    if(ltpCard && !q('ltpInWarrantyCases')){
-      ltpCard.classList.remove('clickable');
-      ltpCard.removeAttribute('onclick');
-      const ltpOutCard = ltpCard.cloneNode(true);
-      const labelIn = ltpCard.querySelector('.label');
-      const valueIn = ltpCard.querySelector('.value');
-      const percentIn = ltpCard.querySelector('.percent');
-      if(labelIn) labelIn.textContent = 'LTP In Warranty';
-      if(valueIn) valueIn.id = 'ltpInWarrantyCases';
-      if(percentIn) percentIn.id = 'ltpInWarrantyPercent';
-      ltpOutCard.querySelector('.label').textContent = 'LTP Out Warranty';
-      ltpOutCard.querySelector('.value').id = 'ltpOutWarrantyCases';
-      ltpOutCard.querySelector('.percent').id = 'ltpOutWarrantyPercent';
-      ltpCard.insertAdjacentElement('afterend', ltpOutCard);
-    }
     document.querySelectorAll('#gspnPage section, #gspnPage .chart-card').forEach(sec=>{
       const title=txt(sec.querySelector('h2')?.textContent);
       if(['Best Branches - Lowest Avg Repair Days','Worst Branches - Highest Avg Repair Days','Best Technicians - Lowest Avg Repair Days','Worst Technicians - Highest Avg Repair Days','Average Repair Days by Branch'].includes(title)) sec.remove();
@@ -7570,6 +7550,8 @@ void(removeExportButtons, 10000);
         if(quickFilter==='Closed' && !(r.StatusFinal==='Closed'||r.StatusFinal==='Ready')) return false;
         if(quickFilter==='Failed' && !txt(r.KPIResult).startsWith('Failed')) return false;
         if(quickFilter==='Failed - LTP' && r.KPIResult!=='Failed - LTP') return false;
+        if(quickFilter==='Failed - LTP In Warranty' && (r.KPIResult!=='Failed - LTP' || !isInWarrantyCase(r))) return false;
+        if(quickFilter==='Failed - LTP Out Warranty' && (r.KPIResult!=='Failed - LTP' || !isOutWarrantyCase(r))) return false;
         if(quickFilter==='Failed - TAT' && r.KPIResult!=='Failed - TAT') return false;
         if(['Fix Today','Watch','On Track','Review','Done','Excluded'].includes(quickFilter) && r.KPIAlert!==quickFilter) return false;
         if(typeof quickFilter==='object'){
@@ -7593,9 +7575,9 @@ void(removeExportButtons, 10000);
     ensureGspnDom(); window.refreshFilterLists();
     const rows=window.getFilteredRows(); window.currentFilteredRows=rows;
     const total=rows.length, open=rows.filter(r=>r.StatusFinal==='Open'), failed=rows.filter(r=>txt(r.KPIResult).startsWith('Failed')),
-      ltp=rows.filter(r=>r.KPIResult==='Failed - LTP'), tat=rows.filter(r=>r.KPIResult==='Failed - TAT'), fix=rows.filter(r=>r.KPIAlert==='Fix Today'), watch=rows.filter(r=>r.KPIAlert==='Watch');
-    setText('totalCases', total); setText('totalPercent', total?'100%':'0%'); setText('openCases', open.length); setText('openPercent', `${percent(open.length,total)}% of Total`);
-    setText('failedCases', failed.length); setText('failedPercent', `${percent(failed.length,total)}% of Total`); updateGspnLtpWarrantyCards(rows, ltp);
+      ltp=rows.filter(r=>r.KPIResult==='Failed - LTP'), ltpIn=rows.filter(r=>r.KPIResult==='Failed - LTP' && isInWarrantyCase(r)), ltpOut=rows.filter(r=>r.KPIResult==='Failed - LTP' && isOutWarrantyCase(r)), tat=rows.filter(r=>r.KPIResult==='Failed - TAT'), fix=rows.filter(r=>r.KPIAlert==='Fix Today'), watch=rows.filter(r=>r.KPIAlert==='Watch');
+    setText('openCases', open.length); setText('openPercent', `${percent(open.length,total)}% of Total`);
+    setText('failedCases', failed.length); setText('failedPercent', `${percent(failed.length,total)}% of Total`); setText('ltpInWarrantyCases', ltpIn.length); setText('ltpInWarrantyPercent', `${percent(ltpIn.length,failed.length)}% of Failed KPI`); setText('ltpOutWarrantyCases', ltpOut.length); setText('ltpOutWarrantyPercent', `${percent(ltpOut.length,failed.length)}% of Failed KPI`);
     setText('tatFailedCases', tat.length); setText('tatFailedPercent', `${percent(tat.length,failed.length)}% of Failed KPI`); setText('fixTodayCases', fix.length); setText('fixTodayPercent', `${percent(fix.length,open.length)}% of Open`);
     setText('watchCases', watch.length); setText('watchPercent', `${percent(watch.length,open.length)}% of Open`);
     if(typeof updateCharts==='function') updateCharts(rows);
@@ -7740,6 +7722,8 @@ void(removeExportButtons, 10000);
         if(quickFilter==='Closed' && !(r.StatusFinal==='Closed'||r.StatusFinal==='Ready')) return false;
         if(quickFilter==='Failed' && !clean(r.KPIResult).startsWith('Failed')) return false;
         if(quickFilter==='Failed - LTP' && r.KPIResult!=='Failed - LTP') return false;
+        if(quickFilter==='Failed - LTP In Warranty' && (r.KPIResult!=='Failed - LTP' || !isInWarrantyCase(r))) return false;
+        if(quickFilter==='Failed - LTP Out Warranty' && (r.KPIResult!=='Failed - LTP' || !isOutWarrantyCase(r))) return false;
         if(quickFilter==='Failed - TAT' && r.KPIResult!=='Failed - TAT') return false;
         if(['Fix Today','Watch','On Track','Review','Done','Excluded'].includes(quickFilter) && r.KPIAlert!==quickFilter) return false;
         if(typeof quickFilter==='object'){
@@ -7925,6 +7909,8 @@ void(removeExportButtons, 10000);
         if(quickFilter==='Closed' && !(r.StatusFinal==='Closed'||r.StatusFinal==='Ready')) return false;
         if(quickFilter==='Failed' && !txt(r.KPIResult).startsWith('Failed')) return false;
         if(quickFilter==='Failed - LTP' && r.KPIResult!=='Failed - LTP') return false;
+        if(quickFilter==='Failed - LTP In Warranty' && (r.KPIResult!=='Failed - LTP' || !isInWarrantyCase(r))) return false;
+        if(quickFilter==='Failed - LTP Out Warranty' && (r.KPIResult!=='Failed - LTP' || !isOutWarrantyCase(r))) return false;
         if(quickFilter==='Failed - TAT' && r.KPIResult!=='Failed - TAT') return false;
         if(['Fix Today','Watch','On Track','Review','Done','Excluded'].includes(quickFilter) && r.KPIAlert!==quickFilter) return false;
         if(typeof quickFilter==='object'){
