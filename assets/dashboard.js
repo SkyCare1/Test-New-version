@@ -2581,13 +2581,14 @@ const d = safeParseDate(out.Open_Date);
 
   function q(id){ return document.getElementById(id); }
   function text(v){ return String(v ?? '').trim(); }
+  const txt = text; /* GSPN cards fix: warranty helper uses txt(); keep it defined so render continues to tables. */
   function html(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
   function percent(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
   function isGspnInWarranty(row){
     const w = txt(row && row['GSPN Warranty']).toLowerCase();
     if(!w) return false;
     if(w.includes('out') || w.includes('oow') || w.includes('out of warranty')) return false;
-    return w.includes('in') || w.includes('iw') || w.includes('warranty');
+    return w.includes('in') || w === 'iw' || w.includes('warranty');
   }
   function isGspnOutWarranty(row){
     const w = txt(row && row['GSPN Warranty']).toLowerCase();
