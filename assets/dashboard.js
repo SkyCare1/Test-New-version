@@ -2583,6 +2583,26 @@ const d = safeParseDate(out.Open_Date);
   function text(v){ return String(v ?? '').trim(); }
   function html(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
   function percent(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
+  function isGspnInWarranty(row){
+    const w = txt(row && row['GSPN Warranty']).toLowerCase();
+    if(!w) return false;
+    if(w.includes('out') || w.includes('oow') || w.includes('out of warranty')) return false;
+    return w.includes('in') || w.includes('iw') || w.includes('warranty');
+  }
+  function isGspnOutWarranty(row){
+    const w = txt(row && row['GSPN Warranty']).toLowerCase();
+    return !!w && (w.includes('out') || w.includes('oow') || w.includes('out of warranty'));
+  }
+  function updateGspnLtpWarrantyCards(rows, failedRows){
+    rows = Array.isArray(rows) ? rows : [];
+    failedRows = Array.isArray(failedRows) ? failedRows : rows.filter(r=>txt(r.KPIResult)==='Failed - LTP');
+    const inWarranty = failedRows.filter(isGspnInWarranty);
+    const outWarranty = failedRows.filter(isGspnOutWarranty);
+    setText('ltpInWarrantyCases', inWarranty.length);
+    setText('ltpInWarrantyPercent', `${percent(inWarranty.length, failedRows.length)}% of LTP Failed`);
+    setText('ltpOutWarrantyCases', outWarranty.length);
+    setText('ltpOutWarrantyPercent', `${percent(outWarranty.length, failedRows.length)}% of LTP Failed`);
+  }
   function setText(id, val){ const el=q(id); if(el) el.textContent = val; }
   function activeTab(){ const sky=q('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
   function safeAllRows(){ try { return Array.isArray(allRows) ? allRows : []; } catch(e){ return []; } }
@@ -7485,8 +7505,24 @@ void(removeExportButtons, 10000);
     }
     document.querySelectorAll('#gspnPage .card').forEach(card=>{
       const label=txt(card.querySelector('.label')?.textContent);
-      if(label==='Closed / Ready Cases' || label==='Avg Repair Days') card.remove();
+      if(label==='Closed / Ready Cases' || label==='Avg Repair Days' || label==='Total Cases') card.remove();
     });
+    const ltpCard = q('ltpFailedCases')?.closest('.card');
+    if(ltpCard && !q('ltpInWarrantyCases')){
+      ltpCard.classList.remove('clickable');
+      ltpCard.removeAttribute('onclick');
+      const ltpOutCard = ltpCard.cloneNode(true);
+      const labelIn = ltpCard.querySelector('.label');
+      const valueIn = ltpCard.querySelector('.value');
+      const percentIn = ltpCard.querySelector('.percent');
+      if(labelIn) labelIn.textContent = 'LTP In Warranty';
+      if(valueIn) valueIn.id = 'ltpInWarrantyCases';
+      if(percentIn) percentIn.id = 'ltpInWarrantyPercent';
+      ltpOutCard.querySelector('.label').textContent = 'LTP Out Warranty';
+      ltpOutCard.querySelector('.value').id = 'ltpOutWarrantyCases';
+      ltpOutCard.querySelector('.percent').id = 'ltpOutWarrantyPercent';
+      ltpCard.insertAdjacentElement('afterend', ltpOutCard);
+    }
     document.querySelectorAll('#gspnPage section, #gspnPage .chart-card').forEach(sec=>{
       const title=txt(sec.querySelector('h2')?.textContent);
       if(['Best Branches - Lowest Avg Repair Days','Worst Branches - Highest Avg Repair Days','Best Technicians - Lowest Avg Repair Days','Worst Technicians - Highest Avg Repair Days','Average Repair Days by Branch'].includes(title)) sec.remove();
@@ -7558,7 +7594,7 @@ void(removeExportButtons, 10000);
     const total=rows.length, open=rows.filter(r=>r.StatusFinal==='Open'), failed=rows.filter(r=>txt(r.KPIResult).startsWith('Failed')),
       ltp=rows.filter(r=>r.KPIResult==='Failed - LTP'), tat=rows.filter(r=>r.KPIResult==='Failed - TAT'), fix=rows.filter(r=>r.KPIAlert==='Fix Today'), watch=rows.filter(r=>r.KPIAlert==='Watch');
     setText('totalCases', total); setText('totalPercent', total?'100%':'0%'); setText('openCases', open.length); setText('openPercent', `${percent(open.length,total)}% of Total`);
-    setText('failedCases', failed.length); setText('failedPercent', `${percent(failed.length,total)}% of Total`); setText('ltpFailedCases', ltp.length); setText('ltpFailedPercent', `${percent(ltp.length,failed.length)}% of Failed KPI`);
+    setText('failedCases', failed.length); setText('failedPercent', `${percent(failed.length,total)}% of Total`); updateGspnLtpWarrantyCards(rows, ltp);
     setText('tatFailedCases', tat.length); setText('tatFailedPercent', `${percent(tat.length,failed.length)}% of Failed KPI`); setText('fixTodayCases', fix.length); setText('fixTodayPercent', `${percent(fix.length,open.length)}% of Open`);
     setText('watchCases', watch.length); setText('watchPercent', `${percent(watch.length,open.length)}% of Open`);
     if(typeof updateCharts==='function') updateCharts(rows);
