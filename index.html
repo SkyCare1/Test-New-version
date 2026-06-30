@@ -10,7 +10,32 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 
-<title>Service Support Center</title><style id="critical-first-paint-css">html{font-family:Arial,Helvetica,sans-serif}body{margin:0;background:#f4f6f8;color:#1f2933}img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-visibility:auto;contain-intrinsic-size:1px 420px}:focus-visible{outline:3px solid #ff4d2e;outline-offset:2px}</style><link href="assets/dashboard.min.css?v=20260626" rel="stylesheet"/>
+<title>Service Support Center</title>
+<script id="initial-layout-state">
+(function(){
+  try {
+    var root = document.documentElement;
+    var collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
+    var design = localStorage.getItem("serviceEyeDesign") || "volta";
+    if (!["pro", "glass", "fresh", "volta"].includes(design)) design = "volta";
+    root.classList.add("prepaint-ready", "prepaint-theme-" + design);
+    if (collapsed) root.classList.add("prepaint-menu-collapsed");
+  } catch(e) {
+    document.documentElement.classList.add("prepaint-ready", "prepaint-theme-volta");
+  }
+})();
+</script>
+<style id="critical-first-paint-css">
+html{font-family:Arial,Helvetica,sans-serif;--sidebar-width:280px;--sidebar-collapsed:78px;--initial-sidebar-width:280px}
+html.prepaint-menu-collapsed{--initial-sidebar-width:78px}
+body{margin:0;background:#f4f6f8;color:#1f2933}
+body.no-first-transition *,body.no-first-transition *::before,body.no-first-transition *::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+.side-menu{width:var(--initial-sidebar-width)!important;min-width:var(--initial-sidebar-width)!important;max-width:var(--initial-sidebar-width)!important;height:100vh;position:fixed;left:0;top:0;bottom:0;overflow:hidden;contain:layout paint style}
+.page-shell{margin-left:var(--initial-sidebar-width)!important;min-height:100vh}
+html.prepaint-menu-collapsed .side-label{opacity:0!important;width:0!important;max-width:0!important;overflow:hidden!important;white-space:nowrap!important;pointer-events:none!important}
+.side-label{display:inline-block;min-width:0;white-space:nowrap}
+img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-visibility:auto;contain-intrinsic-size:1px 420px}:focus-visible{outline:3px solid #ff4d2e;outline-offset:2px}
+</style><link href="assets/dashboard.min.css?v=20260630" rel="stylesheet"/>
 <!-- ══ DNS preconnect — speeds up all external requests ══ -->
 <link crossorigin="" href="https://www.gstatic.com" rel="preconnect"/>
 <link crossorigin="" href="https://firestore.googleapis.com" rel="preconnect"/>
@@ -45,7 +70,22 @@
 
 
 </link></link></head>
-<body class="firebase-auth-pending theme-volta">
+<body class="firebase-auth-pending no-first-transition">
+<script id="apply-initial-body-state">
+(function(){
+  try {
+    var b = document.body;
+    var collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
+    var design = localStorage.getItem("serviceEyeDesign") || "volta";
+    if (!["pro", "glass", "fresh", "volta"].includes(design)) design = "volta";
+    b.classList.add("theme-" + design);
+    b.classList.toggle("menu-collapsed", collapsed);
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ b.classList.remove("no-first-transition"); }); });
+  } catch(e) {
+    document.body.classList.add("theme-volta");
+  }
+})();
+</script>
 <aside class="side-menu" id="sideMenu">
 <div class="side-head">
 <div class="side-brand">
@@ -55,11 +95,16 @@
 <button class="menu-toggle" onclick="toggleSideMenu()" title="Fold / unfold menu" type="button">☰</button>
 </div>
 <div class="side-section-title side-label">Workspace</div>
-<div class="side-tab" data-fb-tab-key="dashboard" data-pb-tab="dashboard" onclick="switchTab('dashboard')" role="button" tabindex="0"><span class="side-icon dashboard-side-icon">📊</span><span class="side-label">Dashboard</span></div>
-<div class="side-tab active" onclick="switchTab('gspn')" role="button" tabindex="0"><img alt="GSPN Logo" class="side-tab-logo" decoding="async" fetchpriority="high" loading="eager" src="assets/GSPN.png"/><span class="side-label">GSPN Tracking cases</span></div>
-<div class="side-tab" onclick="switchTab('sky')" role="button" tabindex="0"><img alt="SKY CARE Logo" class="side-tab-logo" decoding="async" fetchpriority="high" loading="eager" src="assets/SKY.PNG"/><span class="side-label">SKY Tracking cases</span></div>
-<div class="side-tab" onclick="switchTab('profit')" role="button" tabindex="0"><span class="side-icon">💰</span><span class="side-label">Profitability &amp; commission</span></div>
-<div class="side-tab" onclick="openCashTargetTab()" role="button" tabindex="0"><span class="side-icon">🎯</span><span class="side-label">Cash &amp; Target</span></div>
+<div class="side-tab" data-fb-tab-key="dashboard" data-pb-tab="dashboard" data-tab="dashboard" onclick="switchTab('dashboard')" role="button" tabindex="0"><span class="side-icon dashboard-side-icon">📊</span><span class="side-label">Dashboard</span></div>
+<div class="side-tab active" data-fb-tab-key="gspn" data-pb-tab="gspn" data-tab="gspn" onclick="switchTab('gspn')" role="button" tabindex="0"><img alt="GSPN Logo" class="side-tab-logo" decoding="async" fetchpriority="high" loading="eager" src="assets/GSPN.png"/><span class="side-label">GSPN Tracking Cases</span></div>
+<div class="side-tab" data-fb-tab-key="sky" data-pb-tab="sky" data-tab="sky" onclick="switchTab('sky')" role="button" tabindex="0"><img alt="SKY CARE Logo" class="side-tab-logo" decoding="async" fetchpriority="high" loading="eager" src="assets/SKY.PNG"/><span class="side-label">SKY Tracking Cases</span></div>
+<div class="side-tab" data-fb-tab-key="preBooking" data-pb-tab="preBooking" data-tab="preBooking" onclick="switchTab('preBooking')" role="button" tabindex="0"><span class="side-icon prebooking-side-icon">📋</span><span class="side-label">Pre_Booking</span></div>
+<div class="side-tab" data-fb-tab-key="returnCases" data-pb-tab="returnCases" data-tab="returnCases" onclick="switchTab('returnCases')" role="button" tabindex="0"><span class="side-icon returncases-side-icon">↩️</span><span class="side-label">Return Cases</span></div>
+<div class="side-tab" data-fb-tab-key="receivedDelivered" data-pb-tab="receivedDelivered" data-tab="receivedDelivered" onclick="switchTab('receivedDelivered')" role="button" tabindex="0"><span class="side-icon">📦</span><span class="side-label">Received &amp; Delivered</span></div>
+<div class="side-tab" data-fb-tab-key="repairEfficiency" data-pb-tab="repairEfficiency" data-tab="repairEfficiency" onclick="switchTab('repairEfficiency')" role="button" tabindex="0"><span class="side-icon">🛠️</span><span class="side-label">Repair Efficiency</span></div>
+<div class="side-tab" data-fb-tab-key="profit" data-pb-tab="profit" data-tab="profit" onclick="switchTab('profit')" role="button" tabindex="0"><span class="side-icon">💰</span><span class="side-label">Profitability &amp; commission</span></div>
+<div class="side-tab" data-fb-tab-key="cashTarget" data-pb-tab="cashTarget" data-tab="cashTarget" onclick="switchTab('cashTarget')" role="button" tabindex="0"><span class="side-icon">🎯</span><span class="side-label">Cash &amp; Target</span></div>
+<div class="side-tab firebase-user-management-tab admin-only" data-fb-tab-key="userManagement" data-pb-tab="userManagement" data-tab="userManagement" onclick="switchTab('userManagement')" role="button" tabindex="0"><span class="side-icon">👥</span><span class="side-label">User Management</span></div>
 <div class="side-section-title side-label">Design Style</div>
 <div class="design-options side-label">
 <button onclick="setDesign('pro')" type="button">Corporate Navy</button>
