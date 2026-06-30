@@ -12818,46 +12818,10 @@ void(scrubDom,2000);
     });
   }
 
-  function ensureSidebarRefreshButton(){
-    const side = document.querySelector('.side-menu');
-    if(!side) return;
-
-    let block = document.getElementById('sidebarRefreshDataBlock');
-    if(!block){
-      block = document.createElement('div');
-      block.id = 'sidebarRefreshDataBlock';
-      block.className = 'sidebar-refresh-data-block side-label';
-      block.innerHTML = '<button type="button" id="sidebarRefreshDataBtn" class="sidebar-refresh-data-btn">🔄 Refresh Data</button>';
-
-      const colors = document.getElementById('v25ColorOptions');
-      if(colors && colors.parentNode){
-        colors.parentNode.insertBefore(block, colors.nextSibling);
-      }else{
-        side.appendChild(block);
-      }
-    }
-
-    block.style.display = (typeof window.isAdmin === 'function' ? window.isAdmin() : false) ? '' : 'none';
-    const btn = document.getElementById('sidebarRefreshDataBtn');
-    if(btn && !btn.dataset.boundRefreshData){
-      btn.dataset.boundRefreshData = '1';
-      btn.addEventListener('click', refreshActiveTab);
-    }
-  }
-
   function applyPatch(){
     removeRequestedUploadButtons();
     hideHeaderRefreshButtons();
-    ensureSidebarRefreshButton();
   }
-
-  window.serviceEyeEnableRefreshDataButton = function(){
-    applyPatch();
-  };
-  window.serviceEyeDisableRefreshDataButton = function(){
-    const block = document.getElementById('sidebarRefreshDataBlock');
-    if(block) block.style.display = 'none';
-  };
 
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyPatch);
   else applyPatch();
@@ -12893,45 +12857,6 @@ void(scrubDom,2000);
   (window._ivals=window._ivals||[]).push(setInterval(window.serviceV2RenderSavedNoticesWithoutStamp, 10000));
 })();
 
-
-/* ===== serviceEyeSafeSidebarRefreshFix ===== */
-
-(function(){
-  'use strict';
-  function activeTab(){
-    var pairs=[['gspn',document.getElementById('gspnPage')],['sky',document.getElementById('skyPage')],['profit',document.getElementById('profitPage')],['cashTarget',document.getElementById('cashTargetPage')],['preBooking',document.getElementById('preBookingPage')],['returnCases',document.getElementById('returnCasesPage')],['receivedDelivered',document.getElementById('receivedDeliveredPage')],['dashboard',document.getElementById('dashboardPage')]];
-    for(var i=0;i<pairs.length;i++){var page=pairs[i][1]; if(page && page.style.display!=='none') return pairs[i][0];}
-    try{return localStorage.getItem('serviceEyeActiveTab')||'gspn'}catch(e){return 'gspn'}
-  }
-  async function runRefresh(){
-    var tab=activeTab();
-    try{
-      if(tab==='gspn' && typeof window.autoLoadGSPNFromGitHub==='function') return await window.autoLoadGSPNFromGitHub(true);
-      if(tab==='sky' && typeof window.autoLoadSKYFromGitHub==='function') return await window.autoLoadSKYFromGitHub(true);
-      if(tab==='profit' && typeof window.autoLoadProfitFromGitHub==='function') return await window.autoLoadProfitFromGitHub(true);
-      if(tab==='cashTarget' && typeof window.loadCashTargetFromGitHub==='function') return await window.loadCashTargetFromGitHub(true);
-      if(tab==='preBooking' && typeof window.loadPreBooking==='function') return await window.loadPreBooking(true);
-      if(tab==='returnCases' && typeof window.loadReturnCases==='function') return await window.loadReturnCases(true);
-      if(tab==='receivedDelivered' && typeof window.loadReceivedDelivered==='function') return await window.loadReceivedDelivered(true);
-      if(tab==='dashboard' && typeof window.loadDashboardSources==='function') return await window.loadDashboardSources(true);
-      alert('Refresh Data is available for all GitHub data tabs.');
-    }catch(err){
-
-      alert('Refresh Data failed. Please check the console or try again.');
-    }
-  }
-  function rebind(){
-    var btn=document.getElementById('sidebarRefreshDataBtn');
-    if(!btn || btn.dataset.safeRefreshFixed==='1') return;
-    var clone=btn.cloneNode(true);
-    clone.dataset.safeRefreshFixed='1';
-    clone.addEventListener('click',runRefresh);
-    btn.parentNode.replaceChild(clone,btn);
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',rebind); else rebind();
-  window.addEventListener('load',function(){ setTimeout(rebind,600); });
-  /* setInterval(rebind) removed — runs once; self-exits when already bound */
-})();
 
 
 /* ===== inline-script-83 ===== */
@@ -13812,19 +13737,6 @@ window.addEventListener('beforeunload', function() {
     if(bottom && bottom.parentNode===side) side.appendChild(bottom);
     var colorBlock=$('v25ColorOptions');
     if(colorBlock && colorBlock.parentElement && bottom && colorBlock.parentElement.parentNode===side) bottom.appendChild(colorBlock.parentElement);
-    var design=side.querySelector('.design-options');
-    if(design && bottom){
-      Array.from(bottom.querySelectorAll('.codex-sidebar-design-wrap')).forEach(function(w){
-        if(!w.querySelector('.design-options') && !(w.textContent||'').trim()) w.remove();
-      });
-      var wrap=bottom.querySelector('.codex-sidebar-design-wrap');
-      if(!wrap){ wrap=document.createElement('div'); wrap.className='codex-sidebar-design-wrap'; bottom.appendChild(wrap); }
-      var title=design.previousElementSibling;
-      if(title && title.classList && title.classList.contains('side-section-title') && title.parentNode!==wrap) wrap.insertBefore(title, wrap.firstChild);
-      if(design.parentNode!==wrap) wrap.appendChild(design);
-      bottom.appendChild(wrap);
-    }
-    var refresh=$('codexGithubRefreshBtn'); if(refresh && bottom && refresh.parentNode!==bottom) bottom.insertBefore(refresh,bottom.firstChild);
     if(document.body.classList.contains('firebase-admin') || document.documentElement.classList.contains('admin')){
       side.querySelectorAll('[data-pb-tab="dashboard"],[data-pb-tab="preBooking"]').forEach(function(el){ el.classList.remove('fb-tab-denied'); el.style.display=''; el.style.visibility=''; });
     }
@@ -14733,13 +14645,6 @@ window.addEventListener('beforeunload', function() {
     }catch(e){ if(manual) alert('GitHub refresh failed: '+(e&&e.message?e.message:e)); return false; }
     finally{refreshInFlight=false;window.__githubRefreshInProgress=false;if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.oldText||'<b>⟳</b><span>Refresh Data</span>';}}
   }
-  function ensureRefreshButton(){
-    var bottom=getBottom(); if(!bottom) return;
-    var btn=$('codexGithubRefreshBtn');
-    if(!btn){btn=document.createElement('button');btn.id='codexGithubRefreshBtn';btn.type='button';btn.className='codex-refresh-btn';btn.innerHTML='<b>⟳</b><span>Refresh Data</span>';btn.title='Refresh current data tab';bottom.appendChild(btn);}
-    btn.onclick=function(){runGithubRefresh(visibleTab(),true);};
-    btn.style.display='flex';
-  }
   function rerenderVisible(){
     var t=visibleTab();
     setTimeout(function(){try{
@@ -14752,10 +14657,10 @@ window.addEventListener('beforeunload', function() {
       if(t==='dashboard'&&typeof window.renderDashboardTables==='function') window.renderDashboardTables();
     }catch(e){}},80);
   }
-  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();}
+  function boot(){ensureTooltips();ensurePalette();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
   window.addEventListener('load',function(){setTimeout(boot,500);});
-  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
+  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
 })();
 
 
@@ -14957,8 +14862,7 @@ window.addEventListener('beforeunload', function() {
   document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.re-filter-box'))document.querySelectorAll('.re-filter-box.open').forEach(function(x){x.classList.remove('open');});});
   function patchUserManagementCheckboxes(){var addBox=$('umAllowedTabsBox'); if(addBox&&!addBox.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')) addBox.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'">'+TITLE+'</label>'); document.querySelectorAll('#umUsersTable .um-row-tabs').forEach(function(box){if(!box.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')){var edit=box.querySelector('.um-tabs-edit')||box; edit.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'" disabled>'+TITLE+'</label>');}});}
   function installUserManagementPatch(){if(window.__repairEfficiencyUmPatchInstalled)return; window.__repairEfficiencyUmPatchInstalled=true; document.addEventListener('click',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('um-edit'))setTimeout(patchUserManagementCheckboxes,60);},true); try{new MutationObserver(function(){patchUserManagementCheckboxes(); enforceRepairPermission();}).observe(document.body,{childList:true,subtree:true});}catch(e){} setInterval(function(){patchUserManagementCheckboxes(); enforceRepairPermission();},3000);}
-  function installRefreshPatch(){if(window.__repairEfficiencyRefreshPatchInstalled)return; window.__repairEfficiencyRefreshPatchInstalled=true; document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('#sidebarRefreshDataBtn'):null; if(!btn)return; var active=''; try{active=localStorage.getItem('serviceEyeActiveTab')||'';}catch(ex){} var pg=$(PAGE); if(active===KEY||(pg&&pg.style.display!=='none')){e.preventDefault(); e.stopImmediatePropagation(); window.loadRepairEfficiency(true);}},true);}
-  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installRefreshPatch(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
+  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
 })();
 
