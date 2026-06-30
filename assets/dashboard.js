@@ -14645,6 +14645,25 @@ window.addEventListener('beforeunload', function() {
     }catch(e){ if(manual) alert('GitHub refresh failed: '+(e&&e.message?e.message:e)); return false; }
     finally{refreshInFlight=false;window.__githubRefreshInProgress=false;if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.oldText||'<b>⟳</b><span>Refresh Data</span>';}}
   }
+  function ensureRefreshButton(){
+    var bottom=getBottom(); if(!bottom) return;
+    var oldLegacy=document.getElementById('sidebarRefreshDataBtn');
+    if(oldLegacy && oldLegacy.parentNode) oldLegacy.parentNode.removeChild(oldLegacy);
+    var buttons=Array.from(document.querySelectorAll('#codexGithubRefreshBtn'));
+    var btn=buttons.shift();
+    buttons.forEach(function(x){ if(x && x.parentNode) x.parentNode.removeChild(x); });
+    if(!btn){
+      btn=document.createElement('button');
+      btn.id='codexGithubRefreshBtn';
+      btn.type='button';
+      btn.className='codex-refresh-btn';
+      btn.innerHTML='<b>⟳</b><span>Refresh Data</span>';
+      btn.title='Refresh current data tab';
+    }
+    if(btn.parentNode!==bottom) bottom.insertBefore(btn,bottom.firstChild);
+    btn.onclick=function(){runGithubRefresh(visibleTab(),true);};
+    btn.style.display='flex';
+  }
   function rerenderVisible(){
     var t=visibleTab();
     setTimeout(function(){try{
@@ -14657,7 +14676,7 @@ window.addEventListener('beforeunload', function() {
       if(t==='dashboard'&&typeof window.renderDashboardTables==='function') window.renderDashboardTables();
     }catch(e){}},80);
   }
-  function boot(){ensureTooltips();ensurePalette();}
+  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
   window.addEventListener('load',function(){setTimeout(boot,500);});
   try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
