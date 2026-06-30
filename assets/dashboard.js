@@ -86,6 +86,11 @@ window.debounce = window.debounce || function(fn, delay) {
   };
 };
 
+window.__gspnAfterRenderHooks = window.__gspnAfterRenderHooks || [];
+window.registerGspnAfterRenderHook = window.registerGspnAfterRenderHook || function(fn) {
+  if (typeof fn === 'function' && !window.__gspnAfterRenderHooks.includes(fn)) window.__gspnAfterRenderHooks.push(fn);
+};
+
 
 /* ===== inline-script-6 ===== */
 
@@ -320,7 +325,7 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
 
     function wireEvents() {
       document.getElementById("fileInput").addEventListener("change", handleFile);
-      ["branchFilter", "techFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
+      ["branchFilter", "stageFilter", "techFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener("change", () => onMultiFilterChange(id));
@@ -629,10 +634,18 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
       }[alert] || 9;
     }
 
+    function runGspnPostRenderHooks() {
+      const hooks = Array.isArray(window.__gspnAfterRenderHooks) ? window.__gspnAfterRenderHooks : [];
+      hooks.forEach(fn => { try { fn(); } catch(e) {} });
+    }
+
     function render() {
+      if (typeof window.syncExistingRedoRows === "function") window.syncExistingRedoRows();
+      if (typeof window.ensureGspnDom === "function") window.ensureGspnDom();
       refreshFilterLists();
       const rows = getFilteredRows();
       currentFilteredRows = rows;
+      window.currentFilteredRows = rows;
 
       const total = rows.length;
       const openRows = rows.filter(r => r.StatusFinal === "Open");
@@ -682,48 +695,13 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
       renderPerformance("worstBranches", rows, "GSPN_Branch", false);
       renderPerformance("bestTechs", rows, "GSPN Assigned_To", true, true);
       renderPerformance("worstTechs", rows, "GSPN Assigned_To", false, true);
+      window.currentUrgentRows = currentUrgentRows;
+      if (typeof window.syncExistingRedoRows === "function") window.syncExistingRedoRows();
+      runGspnPostRenderHooks();
     }
 
     function updateCharts(rows) {
-      if (typeof Chart === "undefined") return;
-
-      const openRows = rows.filter(r => r.StatusFinal === "Open");
-      const failedLtp = rows.filter(r => r.KPIResult === "Failed - LTP").length;
-      const failedTat = rows.filter(r => r.KPIResult === "Failed - TAT").length;
-      const fixToday = rows.filter(r => r.KPIAlert === "Fix Today").length;
-      const watch = rows.filter(r => r.KPIAlert === "Watch").length;
-      const onTrack = rows.filter(r => r.KPIAlert === "On Track").length;
-      const review = rows.filter(r => r.KPIAlert === "Review").length;
-      const done = rows.filter(r => r.KPIAlert === "Done").length;
-
-      const failedTotal = failedLtp + failedTat;
-      const failedLabels = [
-        `LTP Failed (${pct(failedLtp, failedTotal)}%)`,
-        `TAT Failed (${pct(failedTat, failedTotal)}%)`
-      ];
-      createOrUpdateChart("failedReasonChart", "doughnut", failedLabels, [failedLtp, failedTat], "Failed KPI", false, (label) => {
-        if (label.includes("LTP")) showFailedType("LTP");
-        if (label.includes("TAT")) showFailedType("TAT");
-      });
-
-      createOrUpdateChart("kpiChart", "bar", ["Failed LTP", "Failed TAT", "Fix Today", "Watch 48h", "On Track", "Review", "Done"], [failedLtp, failedTat, fixToday, watch, onTrack, review, done], "Cases", false, (label) => {
-        if (label === "Failed LTP") showFailedType("LTP");
-        else if (label === "Failed TAT") showFailedType("TAT");
-        else if (label === "Fix Today") showOnlyAlert("Fix Today");
-        else if (label === "Watch 48h") showOnlyAlert("Watch");
-      });
-
-      const branchTop = topCounts(openRows, "GSPN_Branch", 10);
-      createOrUpdateChart("branchChart", "bar", branchTop.labels, branchTop.values, "Open Cases", true, (label) => filterByBranch(label));
-
-      const statusTop = topCounts(openRows, "GSPN_Status", 10);
-      createOrUpdateChart("techChart", "bar", statusTop.labels, statusTop.values, "Open Cases", true, (label) => filterByGspnStatus(label));
-
-      const repairTop = topAverageRepairDays(rows, "GSPN_Branch", 10);
-      createOrUpdateChart("repairDaysChart", "bar", repairTop.labels, repairTop.values, "Avg Repair Days", true, (label) => filterByBranch(label));
-
-      const agingBuckets = getAgingBuckets(rows);
-      createOrUpdateChart("agingChart", "bar", agingBuckets.labels, agingBuckets.values, "Open Cases");
+      if (typeof window.removeGspnChartsOnly === "function") window.removeGspnChartsOnly();
     }
 
     function createOrUpdateChart(canvasId, type, labels, values, datasetLabel, horizontal = false, onLabelClick = null) {
@@ -885,12 +863,16 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
       refreshingFilters = true;
 
       const selectedBranches = getSelectedValues("branchFilter");
+      const selectedStages = document.getElementById("stageFilter") ? getSelectedValues("stageFilter") : [];
       const selectedTechs = getSelectedValues("techFilter");
       const selectedWarranties = getSelectedValues("warrantyFilter");
       const selectedAlerts = getSelectedValues("alertFilter");
       const selectedJobTypes = getSelectedValues("jobTypeFilter");
 
       fillSelect("branchFilter", unique(allRows.map(r => r.GSPN_Branch)), selectedBranches, "All Branches");
+      if (document.getElementById("stageFilter")) {
+        fillSelect("stageFilter", unique(allRows.map(r => r.Stage)), selectedStages, "All Stages");
+      }
       const branchScope = selectedBranches.length && !selectedBranches.includes(ALL_VALUE)
         ? allRows.filter(r => selectedBranches.includes(r.GSPN_Branch))
         : allRows;
@@ -945,13 +927,16 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
     }
 
     function getSelectedValues(id) {
-      const values = Array.from(document.getElementById(id).selectedOptions).map(o => o.value);
+      const el = document.getElementById(id);
+      if (!el) return [];
+      const values = Array.from(el.selectedOptions).map(o => o.value);
       if (!values.length || values.includes(ALL_VALUE)) return [];
       return values;
     }
 
     function getFilteredRows() {
       const branches = getSelectedValues("branchFilter");
+      const stages = document.getElementById("stageFilter") ? getSelectedValues("stageFilter") : [];
       const techs = getSelectedValues("techFilter");
       const warranties = getSelectedValues("warrantyFilter");
       const alerts = getSelectedValues("alertFilter");
@@ -962,6 +947,7 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
 
       return allRows.filter(r => {
         if (branches.length && !branches.includes(r.GSPN_Branch)) return false;
+        if (stages.length && !stages.includes(r.Stage)) return false;
         if (techs.length && !techs.includes(r["GSPN Assigned_To"])) return false;
         if (warranties.length && !warranties.includes(r["GSPN Warranty"])) return false;
         if (alerts.length && !alerts.includes(r.KPIAlert)) return false;
@@ -989,7 +975,7 @@ function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
         if (q) {
           const haystack = [
             r["SO NO#"], r.Job_Number, r.Model, r["GSPN Serial"],
-            r.GSPN_Status, r.GSPN_Branch, r["GSPN Assigned_To"], r["GSPN Warranty"]
+            r.GSPN_Status, r.GSPN_Branch, r.Stage, r["GSPN Assigned_To"], r["GSPN Warranty"]
           ].join(" ").toLowerCase();
           if (!haystack.includes(q)) return false;
         }
@@ -1951,2080 +1937,6 @@ const d = safeParseDate(out.Open_Date);
     })();
 
 
-/* ===== v20_sky_final_fixes ===== */
-
-(function(){
-  const QUEUES = ["Open_Cases", "Ready For Delivery Cases"];
-  const DESIGN_CLASSES = ["theme-pro","theme-glass","theme-fresh","theme-volta","theme-fallon","theme-rolio","theme-faraado","theme-foodfinda"];
-
-  function txt(v){ return String(v ?? "").trim(); }
-  function esc(v){ return typeof escapeHtml === "function" ? escapeHtml(v) : String(v ?? "").replace(/[&<>\"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[s])); }
-  function pct2(n,d){ return d ? ((Number(n)||0)*100/d).toFixed(1).replace(/\.0$/,'') : '0'; }
-  function activeTab(){ const sky = document.getElementById('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
-  function rowsAll(){ return Array.isArray(skyRows) ? skyRows : []; }
-  function currentRows(){ return Array.isArray(currentSkyRows) ? currentSkyRows : rowsAll(); }
-
-  function countBy(rows, field, ordered){
-    const c = {}; rows.forEach(r => { const k = txt(r[field]) || 'Blank'; c[k] = (c[k] || 0) + 1; });
-    const entries = ordered ? ordered.map(v => [v, c[v] || 0]) : Object.entries(c).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-    return { labels: entries.map(e=>e[0]), values: entries.map(e=>e[1]) };
-  }
-  function chartFilter(rows, id, field){ const v = document.getElementById(id)?.value || ''; return v ? rows.filter(r => txt(r[field]) === v) : rows; }
-  function isOpen(r){ return txt(r.Queue) === 'Open_Cases'; }
-  function isReady(r){ return txt(r.Queue) === 'Ready For Delivery Cases'; }
-  function validOpenStage(r){ const s = txt(r.Stage).toLowerCase(); return isOpen(r) && s && s !== 'delivered' && !s.includes('ready for delivery'); }
-  function setText(id, val){ const el=document.getElementById(id); if(el) el.textContent=val; }
-
-  function refreshChartSelect(id, values, allText){
-    const el = document.getElementById(id); if(!el) return;
-    const old = el.value || '';
-    const cleanVals = [...new Set(values.map(txt).filter(Boolean))].sort();
-    el.innerHTML = `<option value="">${esc(allText || 'All')}</option>` + cleanVals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    if([...el.options].some(o=>o.value===old)) el.value = old;
-    el.onchange = function(){ renderSky(); const card = el.closest('.chart-card'); if(card) card.classList.add('v20-highlight'); };
-  }
-
-  function refreshSkyChartFilterOptionsV20(){
-    const all = rowsAll();
-    refreshChartSelect('skyQueueChartBrandFilter', ['Samsung','Apple'], 'All Brands');
-    refreshChartSelect('skyBrandChartQueueFilter', QUEUES, 'All Queues');
-    refreshChartSelect('skyStageChartBranchFilter', all.map(r=>r.Branch), 'All Branches');
-    refreshChartSelect('skyBranchChartStageFilter', all.filter(validOpenStage).map(r=>r.Stage), 'All Stages');
-    refreshChartSelect('skyReadyAgingBrandFilter', ['Samsung','Apple'], 'All Brands');
-  }
-
-  const labelsPlugin = {
-    id: 'v20SkyLabels',
-    afterDatasetsDraw(chart){
-      const {ctx} = chart; ctx.save(); ctx.font='bold 12px Calibri, Arial'; ctx.fillStyle='#111827'; ctx.textAlign='center'; ctx.textBaseline='bottom';
-      chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const val=Number(ds.data[i]||0); if(!val) return; ctx.fillText(String(val), bar.x, Math.max(12, bar.y-6)); }); });
-      ctx.restore();
-    }
-  };
-  try{ if(window.Chart && !Chart.registry.plugins.get('v20SkyLabels'))Chart.register(labelsPlugin); }catch(e){}
-
-  function makeBar(id, labels, values, total, clickFn){
-    const canvas=document.getElementById(id); if(!canvas || !window.Chart) return;
-    if(dashboardCharts && dashboardCharts[id]) dashboardCharts[id].destroy();
-    dashboardCharts[id] = __safeNewChart(canvas, {
-      type:'bar',
-      data:{ labels: labels.map((l,i)=>`${l} (${values[i]} | ${pct2(values[i], total)}%)`), datasets:[{ label:'Cases', data:values, borderWidth:1 }] },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        layout:{ padding:{ top:22 } },
-        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=>`Cases: ${ctx.raw} (${pct2(ctx.raw,total)}%)` } } },
-        scales:{ x:{ ticks:{ autoSkip:false, maxRotation:45, minRotation:0 } }, y:{ beginAtZero:true, suggestedMax: Math.max(...values,0)*1.15 + 1 } },
-        onClick:(evt,elements)=>{ if(elements.length && clickFn){ const idx=elements[0].index; clickFn(labels[idx]); } }
-      }
-    });
-  }
-
-  function setSummary(id, labels, values, total){
-    const el = document.getElementById(id); if(!el) return;
-    el.innerHTML = labels.map((l,i)=>`<span class="sky-chart-chip">${esc(l)}: ${values[i]} (${pct2(values[i], total)}%)</span>`).join('');
-  }
-
-  function readyAgingBuckets(rows){
-    const labels=['0-3','4-7','more than 7']; const values=[0,0,0];
-    rows.forEach(r=>{ const days=Number(r.Aging_Days); if(!Number.isFinite(days)) return; const months=days/30; if(months<=3) values[0]++; else if(months<=7) values[1]++; else values[2]++; });
-    return {labels, values};
-  }
-
-  function updateSkyChartsV20(baseRows){
-    if(document.getElementById('skyStageAllChart')){ const sec=document.getElementById('skyStageAllChart').closest('section'); if(sec) sec.remove(); }
-    refreshSkyChartFilterOptionsV20();
-    const rows = Array.isArray(baseRows) ? baseRows : currentRows();
-    const queueRows = chartFilter(rows, 'skyQueueChartBrandFilter', 'Brand');
-    const brandRows = chartFilter(rows, 'skyBrandChartQueueFilter', 'Queue');
-    const stageRows = chartFilter(rows.filter(validOpenStage), 'skyStageChartBranchFilter', 'Branch');
-    const branchRows = chartFilter(rows.filter(isOpen), 'skyBranchChartStageFilter', 'Stage');
-    const readyRows = chartFilter(rows.filter(isReady), 'skyReadyAgingBrandFilter', 'Brand');
-    const q=countBy(queueRows,'Queue',QUEUES), b=countBy(brandRows,'Brand',['Samsung','Apple']), st=countBy(stageRows,'Stage'), br=countBy(branchRows,'Branch'), ag=readyAgingBuckets(readyRows);
-    setSummary('skyQueueSummary', q.labels,q.values,queueRows.length); setSummary('skyBrandSummary', b.labels,b.values,brandRows.length); setSummary('skyStageSummary', st.labels,st.values,stageRows.length); setSummary('skyBranchSummary', br.labels,br.values,branchRows.length); setSummary('skyReadyAgingSummary', ag.labels,ag.values,readyRows.length);
-    makeBar('skyQueueChart', q.labels,q.values,queueRows.length, l=>window.setSkyQueue ? window.setSkyQueue(l) : null);
-    makeBar('skyBrandChart', b.labels,b.values,brandRows.length, l=>window.setSkyBrand ? window.setSkyBrand(l) : null);
-    makeBar('skyStageChart', st.labels,st.values,stageRows.length, l=>filterMainSkyMulti('skyStageFilter', l));
-    makeBar('skyBranchChart', br.labels,br.values,branchRows.length, l=>filterMainSkyMulti('skyBranchFilter', l));
-    makeBar('skyReadyAgingChart', ag.labels,ag.values,readyRows.length, null);
-  }
-
-  function getSelectedValues(id){
-    const el=document.getElementById(id); if(!el) return [];
-    if(el.multiple) return [...el.selectedOptions].map(o=>o.value).filter(v=>v && v !== (window.ALL_VALUE || '__ALL__'));
-    return el.value ? [el.value] : [];
-  }
-
-  function filterMainSkyMulti(id, value){
-    const el=document.getElementById(id); if(!el) return;
-    if(el.multiple){ [...el.options].forEach(o=>o.selected = o.value === value); } else { el.value = value; }
-    if(window.renderSky) window.renderSky();
-    if(typeof scrollToElement==='function') scrollToElement('skyCasesTable');
-  }
-
-  function ensureExcelFiltersV20(){
-    ['skyBranchFilter','skyStageFilter','skyJobTypeFilter'].forEach(id=>{
-      const select=document.getElementById(id); if(!select) return; select.style.display='none';
-      let wrap=document.getElementById(id+'_excel'); if(!wrap) return;
-      wrap.classList.add('v20-fixed');
-      const panel=wrap.querySelector('.excel-filter-panel'); const list=wrap.querySelector('.excel-filter-list'); const search=wrap.querySelector('.excel-filter-search');
-      if(panel) panel.style.maxHeight='none'; if(list) list.style.maxHeight='240px'; if(search) search.placeholder='Search';
-    });
-  }
-
-  const oldClear = window.clearSkyChartFilter;
-  window.clearSkyChartFilter = function(id){
-    const el=document.getElementById(id); if(el) el.value='';
-    if(window.renderSky) window.renderSky();
-  };
-
-  const oldRenderSky = window.renderSky;
-  window.renderSky = function(){
-    if(oldRenderSky) oldRenderSky();
-    try{
-      if(!document.getElementById('skyPage')) return;
-      const all = rowsAll();
-      const filtered = currentRows();
-      setText('skyTotalCases', all.length);
-      setText('skyOpenCases', all.filter(isOpen).length);
-      setText('skyReadyCases', all.filter(isReady).length);
-      setText('skyDeliveredCases', all.filter(r=>txt(r.Queue)==='__REMOVED_QUEUE__').length);
-      setText('skySamsungCases', all.filter(r=>txt(r.Brand)==='Samsung').length);
-      setText('skyAppleCases', all.filter(r=>txt(r.Brand)==='Apple').length);
-      updateSkyChartsV20(filtered);
-      ensureExcelFiltersV20();
-      updateCurrentTabDesign();
-    }catch(e){ }
-  };
-
-  function applyBodyDesign(design){
-    const d = design || 'volta';
-    document.body.classList.remove(...DESIGN_CLASSES);
-    document.body.classList.add('theme-'+d);
-    ['gspnPage','skyPage'].forEach(id=>{ const p=document.getElementById(id); if(p){ p.classList.remove(...DESIGN_CLASSES); p.classList.add('theme-'+d); } });
-  }
-  function updateCurrentTabDesign(){
-    const tab = activeTab();
-    const design = localStorage.getItem(tab+'Design') || (tab==='sky' ? 'fallon' : 'volta');
-    applyBodyDesign(design);
-  }
-  window.setDesign = function(design){
-    const tab = activeTab();
-    localStorage.setItem(tab+'Design', design);
-    applyBodyDesign(design);
-  };
-  const oldSwitchTab = window.switchTab;
-
-  function addDesignButtons(){
-    document.querySelectorAll('.design-options').forEach(box=>{
-      const specs=[['fallon','Fallon Aqua'],['rolio','Rolio Creative'],['faraado','Faraado Energy'],['foodfinda','Foodfinda Fresh']];
-      specs.forEach(([key,label])=>{ if(!box.querySelector(`[data-v20-design="${key}"]`)){ const b=document.createElement('button'); b.type='button'; b.dataset.v20Design=key; b.textContent=label; b.onclick=()=>window.setDesign(key); box.appendChild(b); } });
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded',()=>{
-    setTimeout(()=>{ addDesignButtons(); updateCurrentTabDesign(); refreshSkyChartFilterOptionsV20(); if(window.renderSky) window.renderSky(); },800);
-  });
-})();
-
-
-/* ===== v21_final_script ===== */
-
-(function(){
-  const DESIGN_CLASSES = ["theme-pro","theme-glass","theme-fresh","theme-volta","theme-fallon","theme-rolio","theme-faraado","theme-foodfinda"];
-  const SKY_QUEUES = ["Open_Cases", "Ready For Delivery Cases"];
-  const SELECT_ALL = (window.ALL_VALUE || "__ALL__");
-  const CHART_LABEL_PLUGIN_ID = 'v21SingleChartValueLabels';
-
-  function clean(v){ return String(v ?? '').trim(); }
-  function esc(v){ return String(v ?? '').replace(/[&<>\"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[s])); }
-  function pct(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function activeTab(){ const sky=document.getElementById('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
-  function byId(id){ return document.getElementById(id); }
-  function setText(id,val){ const el=byId(id); if(el) el.textContent=val; }
-  function rowsAllSky(){ return Array.isArray(window.skyRows) ? window.skyRows : []; }
-  function rowsCurrentSky(){ return Array.isArray(window.currentSkyRows) ? window.currentSkyRows : rowsAllSky(); }
-
-  function unregisterOldLabelPlugins(){
-    if(!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    ['v19Labels','v20SkyLabels','skyBarLabelErrorPlugin'].forEach(id=>{
-      try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){}
-    });
-  }
-
-  const v21LabelPlugin = {
-    id: CHART_LABEL_PLUGIN_ID,
-    afterDatasetsDraw(chart){
-      const opts = chart.options && chart.options.plugins && chart.options.plugins[CHART_LABEL_PLUGIN_ID] || {};
-      if(opts.display === false) return;
-      const {ctx} = chart;
-      ctx.save();
-      ctx.font = opts.font || 'bold 12px Calibri, Arial, sans-serif';
-      ctx.fillStyle = opts.color || '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      chart.data.datasets.forEach((ds, di) => {
-        const meta = chart.getDatasetMeta(di);
-        meta.data.forEach((bar, i) => {
-          const val = Number(ds.data[i] || 0);
-          if(!val) return;
-          const p = bar.tooltipPosition ? bar.tooltipPosition() : {x:bar.x, y:bar.y};
-          ctx.fillText(String(val), p.x, Math.max(14, p.y - 6));
-        });
-      });
-      ctx.restore();
-    }
-  };
-
-  function chartBaseOptions(values, labels, clickFn, labelColor){
-    const total = values.reduce((a,b)=>a+Number(b||0),0);
-    return {
-      responsive:true,
-      maintainAspectRatio:false,
-      layout:{padding:{top:24}},
-      plugins:{
-        legend:{display:false, labels:{color:labelColor||'#fff'}},
-        tooltip:{callbacks:{label:ctx=>`Cases: ${ctx.raw} (${pct(ctx.raw,total)}%)`}},
-        [CHART_LABEL_PLUGIN_ID]:{color:labelColor||'#ffffff'}
-      },
-      scales:{
-        x:{ticks:{color:labelColor||'#ffffff', autoSkip:false, maxRotation:45, minRotation:0}, grid:{color:'rgba(255,255,255,.08)'}},
-        y:{beginAtZero:true, ticks:{color:labelColor||'#ffffff'}, grid:{color:'rgba(255,255,255,.08)'}, suggestedMax: Math.max(...values,0)*1.18+1}
-      },
-      onClick:(evt,elements)=>{ if(elements && elements.length && clickFn){ clickFn(labels[elements[0].index]); } }
-    };
-  }
-
-  function makeColumnChart(id, labels, values, datasetLabel, clickFn, labelColor){
-    unregisterOldLabelPlugins();
-    const canvas = byId(id); if(!canvas || !window.Chart) return;
-    if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} }
-    if(!window.dashboardCharts) window.dashboardCharts = {};
-    dashboardCharts[id] = __safeNewChart(canvas, {
-      type:'bar',
-      data:{labels, datasets:[{label:datasetLabel || 'Cases', data:values, borderWidth:1}]},
-      options: chartBaseOptions(values, labels, clickFn, labelColor || '#ffffff'),
-      plugins:[v21LabelPlugin]
-    });
-  }
-
-  function makeDoughnut(id, labels, values, datasetLabel, clickFn){
-    unregisterOldLabelPlugins();
-    const canvas = byId(id); if(!canvas || !window.Chart) return;
-    if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} }
-    if(!window.dashboardCharts) window.dashboardCharts = {};
-    const total = values.reduce((a,b)=>a+Number(b||0),0);
-    dashboardCharts[id] = __safeNewChart(canvas, {
-      type:'doughnut',
-      data:{labels, datasets:[{label:datasetLabel || 'Cases', data:values, borderWidth:1}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true, position:'bottom', labels:{color:'#fff'}}, tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}, [CHART_LABEL_PLUGIN_ID]:{display:false}}, onClick:(evt,elements)=>{ if(elements && elements.length && clickFn) clickFn(labels[elements[0].index]); }},
-      plugins:[v21LabelPlugin]
-    });
-  }
-
-  // GSPN charts: remove duplicate labels, use white chart fonts, and keep Total Cases constant under filters.
-  function countBy(rows, field, limit){
-    const counts={}; (rows||[]).forEach(r=>{ const k=clean(r[field]) || 'Blank'; counts[k]=(counts[k]||0)+1; });
-    const arr=Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-    return {labels:arr.slice(0,limit||999).map(x=>x[0]), values:arr.slice(0,limit||999).map(x=>x[1])};
-  }
-  function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+Number(b||0),0)/arr.length : 0; }
-  function avgRepairBy(rows, field, limit){
-    const g={}; (rows||[]).forEach(r=>{ if(typeof r.RepairDurationDays !== 'number') return; const k=clean(r[field]) || 'Blank'; (g[k]=g[k]||[]).push(r.RepairDurationDays); });
-    const arr=Object.entries(g).map(([k,v])=>[k, Number(avg(v).toFixed(1))]).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-    return {labels:arr.slice(0,limit||999).map(x=>x[0]), values:arr.slice(0,limit||999).map(x=>x[1])};
-  }
-  function agingBuckets(rows){
-    const labels=['0-2 Days','3-5 Days','6-10 Days','11-20 Days','>20 Days']; const values=[0,0,0,0,0];
-    (rows||[]).forEach(r=>{ if(r.StatusFinal && r.StatusFinal !== 'Open') return; const d=Number(r.AgingDays); if(!Number.isFinite(d)) return; if(d<=2) values[0]++; else if(d<=5) values[1]++; else if(d<=10) values[2]++; else if(d<=20) values[3]++; else values[4]++; });
-    return {labels,values};
-  }
-  window.updateCharts = function(rows){
-    if(!window.Chart) return;
-    rows = rows || [];
-    const failedLtp = rows.filter(r=>r.KPIResult==='Failed - LTP').length;
-    const failedTat = rows.filter(r=>r.KPIResult==='Failed - TAT').length;
-    const fixToday = rows.filter(r=>r.KPIAlert==='Fix Today').length;
-    const watch = rows.filter(r=>r.KPIAlert==='Watch').length;
-    const onTrack = rows.filter(r=>r.KPIAlert==='On Track').length;
-    const review = rows.filter(r=>r.KPIAlert==='Review').length;
-    const done = rows.filter(r=>r.KPIAlert==='Done').length;
-    makeDoughnut('failedReasonChart', ['LTP Failed','TAT Failed'], [failedLtp, failedTat], 'Failed KPI', label=>{ if(label.includes('LTP') && window.showFailedType) showFailedType('LTP'); if(label.includes('TAT') && window.showFailedType) showFailedType('TAT'); });
-    makeColumnChart('kpiChart', ['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done'], [failedLtp, failedTat, fixToday, watch, onTrack, review, done], 'Cases', label=>{ if(label==='Failed LTP'&&window.showFailedType)showFailedType('LTP'); else if(label==='Failed TAT'&&window.showFailedType)showFailedType('TAT'); else if(label==='Fix Today'&&window.showOnlyAlert)showOnlyAlert('Fix Today'); else if(label==='Watch 48h'&&window.showOnlyAlert)showOnlyAlert('Watch'); });
-    const openRows = rows.filter(r=>r.StatusFinal==='Open');
-    const branch=countBy(openRows,'GSPN_Branch',10); makeColumnChart('branchChart', branch.labels, branch.values, 'Open Cases', label=>window.filterByBranch && filterByBranch(label));
-    const status=countBy(openRows,'GSPN_Status',10); makeColumnChart('techChart', status.labels, status.values, 'Open Cases', label=>window.filterByGspnStatus && filterByGspnStatus(label));
-    const repair=avgRepairBy(rows,'GSPN_Branch',10); makeColumnChart('repairDaysChart', repair.labels, repair.values, 'Avg Repair Days', label=>window.filterByBranch && filterByBranch(label));
-    const aging=agingBuckets(rows); makeColumnChart('agingChart', aging.labels, aging.values, 'Open Cases');
-  };
-
-  const oldRender = window.render;
-  window.render = function(){
-    if(oldRender) oldRender();
-    try{
-      const totalAll = Array.isArray(window.allRows) ? window.allRows.length : 0;
-      ensureGspnExcelFilters();
-      updateGspnTimestamp();
-    }catch(e){ }
-  };
-
-  // Excel style filters for both tabs.
-  function selectedValues(select){
-    if(!select) return [];
-    if(select.multiple) return [...select.selectedOptions].map(o=>o.value).filter(v=>v && v!==SELECT_ALL);
-    return select.value ? [select.value] : [];
-  }
-  function applySelectValues(select, values, multiple){
-    if(!select) return;
-    const set=new Set(values||[]);
-    if(multiple){
-      [...select.options].forEach(o=>o.selected = set.size ? set.has(o.value) : o.value===SELECT_ALL);
-      if(![...select.selectedOptions].length && select.options[0]) select.options[0].selected=true;
-    }else{
-      select.value = values && values.length ? values[0] : '';
-    }
-  }
-  function excelFilter(selectId, opts){
-    const select=byId(selectId); if(!select) return;
-    const multiple = opts && opts.multiple !== undefined ? opts.multiple : !!select.multiple;
-    select.style.display='none';
-    let wrap=byId(selectId+'_excel');
-    if(!wrap){ wrap=document.createElement('div'); wrap.className='excel-filter-container'; wrap.id=selectId+'_excel'; select.insertAdjacentElement('afterend', wrap); }
-    wrap.className='excel-filter-container v21';
-    const options=[...select.options].map(o=>({value:o.value, text:o.textContent || o.value, selected:o.selected}));
-    const realSel=options.filter(o=>o.selected && o.value!==SELECT_ALL && o.value!=='');
-    const isAll = multiple ? (!realSel.length || options.some(o=>o.value===SELECT_ALL && o.selected)) : !select.value;
-    const summary = isAll ? '(Select All)' : realSel.length > 2 ? `${realSel.length} selected` : realSel.map(o=>o.text).join(', ');
-    wrap.innerHTML = `<button type="button" class="excel-filter-button" title="${esc(summary)}">${esc(summary)}</button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search"/><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div>`;
-    const btn=wrap.querySelector('.excel-filter-button'), panel=wrap.querySelector('.excel-filter-panel'), list=wrap.querySelector('.excel-filter-list'), search=wrap.querySelector('.excel-filter-search');
-    let temp=new Set(multiple ? options.filter(o=>o.selected).map(o=>o.value) : [select.value || '']);
-    if(multiple && (!temp.size || temp.has(SELECT_ALL))) temp=new Set([SELECT_ALL]);
-    function position(){
-      const r=btn.getBoundingClientRect(); const w=Math.min(330, window.innerWidth-24); let left=Math.min(Math.max(12,r.left), window.innerWidth-w-12); let top=r.bottom+6; const maxH=Math.min(360, window.innerHeight-30); if(top+maxH>window.innerHeight) top=Math.max(12,r.top-maxH-6); panel.style.left=left+'px'; panel.style.top=top+'px'; panel.style.width=w+'px'; panel.style.maxHeight=maxH+'px'; list.style.maxHeight=Math.max(100,maxH-125)+'px';
-    }
-    function draw(filter=''){
-      const term=filter.toLowerCase(); const visible=options.filter(o=>!term || o.text.toLowerCase().includes(term));
-      list.innerHTML=visible.map(o=>`<label class="excel-filter-option"><input type="checkbox" data-value="${esc(o.value)}" ${temp.has(o.value)?'checked':''}> <span>${esc(o.text)}</span></label>`).join('');
-      list.querySelectorAll('input').forEach(cb=>{ cb.onchange=()=>{ const val=cb.getAttribute('data-value'); if(multiple){ if(val===SELECT_ALL){ temp=cb.checked?new Set([SELECT_ALL]):new Set(); } else { temp.delete(SELECT_ALL); cb.checked?temp.add(val):temp.delete(val); if(!temp.size) temp.add(SELECT_ALL); } draw(search.value); } else { temp=new Set([cb.checked?val:'']); draw(search.value); } }; });
-    }
-    btn.onclick=e=>{ e.stopPropagation(); document.querySelectorAll('.excel-filter-container.open').forEach(x=>{ if(x!==wrap) x.classList.remove('open'); }); wrap.classList.toggle('open'); if(wrap.classList.contains('open')){ position(); setTimeout(()=>search.focus(),0); } };
-    panel.onclick=e=>e.stopPropagation();
-    wrap.querySelector('.cancel').onclick=()=>wrap.classList.remove('open');
-    wrap.querySelector('.ok').onclick=()=>{ applySelectValues(select, [...temp], multiple); wrap.classList.remove('open'); if(selectId.startsWith('sky')){ window.renderSky && renderSky(); } else { window.render && render(); } };
-    search.oninput=()=>draw(search.value);
-    draw();
-  }
-  function ensureGspnExcelFilters(){
-    ['branchFilter','techFilter','warrantyFilter','alertFilter'].forEach(id=>{ if(byId(id)) excelFilter(id,{multiple:true}); });
-  }
-  function ensureSkyExcelFilters(){
-    excelFilter('skyBranchFilter',{multiple:true});
-    excelFilter('skyQueueFilter',{multiple:false});
-    excelFilter('skyBrandFilter',{multiple:false});
-    excelFilter('skyStageFilter',{multiple:true});
-    excelFilter('skyJobTypeFilter',{multiple:true});
-  }
-  document.addEventListener('click',()=>document.querySelectorAll('.excel-filter-container.open').forEach(x=>x.classList.remove('open')));
-  window.addEventListener('resize',()=>document.querySelectorAll('.excel-filter-container.open .excel-filter-button').forEach(btn=>btn.click()));
-
-  // SKY charts and buttons.
-  function isOpen(r){ return clean(r.Queue)==='Open_Cases'; }
-  function isReady(r){ return clean(r.Queue)==='Ready For Delivery Cases'; }
-  function isDelivered(r){ return clean(r.Queue)==='__REMOVED_QUEUE__'; }
-  function validOpenStage(r){ const s=clean(r.Stage).toLowerCase(); return isOpen(r) && s && s!=='delivered' && !s.includes('ready for delivery'); }
-  function chartFilter(rows,id,field){ const v=byId(id)?.value || ''; return v ? rows.filter(r=>clean(r[field])===v) : rows; }
-  function countByKeep(rows, field, ordered){
-    const c={}; (rows||[]).forEach(r=>{ const k=clean(r[field])||'Blank'; c[k]=(c[k]||0)+1; });
-    const arr=ordered ? ordered.map(k=>[k,c[k]||0]) : Object.entries(c).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>x[1])};
-  }
-  function refreshChartSelect(id, values, allText){
-    const el=byId(id); if(!el) return; const old=el.value || '';
-    const vals=[...new Set((values||[]).map(clean).filter(Boolean))].sort();
-    el.innerHTML=`<option value="">${esc(allText||'All')}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    if([...el.options].some(o=>o.value===old)) el.value=old;
-    el.onchange=()=>window.renderSky && renderSky();
-  }
-  function readyAgingMonths(rows){
-    const labels=['0-3','4-7','more than 7']; const values=[0,0,0];
-    (rows||[]).forEach(r=>{ const days=Number(r.Aging_Days ?? r.AgingDays ?? r['Aging Days']); if(!Number.isFinite(days)) return; const m=days/30; if(m<=3) values[0]++; else if(m<=7) values[1]++; else values[2]++; });
-    return {labels,values};
-  }
-  function setSummary(id, labels, values, total){
-    const el=byId(id); if(!el) return;
-    el.innerHTML=labels.map((l,i)=>`<span class="sky-chart-chip">${esc(l)}: ${values[i]} (${pct(values[i], total)}%)</span>`).join('');
-  }
-  function updateSkyChartFilterOptions(){
-    const all=rowsAllSky();
-    refreshChartSelect('skyQueueChartBrandFilter',['Samsung','Apple'],'All Brands');
-    refreshChartSelect('skyBrandChartQueueFilter',SKY_QUEUES,'All Queues');
-    refreshChartSelect('skyStageChartBranchFilter',all.map(r=>r.Branch),'All Branches');
-    refreshChartSelect('skyBranchChartStageFilter',all.filter(validOpenStage).map(r=>r.Stage),'All Stages');
-    refreshChartSelect('skyReadyAgingBrandFilter',['Samsung','Apple'],'All Brands');
-  }
-  function updateSkyCharts(rows){
-    rows = Array.isArray(rows) ? rows : rowsCurrentSky();
-    updateSkyChartFilterOptions();
-    const queueRows=chartFilter(rows,'skyQueueChartBrandFilter','Brand');
-    const brandRows=chartFilter(rows,'skyBrandChartQueueFilter','Queue');
-    const stageRows=chartFilter(rows.filter(validOpenStage),'skyStageChartBranchFilter','Branch');
-    const branchRows=chartFilter(rows.filter(isOpen),'skyBranchChartStageFilter','Stage');
-    const readyRows=chartFilter(rows.filter(isReady),'skyReadyAgingBrandFilter','Brand');
-    const q=countByKeep(queueRows,'Queue',SKY_QUEUES), b=countByKeep(brandRows,'Brand',['Samsung','Apple']), st=countByKeep(stageRows,'Stage'), br=countByKeep(branchRows,'Branch'), ag=readyAgingMonths(readyRows);
-    setSummary('skyQueueSummary',q.labels,q.values,queueRows.length); setSummary('skyBrandSummary',b.labels,b.values,brandRows.length); setSummary('skyStageSummary',st.labels,st.values,stageRows.length); setSummary('skyBranchSummary',br.labels,br.values,branchRows.length); setSummary('skyReadyAgingSummary',ag.labels,ag.values,readyRows.length);
-    makeColumnChart('skyQueueChart', q.labels, q.values, 'Cases', label=>window.setSkyQueue && setSkyQueue(label), '#ffffff');
-    makeColumnChart('skyBrandChart', b.labels, b.values, 'Cases', label=>window.setSkyBrand && setSkyBrand(label), '#ffffff');
-    makeColumnChart('skyStageChart', st.labels, st.values, 'Open Cases', label=>filterSkyMulti('skyStageFilter',label), '#ffffff');
-    makeColumnChart('skyBranchChart', br.labels, br.values, 'Open Cases', label=>filterSkyMulti('skyBranchFilter',label), '#ffffff');
-    makeColumnChart('skyReadyAgingChart', ag.labels, ag.values, 'Ready Cases', null, '#ffffff');
-  }
-  function filterSkyMulti(id,value){ const el=byId(id); if(!el) return; if(el.multiple){ [...el.options].forEach(o=>o.selected=o.value===value); } else el.value=value; window.renderSky && renderSky(); if(window.scrollToElement) scrollToElement('skyCasesTable'); }
-  window.clearSkyChartFilter = function(id){ const el=byId(id); if(el) el.value=''; window.renderSky && renderSky(); };
-
-  const oldRenderSky = window.renderSky;
-  window.renderSky = function(){
-    if(oldRenderSky) oldRenderSky();
-    try{
-      const all=rowsAllSky();
-      const filtered=rowsCurrentSky();
-      setText('skyTotalCases', all.length);
-      setText('skyOpenCases', all.filter(isOpen).length);
-      setText('skyReadyCases', all.filter(isReady).length);
-      setText('skyDeliveredCases', all.filter(isDelivered).length);
-      setText('skySamsungCases', all.filter(r=>clean(r.Brand)==='Samsung').length);
-      setText('skyAppleCases', all.filter(r=>clean(r.Brand)==='Apple').length);
-      ensureSkyExcelFilters();
-      updateSkyCharts(filtered);
-      updateSkyTimestamp();
-      applyCurrentTabDesign();
-    }catch(e){ }
-  };
-
-  // Per-tab design. Changing design now affects only the current tab visually and in memory.
-  function designFor(tab){ return localStorage.getItem('serviceEyeDesign_'+tab) || (tab==='sky' ? 'fallon' : 'volta'); }
-  function applyDesignToPage(tab, design){
-    const page=byId(tab==='sky'?'skyPage':'gspnPage'); if(!page) return;
-    page.classList.remove(...DESIGN_CLASSES); page.classList.add('theme-'+design);
-    if(activeTab()===tab){ document.body.classList.remove(...DESIGN_CLASSES); document.body.classList.add('theme-'+design); }
-  }
-  function applyCurrentTabDesign(){ const tab=activeTab(); applyDesignToPage(tab, designFor(tab)); }
-  window.setDesign = function(design){ const tab=activeTab(); localStorage.setItem('serviceEyeDesign_'+tab, design); applyDesignToPage(tab, design); setTimeout(()=>{ if(tab==='sky' && window.renderSky) renderSky(); if(tab==='gspn' && window.updateCharts) updateCharts(window.currentFilteredRows||[]); },80); };
-  const oldSwitchTab=window.switchTab;
-
-  // Last update / upload timestamp displays.
-  function ensureTimestampAfter(progressId, id, label){
-    let el=byId(id); if(!el){ const p=byId(progressId); if(p){ el=document.createElement('div'); el.id=id; el.className='data-last-update'; p.insertAdjacentElement('afterend', el); } }
-    if(el){ const saved=localStorage.getItem(id); el.textContent = saved ? `${label}: ${saved}` : `${label}: Not uploaded yet`; }
-  }
-  function updateGspnTimestamp(){ ensureTimestampAfter('uploadProgressWrap','gspnLastUploadTime','GSPN last data update'); }
-  function updateSkyTimestamp(){ ensureTimestampAfter('skyUploadProgressWrap','skyLastUploadTime','SKY last data update'); }
-  const oldHandleFile=window.handleFile;
-  if(oldHandleFile){ window.handleFile=function(e){ localStorage.setItem('gspnLastUploadTime', new Date().toLocaleString()); updateGspnTimestamp(); return oldHandleFile.call(this,e); }; }
-  const oldHandleSkyFile=window.handleSkyFile;
-  if(oldHandleSkyFile){ window.handleSkyFile=function(e){ localStorage.setItem('skyLastUploadTime', new Date().toLocaleString()); updateSkyTimestamp(); return oldHandleSkyFile.call(this,e); }; }
-
-  document.addEventListener('DOMContentLoaded',()=>{
-    setTimeout(()=>{
-      unregisterOldLabelPlugins();
-      ensureGspnExcelFilters(); ensureSkyExcelFilters();
-      updateGspnTimestamp(); updateSkyTimestamp(); applyCurrentTabDesign();
-      if(window.render) render(); if(window.renderSky) renderSky();
-    },900);
-  });
-
-  /* Expose helpers so later scripts can rebuild filters when needed
-     (e.g. when the GSPN JobType filter is added dynamically). */
-  window.ensureGspnExcelFilters = ensureGspnExcelFilters;
-  window.ensureSkyExcelFilters = ensureSkyExcelFilters;
-})();
-
-
-/* ===== v22_final_script ===== */
-
-(function(){
-  const ALL = (typeof ALL_VALUE !== 'undefined' ? ALL_VALUE : '__ALL__');
-  const DESIGN_CLASSES = ['theme-pro','theme-glass','theme-fresh','theme-volta','theme-fallon','theme-rolio','theme-faraado','theme-foodfinda'];
-  const SKY_QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const LABEL_PLUGIN_ID = 'serviceEyeV22LabelsOnly';
-
-  function q(id){ return document.getElementById(id); }
-  function text(v){ return String(v ?? '').trim(); }
-  function html(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function percent(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function setText(id, val){ const el=q(id); if(el) el.textContent = val; }
-  function activeTab(){ const sky=q('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
-  function safeAllRows(){ try { return Array.isArray(allRows) ? allRows : []; } catch(e){ return []; } }
-  function safeSkyRows(){ try { return Array.isArray(skyRows) ? skyRows : []; } catch(e){ return []; } }
-  function safeCurrentSkyRows(){ try { return Array.isArray(currentSkyRows) ? currentSkyRows : safeSkyRows(); } catch(e){ return safeSkyRows(); } }
-  function safeCurrentGspnRows(){ try { return Array.isArray(currentFilteredRows) ? currentFilteredRows : safeAllRows(); } catch(e){ return safeAllRows(); } }
-
-  function selectedValues(id){
-    const el=q(id); if(!el) return [];
-    if(el.multiple) return [...el.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL);
-    return el.value ? [el.value] : [];
-  }
-  function applyValues(select, values, multiple){
-    const set = new Set(values || []);
-    if(multiple){
-      [...select.options].forEach(o => o.selected = set.size ? set.has(o.value) : o.value === ALL);
-      if(![...select.selectedOptions].length && select.options[0]) select.options[0].selected = true;
-    } else {
-      select.value = values && values.length ? values[0] : '';
-    }
-  }
-  function refreshButtonLabel(select, btn, multiple){
-    const opts=[...select.options];
-    const real=opts.filter(o=>o.selected && o.value!==ALL && o.value!=='');
-    const label = multiple
-      ? (!real.length || opts.some(o=>o.value===ALL && o.selected) ? '(Select All)' : real.length > 2 ? `${real.length} selected` : real.map(o=>o.textContent).join(', '))
-      : (select.value ? (opts.find(o=>o.value===select.value)?.textContent || select.value) : '(Select All)');
-    btn.textContent = label; btn.title = label;
-  }
-  function closeAllPanels(){ document.querySelectorAll('.excel-filter-panel.v22-portal.open').forEach(p=>p.classList.remove('open')); }
-  document.addEventListener('click', closeAllPanels);
-  window.addEventListener('scroll', closeAllPanels, true);
-  window.addEventListener('resize', closeAllPanels);
-
-  function portalExcelFilter(selectId, options){
-    const select=q(selectId); if(!select) return;
-    const multiple = options && options.multiple !== undefined ? !!options.multiple : !!select.multiple;
-    select.style.display='none';
-    let wrap=q(selectId+'_excel');
-    if(!wrap){ wrap=document.createElement('div'); wrap.id=selectId+'_excel'; select.insertAdjacentElement('afterend', wrap); }
-    wrap.className='excel-filter-container v22';
-    let btn=wrap.querySelector('.excel-filter-button');
-    if(!btn){ btn=document.createElement('button'); btn.type='button'; btn.className='excel-filter-button'; wrap.innerHTML=''; wrap.appendChild(btn); }
-    refreshButtonLabel(select, btn, multiple);
-
-    const panelId=selectId+'_excel_panel_v22';
-    let panel=q(panelId);
-    if(!panel){ panel=document.createElement('div'); panel.id=panelId; panel.className='excel-filter-panel v22-portal'; document.body.appendChild(panel); }
-    const isSkyFilter = String(selectId || '').startsWith('sky');
-    if(isSkyFilter) panel.classList.add('sky-filter-panel'); else panel.classList.remove('sky-filter-panel','sky-filter-panel-dark');
-    function syncSkyFilterPanelTheme(){
-      if(!isSkyFilter) return;
-      const savedPageColor = localStorage.getItem('serviceEyePageColor_v2');
-      const savedSkyColor = localStorage.getItem('serviceEyeColor_sky');
-      const dark = document.body.dataset.pageColor === 'dark' || savedPageColor === 'dark' || savedSkyColor === 'black' || document.body.classList.contains('color-black') || document.body.classList.contains('theme-glass');
-      panel.classList.toggle('sky-filter-panel-dark', dark);
-    }
-    syncSkyFilterPanelTheme();
-
-    function readOptions(){ return [...select.options].map(o=>({value:o.value, text:o.textContent || o.value, selected:o.selected})); }
-    function position(){
-      const r=btn.getBoundingClientRect(); const w=Math.min(340, window.innerWidth-24);
-      let left=Math.min(Math.max(12, r.left), window.innerWidth-w-12);
-      let top=r.bottom+6; const maxH=Math.min(380, window.innerHeight-24);
-      if(top+maxH>window.innerHeight) top=Math.max(12, r.top-maxH-6);
-      panel.style.left=left+'px'; panel.style.top=top+'px'; panel.style.width=w+'px'; panel.style.maxHeight=maxH+'px';
-    }
-    function draw(temp, filter){
-      const opts=readOptions(); const term=(filter||'').toLowerCase(); const visible=opts.filter(o=>!term || o.text.toLowerCase().includes(term));
-      panel.innerHTML = `<input class="excel-filter-search" placeholder="Search"><div class="excel-filter-list">${visible.map(o=>`<label class="excel-filter-option"><input type="checkbox" data-value="${html(o.value)}" ${temp.has(o.value)?'checked':''}><span>${html(o.text)}</span></label>`).join('')}</div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div>`;
-      const search=panel.querySelector('.excel-filter-search'), list=panel.querySelector('.excel-filter-list');
-      list.querySelectorAll('input').forEach(cb=>{
-        cb.onchange=()=>{
-          const val=cb.getAttribute('data-value');
-          if(multiple){
-            if(val===ALL){ temp=cb.checked ? new Set([ALL]) : new Set(); }
-            else { temp.delete(ALL); cb.checked ? temp.add(val) : temp.delete(val); if(!temp.size) temp.add(ALL); }
-          } else {
-            temp = new Set(cb.checked && val ? [val] : ['']);
-          }
-          draw(temp, search.value);
-          panel.querySelector('.excel-filter-search').focus();
-        };
-      });
-      search.value=filter||''; search.oninput=()=>draw(temp, search.value);
-      panel.querySelector('.cancel').onclick=()=>panel.classList.remove('open');
-      panel.querySelector('.ok').onclick=()=>{
-        applyValues(select, [...temp].filter(Boolean), multiple);
-        refreshButtonLabel(select, btn, multiple);
-        panel.classList.remove('open');
-        if(selectId.startsWith('sky')) { if(typeof renderSky==='function') renderSky(); }
-        else { if(typeof render==='function') render(); }
-      };
-    }
-    btn.onclick=(e)=>{
-      e.stopPropagation();
-      const isOpen=panel.classList.contains('open'); closeAllPanels();
-      if(isOpen) return;
-      const selected = multiple ? [...select.selectedOptions].map(o=>o.value) : [select.value||''];
-      let temp=new Set(selected.length ? selected : [multiple ? ALL : '']);
-      if(multiple && (!temp.size || temp.has(ALL))) temp=new Set([ALL]);
-      syncSkyFilterPanelTheme(); draw(temp, ''); position(); panel.classList.add('open'); setTimeout(()=>panel.querySelector('.excel-filter-search')?.focus(), 0);
-    };
-    panel.onclick=e=>e.stopPropagation();
-  }
-  function ensureGspnFilters(){ ['branchFilter','techFilter','warrantyFilter','alertFilter'].forEach(id=>{ if(document.getElementById(id)) portalExcelFilter(id,{multiple:true}); }); }
-  function ensureSkyFilters(){ portalExcelFilter('skyBranchFilter',{multiple:true}); portalExcelFilter('skyQueueFilter',{multiple:false}); portalExcelFilter('skyBrandFilter',{multiple:false}); portalExcelFilter('skyStageFilter',{multiple:true}); portalExcelFilter('skyJobTypeFilter',{multiple:true}); }
-
-  function unregisterLabelPlugins(){
-    if(!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    ['v19Labels','v20SkyLabels','skyBarLabelErrorPlugin','v21SingleChartValueLabels','serviceEyeV22LabelsOnly'].forEach(id=>{ try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){} });
-  }
-  const labelPlugin={ id: LABEL_PLUGIN_ID, afterDatasetsDraw(chart){ const opts=chart.options?.plugins?.[LABEL_PLUGIN_ID]||{}; if(opts.display===false) return; const {ctx}=chart; ctx.save(); ctx.font=opts.font||'bold 12px Calibri, Arial, sans-serif'; ctx.fillStyle=opts.color||'#ffffff'; ctx.textAlign='center'; ctx.textBaseline='bottom'; chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const val=Number(ds.data[i]||0); if(!val) return; const p=bar.tooltipPosition ? bar.tooltipPosition() : {x:bar.x,y:bar.y}; ctx.fillText(String(val), p.x, Math.max(14, p.y-6)); }); }); ctx.restore(); } };
-  function registerLabelPlugin(){ unregisterLabelPlugins(); try{Chart.register(labelPlugin); }catch(e){} }
-
-  function destroyChart(id){ if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} } if(!window.dashboardCharts) window.dashboardCharts={}; }
-  function makeBar(id, labels, values, label, clickFn, color){
-    if(!window.Chart) return; const canvas=q(id); if(!canvas) return; registerLabelPlugin(); destroyChart(id); const total=values.reduce((a,b)=>a+Number(b||0),0); const c=color||'#ffffff';
-    dashboardCharts[id]=__safeNewChart(canvas,{ type:'bar', data:{labels, datasets:[{label:label||'Cases', data:values, borderWidth:1}]}, options:{responsive:true, maintainAspectRatio:false, layout:{padding:{top:24}}, plugins:{legend:{display:false, labels:{color:c}}, tooltip:{callbacks:{label:ctx=>`Cases: ${ctx.raw} (${percent(ctx.raw,total)}%)`}}, [LABEL_PLUGIN_ID]:{color:c}}, scales:{x:{ticks:{color:c, autoSkip:false, maxRotation:45, minRotation:0}, grid:{color:'rgba(255,255,255,.08)'}}, y:{beginAtZero:true, ticks:{color:c}, grid:{color:'rgba(255,255,255,.08)'}, suggestedMax:Math.max(...values,0)*1.18+1}}, onClick:(evt,elements)=>{ if(elements.length && clickFn) clickFn(labels[elements[0].index]); }} });
-  }
-  function makeDoughnut(id, labels, values, label, clickFn){
-    if(!window.Chart) return; const canvas=q(id); if(!canvas) return; registerLabelPlugin(); destroyChart(id); const total=values.reduce((a,b)=>a+Number(b||0),0);
-    dashboardCharts[id]=__safeNewChart(canvas,{ type:'doughnut', data:{labels, datasets:[{label:label||'Cases', data:values, borderWidth:1}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true, position:'bottom', labels:{color:'#ffffff'}}, tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} (${percent(ctx.raw,total)}%)`}}, [LABEL_PLUGIN_ID]:{display:false}}, onClick:(evt,elements)=>{ if(elements.length && clickFn) clickFn(labels[elements[0].index]); }} });
-  }
-  function countBy(rows, field, ordered, limit){ const c={}; (rows||[]).forEach(r=>{ const k=text(r[field])||'Blank'; c[k]=(c[k]||0)+1; }); const arr=ordered ? ordered.map(k=>[k,c[k]||0]) : Object.entries(c).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])); const out=limit?arr.slice(0,limit):arr; return {labels:out.map(x=>x[0]), values:out.map(x=>x[1])}; }
-  function avg(nums){ nums=nums||[]; return nums.length ? nums.reduce((a,b)=>a+Number(b||0),0)/nums.length : 0; }
-  function avgRepairBy(rows, field, limit){ const g={}; (rows||[]).forEach(r=>{ if(typeof r.RepairDurationDays!=='number') return; const k=text(r[field])||'Blank'; (g[k]=g[k]||[]).push(r.RepairDurationDays); }); const arr=Object.entries(g).map(([k,v])=>[k,Number(avg(v).toFixed(1))]).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])); const out=limit?arr.slice(0,limit):arr; return {labels:out.map(x=>x[0]), values:out.map(x=>x[1])}; }
-  function agingBuckets(rows){ const labels=['0-2 Days','3-5 Days','6-10 Days','11-20 Days','>20 Days']; const values=[0,0,0,0,0]; (rows||[]).forEach(r=>{ if(r.StatusFinal && r.StatusFinal!=='Open') return; const d=Number(r.AgingDays); if(!Number.isFinite(d)) return; if(d<=2) values[0]++; else if(d<=5) values[1]++; else if(d<=10) values[2]++; else if(d<=20) values[3]++; else values[4]++; }); return {labels,values}; }
-
-  window.updateCharts=function(rows){ rows=Array.isArray(rows)?rows:[]; const failed=rows.filter(r=>String(r.KPIAlert||'').includes('Failed')); const failedReason=countBy(failed,'KPIFailName',['LTP','TAT']); const kpiLabels=['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done']; const kpiValues=[rows.filter(r=>r.KPIAlert==='Failed'&&r.KPIFailName==='LTP').length, rows.filter(r=>r.KPIAlert==='Failed'&&r.KPIFailName==='TAT').length, rows.filter(r=>r.KPIAlert==='Fix Today').length, rows.filter(r=>r.KPIAlert==='Watch').length, rows.filter(r=>r.KPIAlert==='On Track').length, rows.filter(r=>r.KPIAlert==='Review').length, rows.filter(r=>r.KPIAlert==='Done').length]; const br=countBy(rows.filter(r=>r.StatusFinal==='Open'),'GSPN_Branch',null,15); const st=countBy(rows.filter(r=>r.StatusFinal==='Open'),'GSPN_Status',null,15); const rep=avgRepairBy(rows,'GSPN_Branch',15); const ag=agingBuckets(rows); makeDoughnut('failedReasonChart',failedReason.labels,failedReason.values,'Failed KPI',label=>{ if(typeof showFailedType==='function') showFailedType(label); }); makeBar('kpiChart',kpiLabels,kpiValues,'Cases',null,'#ffffff'); makeBar('branchChart',br.labels,br.values,'Open Cases',label=>{ const el=q('branchFilter'); if(el){ [...el.options].forEach(o=>o.selected=o.value===label); if(typeof render==='function') render(); } },'#ffffff'); makeBar('techChart',st.labels,st.values,'Open Cases',null,'#ffffff'); makeBar('repairDaysChart',rep.labels,rep.values,'Avg Repair Days',null,'#ffffff'); makeBar('agingChart',ag.labels,ag.values,'Open Cases',null,'#ffffff'); };
-
-  function isSkyOpen(r){ return text(r.Queue)==='Open_Cases'; }
-  function isSkyReady(r){ return text(r.Queue)==='Ready For Delivery Cases'; }
-  function isSkyDelivered(r){ return text(r.Queue)==='__REMOVED_QUEUE__'; }
-  function validStage(r){ const s=text(r.Stage).toLowerCase(); return isSkyOpen(r) && s && s!=='delivered' && !s.includes('ready for delivery'); }
-  function chartFilter(rows,id,field){ const v=q(id)?.value||''; return v ? rows.filter(r=>text(r[field])===v) : rows; }
-  function setSummary(id, labels, values, total){ const el=q(id); if(!el) return; el.innerHTML=labels.map((l,i)=>`<span class="sky-chart-chip">${html(l)}: ${values[i]} (${percent(values[i],total)}%)</span>`).join(''); }
-  function readyAging(rows){ const labels=['0-3','4-7','more than 7']; const values=[0,0,0]; (rows||[]).forEach(r=>{ const days=Number(r.Aging_Days ?? r.AgingDays ?? r['Aging Days']); if(!Number.isFinite(days)) return; const m=days/30; if(m<=3) values[0]++; else if(m<=7) values[1]++; else values[2]++; }); return {labels,values}; }
-  function refreshChartSelect(id, values, label){ const el=q(id); if(!el) return; const old=el.value||''; const vals=[...new Set((values||[]).map(text).filter(Boolean))].sort(); el.innerHTML=`<option value="">${html(label||'All')}</option>`+vals.map(v=>`<option value="${html(v)}">${html(v)}</option>`).join(''); if([...el.options].some(o=>o.value===old)) el.value=old; el.onchange=()=>renderSky(); }
-  function refreshSkyChartFilterOptions(){ const all=safeSkyRows(); refreshChartSelect('skyQueueChartBrandFilter',['Samsung','Apple'],'All Brands'); refreshChartSelect('skyBrandChartQueueFilter',SKY_QUEUES,'All Queues'); refreshChartSelect('skyStageChartBranchFilter',all.map(r=>r.Branch),'All Branches'); refreshChartSelect('skyBranchChartStageFilter',all.filter(validStage).map(r=>r.Stage),'All Stages'); refreshChartSelect('skyReadyAgingBrandFilter',['Samsung','Apple'],'All Brands'); }
-  function filterSkyMulti(id,value){ const el=q(id); if(!el) return; if(el.multiple){ [...el.options].forEach(o=>o.selected=o.value===value); } else el.value=value; renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); }
-  window.clearSkyChartFilter=function(id){ const el=q(id); if(el) el.value=''; renderSky(); };
-  window.updateSkyCharts=function(rows){ rows=Array.isArray(rows)?rows:safeCurrentSkyRows(); refreshSkyChartFilterOptions(); const queueRows=chartFilter(rows,'skyQueueChartBrandFilter','Brand'); const brandRows=chartFilter(rows,'skyBrandChartQueueFilter','Queue'); const stageRows=chartFilter(rows.filter(validStage),'skyStageChartBranchFilter','Branch'); const branchRows=chartFilter(rows.filter(isSkyOpen),'skyBranchChartStageFilter','Stage'); const readyRows=chartFilter(rows.filter(isSkyReady),'skyReadyAgingBrandFilter','Brand'); const qd=countBy(queueRows,'Queue',SKY_QUEUES), bd=countBy(brandRows,'Brand',['Samsung','Apple']), sd=countBy(stageRows,'Stage'), br=countBy(branchRows,'Branch'), ag=readyAging(readyRows); setSummary('skyQueueSummary',qd.labels,qd.values,queueRows.length); setSummary('skyBrandSummary',bd.labels,bd.values,brandRows.length); setSummary('skyStageSummary',sd.labels,sd.values,stageRows.length); setSummary('skyBranchSummary',br.labels,br.values,branchRows.length); setSummary('skyReadyAgingSummary',ag.labels,ag.values,readyRows.length); makeBar('skyQueueChart',qd.labels,qd.values,'Cases',label=>{ const el=q('skyQueueFilter'); if(el){ el.value=label; renderSky(); } },'#ffffff'); makeBar('skyBrandChart',bd.labels,bd.values,'Cases',label=>{ const el=q('skyBrandFilter'); if(el){ el.value=label; renderSky(); } },'#ffffff'); makeBar('skyStageChart',sd.labels,sd.values,'Open Cases',label=>filterSkyMulti('skyStageFilter',label),'#ffffff'); makeBar('skyBranchChart',br.labels,br.values,'Open Cases',label=>filterSkyMulti('skyBranchFilter',label),'#ffffff'); makeBar('skyReadyAgingChart',ag.labels,ag.values,'Ready Cases',null,'#ffffff'); const stageAll=q('skyStageAllChart')?.closest('section'); if(stageAll) stageAll.remove(); };
-
-  const skyPreviewCols=[['Queue','Queue'],['Brand','Brand'],['Branch','Branch'],['Open_Date_Display','Open Date'],['Aging_Days','Aging Days'],['Job_Number','Job Number'],['Status','Status'],['Stage','Stage'],['Item English Name','Item English Name'],['Price','Price']];
-  window.renderSky=function(){ try{ if(!q('skyPage')) return; if(typeof getSkyFilteredRows==='function') currentSkyRows=getSkyFilteredRows(); else currentSkyRows=safeSkyRows(); const all=safeSkyRows(); const filtered=safeCurrentSkyRows(); setText('skyTotalCases', all.length); setText('skyOpenCases', all.filter(isSkyOpen).length); setText('skyReadyCases', all.filter(isSkyReady).length); setText('skyDeliveredCases', all.filter(isSkyDelivered).length); setText('skySamsungCases', all.filter(r=>text(r.Brand).toLowerCase()==='samsung').length); setText('skyAppleCases', all.filter(r=>text(r.Brand).toLowerCase()==='apple').length); setText('skyOpenPercent', `${percent(all.filter(isSkyOpen).length, all.length)}% of Total`); setText('skyReadyPercent', `${percent(all.filter(isSkyReady).length, all.length)}% of Total`); setText('skyDeliveredPercent', `${percent(all.filter(isSkyDelivered).length, all.length)}% of Total`); setText('skySamsungPercent', `${percent(all.filter(r=>text(r.Brand).toLowerCase()==='samsung').length, all.length)}% of Total`); setText('skyApplePercent', `${percent(all.filter(r=>text(r.Brand).toLowerCase()==='apple').length, all.length)}% of Total`); if(typeof renderTable==='function') renderTable('skyCasesTable', filtered.slice(0,1000), skyPreviewCols, false); ensureSkyFilters(); updateSkyCharts(filtered); renderLastUpdate('sky'); applyCurrentDesign(); } catch(e){ } };
-
-  const originalRender=window.render;
-  window.render=function(){ if(originalRender) originalRender(); try{ const all=safeAllRows(); ensureGspnFilters(); renderLastUpdate('gspn'); applyCurrentDesign(); }catch(e){ } };
-
-  function renderLastUpdate(tab){
-    const id=tab==='sky'?'skyLastUploadTime':'gspnLastUploadTime'; const wrapId=tab==='sky'?'skyUploadProgressWrap':'uploadProgressWrap'; const label=tab==='sky'?'Last SKY data update':'Last GSPN data update';
-    document.querySelectorAll('.data-last-update').forEach(el=>{ if(el.id!==id) el.remove(); });
-    let el=q(id); if(!el){ el=document.createElement('div'); el.id=id; el.className='data-last-update v22-single'; const wrap=q(wrapId); if(wrap) wrap.insertAdjacentElement('afterend', el); }
-    el.className='data-last-update v22-single'; const saved=localStorage.getItem(id); el.textContent = saved ? `${label}: ${saved}` : `${label}: Not uploaded yet`;
-  }
-  const prevHandleFile=window.handleFile; if(prevHandleFile){ window.handleFile=function(e){ localStorage.setItem('gspnLastUploadTime', new Date().toLocaleString()); renderLastUpdate('gspn'); return prevHandleFile.call(this,e); }; }
-  const prevHandleSky=window.handleSkyFile; if(prevHandleSky){ window.handleSkyFile=function(e){ localStorage.setItem('skyLastUploadTime', new Date().toLocaleString()); renderLastUpdate('sky'); return prevHandleSky.call(this,e); }; }
-
-  function designKey(tab){ return 'serviceEyeDesign_'+tab; }
-  function getDesign(tab){ return localStorage.getItem(designKey(tab)) || localStorage.getItem(tab+'Design') || (tab==='sky'?'fallon':'volta'); }
-  function applyDesignTo(tab, design){ const page=q(tab==='sky'?'skyPage':'gspnPage'); if(page){ page.classList.remove(...DESIGN_CLASSES); page.classList.add('theme-'+design); } if(activeTab()===tab){ document.body.classList.remove(...DESIGN_CLASSES); document.body.classList.add('theme-'+design); } }
-  function applyCurrentDesign(){ const tab=activeTab(); applyDesignTo(tab, getDesign(tab)); }
-  window.setDesign=function(design){ const tab=activeTab(); localStorage.setItem(designKey(tab), design); localStorage.setItem(tab+'Design', design); applyDesignTo(tab, design); setTimeout(()=>{ if(tab==='sky') renderSky(); else if(typeof render==='function') render(); },60); };
-  const prevSwitch=window.switchTab;
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(()=>{ ensureGspnFilters(); ensureSkyFilters(); renderLastUpdate('gspn'); renderLastUpdate('sky'); applyCurrentDesign(); if(typeof render==='function') window._bootOnce && window._bootOnce('main-render', render); if(q('skyPage') && activeTab()==='sky') window._bootOnce && window._bootOnce('sky-render', function(){ if(typeof renderSky==='function') renderSky(); }); },1200); });
-
-  /* Expose helpers so the v65 jobTypeFilter setup can rebuild them. */
-  window.ensureGspnFilters = ensureGspnFilters;
-  window.ensureSkyFilters = ensureSkyFilters;
-})();
-
-
-/* ===== v23-glass-final-script ===== */
-
-(function(){
-  function qs(sel){ return document.querySelector(sel); }
-  function qsa(sel){ return Array.from(document.querySelectorAll(sel)); }
-
-  function forceGlassDark(){
-    document.body.classList.remove('theme-pro','theme-fresh','theme-volta');
-    document.body.classList.add('theme-glass');
-    try {
-      localStorage.setItem('serviceEyeDesign_gspn','glass');
-      localStorage.setItem('serviceEyeDesign_sky','glass');
-      localStorage.setItem('gspnDesign','glass');
-      localStorage.setItem('skyDesign','glass');
-      localStorage.setItem('serviceEyeDesign','glass');
-    } catch(e) {}
-    qsa('.design-options').forEach(el => el.style.display = 'none');
-  }
-
-  function normalizeLastUpdate(tab){
-    const isSky = tab === 'sky';
-    const id = isSky ? 'skyLastUploadTime' : 'gspnLastUploadTime';
-    const wrapId = isSky ? 'skyUploadProgressWrap' : 'uploadProgressWrap';
-    const label = isSky ? 'Last SKY data update' : 'Last GSPN data update';
-
-    // Remove all legacy/duplicate update messages for the same tab.
-    if (isSky) {
-      qsa('#skyLastUpdate, .sky-last-update').forEach(el => el.remove());
-      qsa('.data-last-update').forEach(el => {
-        if (el.id !== id && /SKY/i.test(el.textContent || '')) el.remove();
-      });
-    } else {
-      qsa('.data-last-update').forEach(el => {
-        if (el.id !== id && /GSPN/i.test(el.textContent || '')) el.remove();
-      });
-    }
-
-    let el = qs('#' + id);
-    if (!el) {
-      el = document.createElement('div');
-      el.id = id;
-      const wrap = qs('#' + wrapId);
-      if (wrap) wrap.insertAdjacentElement('afterend', el);
-    }
-    el.className = 'data-last-update v23-single-update';
-    const saved = localStorage.getItem(id) || localStorage.getItem(isSky ? 'skyLastUploadTime' : 'gspnLastUploadTime');
-    el.textContent = saved ? `${label}: ${saved}` : `${label}: Not uploaded yet`;
-  }
-
-  function activeTab(){
-    const sky = qs('#skyPage');
-    if (sky && sky.style.display !== 'none' && !sky.hidden) return 'sky';
-    return 'gspn';
-  }
-
-  function applyV23Fixes(){
-    forceGlassDark();
-    normalizeLastUpdate(activeTab());
-    qsa('.filter-label, .excel-filter-label, .sky-filter-label').forEach(el => {
-      el.style.color = (document.body.classList.contains('theme-glass') || document.body.dataset.pageColor === 'dark') ? '#cbd5e1' : '#000000';
-      el.style.opacity = '1';
-      el.style.textShadow = 'none';
-    });
-  }
-
-  // Override design switching: Glass Dark only.
-  window.setDesign = function(){
-    forceGlassDark();
-    applyV23Fixes();
-  };
-
-  // Wrap tab switching to keep glass and update only visible/current tab.
-  const oldSwitchTab = window.switchTab;
-  if (typeof oldSwitchTab === 'function') {
-  }
-
-  // Wrap uploads and update only one update label.
-  const oldHandleFile = window.handleFile;
-  if (typeof oldHandleFile === 'function') {
-    window.handleFile = function(e){
-      try { localStorage.setItem('gspnLastUploadTime', new Date().toLocaleString()); } catch(err) {}
-      normalizeLastUpdate('gspn');
-      return oldHandleFile.apply(this, arguments);
-    };
-  }
-
-  const oldHandleSkyFile = window.handleSkyFile;
-  if (typeof oldHandleSkyFile === 'function') {
-    window.handleSkyFile = function(e){
-      try { localStorage.setItem('skyLastUploadTime', new Date().toLocaleString()); } catch(err) {}
-      normalizeLastUpdate('sky');
-      return oldHandleSkyFile.apply(this, arguments);
-    };
-  }
-
-  // Wrap renders because older injected scripts may recreate the duplicate update labels.
-  const oldRender = window.render;
-  if (typeof oldRender === 'function') {
-    window.render = function(){
-      const result = oldRender.apply(this, arguments);
-      setTimeout(applyV23Fixes, 30);
-      return result;
-    };
-  }
-
-  const oldRenderSky = window.renderSky;
-  if (typeof oldRenderSky === 'function') {
-    window.renderSky = function(){
-      const result = oldRenderSky.apply(this, arguments);
-      setTimeout(function(){ forceGlassDark(); normalizeLastUpdate('sky'); }, 30);
-      return result;
-    };
-  }
-
-  document.addEventListener('DOMContentLoaded', function(){
-    setTimeout(applyV23Fixes, 100);
-  });
-})();
-
-
-/* ===== v24-interactive-chart-script ===== */
-
-(function(){
-  const ALL = (typeof ALL_VALUE !== 'undefined' ? ALL_VALUE : '__ALL__');
-  const SKY_QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const GLASS_COLORS = ['#60a5fa','#34d399','#fbbf24','#f87171','#a78bfa','#22d3ee','#fb7185','#c084fc','#4ade80','#f472b6','#38bdf8','#facc15'];
-  const LABEL_PLUGIN_ID = 'serviceEyeV24SingleLabels';
-
-  function q(id){ return document.getElementById(id); }
-  function txt(v){ return String(v ?? '').trim(); }
-  function pct(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function rowsSkyAll(){ try { return Array.isArray(skyRows) ? skyRows : []; } catch(e){ return []; } }
-  function rowsGspnAll(){ try { return Array.isArray(allRows) ? allRows : []; } catch(e){ return []; } }
-  function rowsGspnCurrent(){ try { return Array.isArray(currentFilteredRows) ? currentFilteredRows : rowsGspnAll(); } catch(e){ return rowsGspnAll(); } }
-  function setText(id,v){ const el=q(id); if(el) el.textContent=v; }
-
-  function closeExcelPanels(){ document.querySelectorAll('.excel-filter-panel.v22-portal.open,.excel-filter-container.open').forEach(p=>p.classList.remove('open')); }
-  window.addEventListener('resize', closeExcelPanels, true);
-  window.addEventListener('scroll', closeExcelPanels, true);
-
-  function updateExcelLabel(selectId){
-    const select=q(selectId), wrap=q(selectId+'_excel'); if(!select||!wrap) return;
-    const btn=wrap.querySelector('.excel-filter-button'); if(!btn) return;
-    const opts=[...select.options];
-    const real=opts.filter(o=>o.selected && o.value!==ALL && o.value!=='');
-    let label;
-    if(select.multiple){ label=(!real.length || opts.some(o=>o.value===ALL && o.selected)) ? '(Select All)' : (real.length>2?`${real.length} selected`:real.map(o=>o.textContent).join(', ')); }
-    else { label=select.value ? (opts.find(o=>o.value===select.value)?.textContent || select.value) : '(Select All)'; }
-    btn.textContent=label; btn.title=label;
-  }
-  function setSingle(selectId,value){ const el=q(selectId); if(!el) return; el.value=value||''; updateExcelLabel(selectId); }
-  function setMulti(selectId,value){ const el=q(selectId); if(!el) return; [...el.options].forEach(o=>o.selected = o.value === value); updateExcelLabel(selectId); }
-  function resetSkyMainMenus(){
-    ['skyQueueFilter','skyBrandFilter'].forEach(id=>setSingle(id,''));
-    ['skyBranchFilter','skyStageFilter','skyJobTypeFilter'].forEach(id=>{ const el=q(id); if(el){ [...el.options].forEach((o,i)=>o.selected = i===0 || o.value===ALL); updateExcelLabel(id); }});
-    const s=q('skySearchBox'); if(s) s.value='';
-  }
-  function resetGspnMainMenus(){
-    ['branchFilter','techFilter','warrantyFilter','alertFilter'].forEach(id=>{ const el=q(id); if(el){ [...el.options].forEach((o,i)=>o.selected = i===0 || o.value===ALL); updateExcelLabel(id); }});
-    const s=q('searchBox'); if(s) s.value='';
-  }
-
-  function isSkyOpen(r){ return txt(r.Queue)==='Open_Cases'; }
-  function isSkyReady(r){ return txt(r.Queue)==='Ready For Delivery Cases'; }
-  function isSkyDelivered(r){ return txt(r.Queue)==='__REMOVED_QUEUE__'; }
-  function validOpenStage(r){ const s=txt(r.Stage).toLowerCase(); return isSkyOpen(r) && s && s!=='delivered' && !s.includes('ready for delivery'); }
-  function chartFilter(rows,id,field){ const el=q(id); const v=el ? txt(el.value) : ''; return v ? rows.filter(r=>txt(r[field])===v) : rows; }
-  function countBy(rows,field,ordered,limit){
-    const c={}; (rows||[]).forEach(r=>{ const k=txt(r[field]) || 'Blank'; c[k]=(c[k]||0)+1; });
-    let arr = ordered ? ordered.map(k=>[k,c[k]||0]) : Object.entries(c).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-    if(limit) arr=arr.slice(0,limit);
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>x[1])};
-  }
-  function avgBy(rows,field,limit){
-    const g={}; (rows||[]).forEach(r=>{ const key=txt(r[field]) || 'Blank'; const n=Number(r.RepairDurationDays); if(Number.isFinite(n)){ (g[key]||(g[key]=[])).push(n); }});
-    let arr=Object.entries(g).map(([k,a])=>[k,a.reduce((x,y)=>x+y,0)/a.length]).sort((a,b)=>b[1]-a[1]);
-    if(limit) arr=arr.slice(0,limit);
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>Number(x[1].toFixed(1)))};
-  }
-  function agingBuckets(rows){
-    const labels=['0-2','3-4','5-7','8-14','15+']; const values=[0,0,0,0,0];
-    (rows||[]).filter(r=>txt(r.StatusFinal)==='Open').forEach(r=>{ const n=Number(r.AgingDays); if(!Number.isFinite(n)) return; if(n<=2) values[0]++; else if(n<=4) values[1]++; else if(n<=7) values[2]++; else if(n<=14) values[3]++; else values[4]++; });
-    return {labels,values};
-  }
-  function readyAgingMonths(rows){
-    const labels=['0-3','4-7','more than 7']; const values=[0,0,0];
-    (rows||[]).forEach(r=>{ const days=Number(r.Aging_Days ?? r.AgingDays ?? r['Aging Days']); if(!Number.isFinite(days)) return; const m=days/30; if(m<=3) values[0]++; else if(m<=7) values[1]++; else values[2]++; });
-    return {labels,values};
-  }
-
-  function unregisterOldLabelPlugins(){
-    if(!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    ['v19Labels','v20SkyLabels','skyBarLabelErrorPlugin','v21SingleChartValueLabels','serviceEyeV22LabelsOnly','serviceEyeV24SingleLabels'].forEach(id=>{ try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){} });
-  }
-  const labelPlugin={ id:LABEL_PLUGIN_ID, afterDatasetsDraw(chart){ const opts=chart.options?.plugins?.[LABEL_PLUGIN_ID]||{}; if(opts.display===false) return; const {ctx}=chart; ctx.save(); ctx.font='bold 12px Calibri, Arial, sans-serif'; ctx.fillStyle=opts.color||'#ffffff'; ctx.textAlign='center'; ctx.textBaseline='bottom'; chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const val=Number(ds.data[i]||0); if(!val) return; const p=bar.tooltipPosition ? bar.tooltipPosition() : {x:bar.x,y:bar.y}; ctx.fillText(String(val), p.x, Math.max(14,p.y-6)); }); }); ctx.restore(); }};
-  function registerLabels(){ unregisterOldLabelPlugins(); try{Chart.register(labelPlugin); }catch(e){} }
-  function destroy(id){ if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} } if(!window.dashboardCharts) window.dashboardCharts={}; }
-  function makeClusteredColumn(id, labels, values, title, clickFn){
-    if(!window.Chart) return; const canvas=q(id); if(!canvas) return; registerLabels(); destroy(id);
-    const total=values.reduce((a,b)=>a+Number(b||0),0); const max=Math.max(...values,0);
-    dashboardCharts[id]=__safeNewChart(canvas,{ type:'bar', data:{ labels, datasets:[{ label:title||'Cases', data:values, backgroundColor:labels.map((_,i)=>GLASS_COLORS[i%GLASS_COLORS.length]), borderColor:labels.map((_,i)=>GLASS_COLORS[i%GLASS_COLORS.length]), borderWidth:1 }]}, options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:28}}, plugins:{ legend:{display:false, labels:{color:'#ffffff'}}, tooltip:{callbacks:{label:ctx=>`${title||'Cases'}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}, [LABEL_PLUGIN_ID]:{color:'#ffffff'} }, scales:{ x:{ticks:{color:'#ffffff', autoSkip:false, maxRotation:45, minRotation:0}, grid:{color:'rgba(255,255,255,.10)'}}, y:{beginAtZero:true, suggestedMax:max*1.2+1, ticks:{color:'#ffffff'}, grid:{color:'rgba(255,255,255,.10)'}} }, onClick:(evt,elements)=>{ if(elements.length && clickFn) clickFn(labels[elements[0].index]); } } });
-  }
-
-  function ensureClearButtons(){
-    const gspnIds=['failedReasonChart','kpiChart','branchChart','techChart','repairDaysChart','agingChart'];
-    const skyIds=['skyQueueChart','skyBrandChart','skyStageChart','skyBranchChart','skyReadyAgingChart'];
-    gspnIds.forEach(id=>{ const sec=q(id)?.closest('section,.chart-card'); const h=sec?.querySelector('h2'); if(h && !h.querySelector('.v24-gspn-clear')){ const b=document.createElement('button'); b.type='button'; b.className='chart-clear-btn v24-gspn-clear'; b.textContent='Clear Chart Filter'; b.onclick=(e)=>{ e.stopPropagation(); window.clearGspnChartFilter(); }; h.appendChild(b); }});
-    skyIds.forEach(id=>{ const sec=q(id)?.closest('section,.chart-card'); const h=sec?.querySelector('h2'); if(h && !h.querySelector('.v24-sky-clear')){ const b=document.createElement('button'); b.type='button'; b.className='chart-clear-btn v24-sky-clear'; b.textContent='Clear Chart Filter'; b.onclick=(e)=>{ e.stopPropagation(); window.clearSkyChartFilter(); }; h.appendChild(b); }});
-  }
-
-  window.setSkyQueue=function(value){ setSingle('skyQueueFilter', value); if(typeof renderSky==='function') renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-  window.setSkyBrand=function(value){ setSingle('skyBrandFilter', value); if(typeof renderSky==='function') renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-  window.clearSkyChartFilter=function(){
-    ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(id=>{ const el=q(id); if(el) el.value=''; });
-    resetSkyMainMenus();
-    if(typeof renderSky==='function') renderSky();
-  };
-  window.clearGspnChartFilter=function(){
-    resetGspnMainMenus();
-    try { if(typeof clearFilters==='function') clearFilters(false); else if(typeof render==='function') render(); } catch(e){ if(typeof render==='function') render(); }
-  };
-
-  function updateSkyChartsV24(rows){
-    rows=Array.isArray(rows)?rows:[];
-    const queueRows=chartFilter(rows,'skyQueueChartBrandFilter','Brand');
-    const brandRows=chartFilter(rows,'skyBrandChartQueueFilter','Queue');
-    const stageRows=chartFilter(rows.filter(validOpenStage),'skyStageChartBranchFilter','Branch');
-    const branchRows=chartFilter(rows.filter(isSkyOpen),'skyBranchChartStageFilter','Stage');
-    const readyRows=chartFilter(rows.filter(isSkyReady),'skyReadyAgingBrandFilter','Brand');
-    const qdata=countBy(queueRows,'Queue',SKY_QUEUES); const bdata=countBy(brandRows,'Brand',['Samsung','Apple']); const st=countBy(stageRows,'Stage',null,20); const br=countBy(branchRows,'Branch',null,30); const ag=readyAgingMonths(readyRows);
-    makeClusteredColumn('skyQueueChart', qdata.labels, qdata.values, 'Cases', label=>window.setSkyQueue(label));
-    makeClusteredColumn('skyBrandChart', bdata.labels, bdata.values, 'Cases', label=>window.setSkyBrand(label));
-    makeClusteredColumn('skyStageChart', st.labels, st.values, 'Open Cases', label=>{ setMulti('skyStageFilter',label); if(typeof renderSky==='function') renderSky(); });
-    makeClusteredColumn('skyBranchChart', br.labels, br.values, 'Open Cases', label=>{ setMulti('skyBranchFilter',label); if(typeof renderSky==='function') renderSky(); });
-    makeClusteredColumn('skyReadyAgingChart', ag.labels, ag.values, 'Ready Cases', null);
-  }
-
-  function updateGspnChartsV24(rows){
-    rows=Array.isArray(rows)?rows:rowsGspnCurrent();
-    const failed=rows.filter(r=>txt(r.KPIAlert).includes('Failed'));
-    const failedReason=countBy(failed,'KPIFailName',['LTP','TAT']);
-    const kpiLabels=['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done'];
-    const kpiValues=[rows.filter(r=>txt(r.KPIAlert)==='Failed'&&txt(r.KPIFailName)==='LTP').length, rows.filter(r=>txt(r.KPIAlert)==='Failed'&&txt(r.KPIFailName)==='TAT').length, rows.filter(r=>txt(r.KPIAlert)==='Fix Today').length, rows.filter(r=>txt(r.KPIAlert)==='Watch').length, rows.filter(r=>txt(r.KPIAlert)==='On Track').length, rows.filter(r=>txt(r.KPIAlert)==='Review').length, rows.filter(r=>txt(r.KPIAlert)==='Done').length];
-    const openRows=rows.filter(r=>txt(r.StatusFinal)==='Open');
-    const br=countBy(openRows,'GSPN_Branch',null,15); const st=countBy(openRows,'GSPN_Status',null,15); const rep=avgBy(rows,'GSPN_Branch',15); const ag=agingBuckets(rows);
-    makeClusteredColumn('failedReasonChart', failedReason.labels, failedReason.values, 'Failed KPI', label=>{ if(typeof showFailedType==='function') showFailedType(label); });
-    makeClusteredColumn('kpiChart', kpiLabels, kpiValues, 'Cases', label=>{ if(label==='Failed LTP'&&typeof showFailedType==='function') showFailedType('LTP'); else if(label==='Failed TAT'&&typeof showFailedType==='function') showFailedType('TAT'); else if(label==='Fix Today'&&typeof showOnlyAlert==='function') showOnlyAlert('Fix Today'); else if(label==='Watch 48h'&&typeof showOnlyAlert==='function') showOnlyAlert('Watch'); });
-    makeClusteredColumn('branchChart', br.labels, br.values, 'Open Cases', label=>{ if(typeof filterByBranch==='function') filterByBranch(label); });
-    makeClusteredColumn('techChart', st.labels, st.values, 'Open Cases', label=>{ if(typeof filterByGspnStatus==='function') filterByGspnStatus(label); });
-    makeClusteredColumn('repairDaysChart', rep.labels, rep.values, 'Avg Repair Days', label=>{ if(typeof filterByBranch==='function') filterByBranch(label); });
-    makeClusteredColumn('agingChart', ag.labels, ag.values, 'Open Cases', null);
-  }
-
-  window.updateCharts=updateGspnChartsV24;
-
-  const oldRenderSky=window.renderSky;
-  window.renderSky=function(){
-    const result = oldRenderSky ? oldRenderSky.apply(this, arguments) : undefined;
-    setTimeout(()=>{
-      try{
-        const all=rowsSkyAll(); const filtered=(typeof getSkyFilteredRows==='function')?getSkyFilteredRows():(Array.isArray(window.currentSkyRows)?window.currentSkyRows:all);
-        setText('skyTotalCases', all.length); setText('skyOpenCases', all.filter(isSkyOpen).length); setText('skyReadyCases', all.filter(isSkyReady).length); setText('skyDeliveredCases', all.filter(isSkyDelivered).length);
-        setText('skySamsungCases', all.filter(r=>txt(r.Brand).toLowerCase()==='samsung').length); setText('skyAppleCases', all.filter(r=>txt(r.Brand).toLowerCase()==='apple').length);
-        updateSkyChartsV24(filtered); ensureClearButtons();
-      }catch(e){ }
-    },20);
-    return result;
-  };
-
-  const oldRender=window.render;
-  window.render=function(){
-    const result=oldRender ? oldRender.apply(this,arguments) : undefined;
-    setTimeout(()=>{ try{ updateGspnChartsV24(rowsGspnCurrent()); ensureClearButtons(); }catch(e){} },20);
-    return result;
-  };
-
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(()=>{ ensureClearButtons(); if(typeof render==='function') render(); if(q('skyPage') && q('skyPage').style.display!=='none' && typeof renderSky==='function') renderSky(); },1200); });
-})();
-
-
-/* ===== v25-3d-interactive-script ===== */
-
-(function(){
-  const ALL = (typeof ALL_VALUE !== 'undefined' ? ALL_VALUE : '__ALL__');
-  const QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const COLOR_PALETTES = {
-    blue:   ['#38bdf8','#60a5fa','#2563eb','#22d3ee','#93c5fd','#0ea5e9','#0284c7','#67e8f9'],
-    green:  ['#34d399','#22c55e','#84cc16','#10b981','#4ade80','#a3e635','#14b8a6','#65a30d'],
-    orange: ['#fb923c','#f97316','#f59e0b','#facc15','#fdba74','#ea580c','#fbbf24','#fb7185'],
-    purple: ['#a78bfa','#7c3aed','#c084fc','#e879f9','#818cf8','#9333ea','#f0abfc','#6366f1'],
-    black:  ['#050505','#111827','#1f2937','#374151','#0f172a','#27272a','#3f3f46','#18181b']
-  };
-  const state = { skyReadyBucket: null };
-  const LABEL_PLUGIN_ID='serviceEyeV25Labels3D';
-  const BAR3D_PLUGIN_ID='serviceEyeV25Bar3D';
-
-  function q(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? '').trim(); }
-  function num(v){ const n=Number(v); return Number.isFinite(n)?n:0; }
-  function pct(n,d){ n=num(n); d=num(d); return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function allSky(){ try { return Array.isArray(skyRows) ? skyRows : []; } catch(e){ return []; } }
-  function allGspn(){ try { return Array.isArray(allRows) ? allRows : []; } catch(e){ return []; } }
-  function curGspn(){ try { return Array.isArray(currentFilteredRows) ? currentFilteredRows : allGspn(); } catch(e){ return allGspn(); } }
-  function setText(id,val){ const el=q(id); if(el) el.textContent=val; }
-  function activeTab(){ const sky=q('skyPage'); return sky && sky.style.display !== 'none' ? 'sky' : 'gspn'; }
-  function currentAccent(){ return localStorage.getItem('serviceEyeColor_'+activeTab()) || 'purple'; }
-  function palette(){ return COLOR_PALETTES[currentAccent()] || COLOR_PALETTES.purple; }
-
-  function applyColor(color, tab){
-    const safe = COLOR_PALETTES[color] ? color : 'purple';
-    const targetTab = tab || activeTab();
-    localStorage.setItem('serviceEyeColor_'+targetTab, safe);
-    document.body.classList.remove('color-blue','color-green','color-orange','color-purple','color-black');
-    document.body.classList.add('color-'+safe);
-    document.querySelectorAll('.color-dot').forEach(b=>b.classList.toggle('active', b.dataset.color===safe));
-    setTimeout(()=>{ if(targetTab==='sky' && typeof window.renderSky==='function') window.renderSky(); if(targetTab==='gspn' && typeof window.render==='function') window.render(); },30);
-  }
-  window.setPageColor = function(color){ applyColor(color, activeTab()); };
-
-  function ensureColorSelector(){
-    /* Removed duplicate legacy PAGE COLOR block.
-       The single active Page Color control is codexPageColorPanel in the sidebar bottom. */
-    var legacy=document.getElementById('v25ColorOptions');
-    if(legacy){
-      var title=legacy.previousElementSibling;
-      if(title && title.classList && title.classList.contains('side-section-title')) title.remove();
-      legacy.remove();
-    }
-  }
-
-  function updateExcelLabel(id){
-    const select=q(id), wrap=q(id+'_excel'); if(!select||!wrap) return;
-    const btn=wrap.querySelector('.excel-filter-button'); if(!btn) return;
-    const opts=[...select.options];
-    const real=opts.filter(o=>o.selected && o.value!==ALL && o.value!=='');
-    let label;
-    if(select.multiple){
-      label=(!real.length || opts.some(o=>o.value===ALL && o.selected)) ? '(Select All)' : (real.length>2 ? `${real.length} selected` : real.map(o=>o.textContent).join(', '));
-    } else label=select.value ? (opts.find(o=>o.value===select.value)?.textContent || select.value) : '(Select All)';
-    btn.textContent=label; btn.title=label;
-  }
-  function setSingle(id,value){ const el=q(id); if(!el) return; el.value=value||''; updateExcelLabel(id); }
-  function setMulti(id,value){ const el=q(id); if(!el) return; [...el.options].forEach(o=>o.selected=o.value===value); updateExcelLabel(id); }
-  function resetMulti(id){ const el=q(id); if(!el) return; [...el.options].forEach((o,i)=>o.selected=(o.value===ALL || i===0)); updateExcelLabel(id); }
-
-  function isOpen(r){ return clean(r.Queue)==='Open_Cases'; }
-  function isReady(r){ return clean(r.Queue)==='Ready For Delivery Cases'; }
-  function isDelivered(r){ return clean(r.Queue)==='__REMOVED_QUEUE__'; }
-  function validOpenStage(r){ const s=clean(r.Stage).toLowerCase(); return isOpen(r) && s && s!=='delivered' && !s.includes('ready for delivery'); }
-  function readyBucket(r){ const days=num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days']); const m=days/30; if(m<=3) return '0-3'; if(m<=7) return '4-7'; return 'more than 7'; }
-  function readyAging(rows){ const labels=['0-3','4-7','more than 7']; const values=[0,0,0]; rows.forEach(r=>{ const b=readyBucket(r); const i=labels.indexOf(b); if(i>=0) values[i]++; }); return {labels,values}; }
-  function chartFilter(rows,id,field){ const el=q(id); const v=el?clean(el.value):''; return v ? rows.filter(r=>clean(r[field])===v) : rows; }
-  function countBy(rows,field,ordered,limit){
-    const c={}; (rows||[]).forEach(r=>{ const key=clean(r[field])||'Blank'; c[key]=(c[key]||0)+1; });
-    let arr=ordered ? ordered.map(k=>[k,c[k]||0]) : Object.entries(c).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-    if(limit) arr=arr.slice(0,limit);
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>x[1])};
-  }
-  function avgBy(rows,field,limit){
-    const g={}; (rows||[]).forEach(r=>{ const k=clean(r[field])||'Blank'; const n=Number(r.RepairDurationDays); if(Number.isFinite(n)){ (g[k]||(g[k]=[])).push(n); }});
-    let arr=Object.entries(g).map(([k,a])=>[k,a.reduce((x,y)=>x+y,0)/a.length]).sort((a,b)=>b[1]-a[1]); if(limit) arr=arr.slice(0,limit);
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>Number(x[1].toFixed(1)))};
-  }
-  function agingBuckets(rows){ const labels=['0-2','3-4','5-7','8-14','15+']; const values=[0,0,0,0,0]; (rows||[]).filter(r=>clean(r.StatusFinal)==='Open').forEach(r=>{ const d=Number(r.AgingDays); if(!Number.isFinite(d)) return; if(d<=2) values[0]++; else if(d<=4) values[1]++; else if(d<=7) values[2]++; else if(d<=14) values[3]++; else values[4]++; }); return {labels,values}; }
-
-  function unregister(){
-    if(!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    ['serviceEyeV24SingleLabels','serviceEyeV25Labels3D','serviceEyeV25Bar3D','v19Labels','v20SkyLabels','v21SingleChartValueLabels','serviceEyeV22LabelsOnly','skyBarLabelErrorPlugin'].forEach(id=>{ try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){} });
-  }
-  const labelPlugin={ id:LABEL_PLUGIN_ID, afterDatasetsDraw(chart){ const opts=chart.options?.plugins?.[LABEL_PLUGIN_ID]||{}; if(opts.display===false) return; const {ctx}=chart; ctx.save(); ctx.font='bold 12px Calibri, Arial, sans-serif'; ctx.fillStyle=opts.color||'#ffffff'; ctx.textAlign='center'; ctx.textBaseline='bottom'; chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const val=Number(ds.data[i]||0); if(!val && opts.hideZero!==false) return; const p=bar.tooltipPosition?bar.tooltipPosition():{x:bar.x,y:bar.y}; ctx.fillText(String(val), p.x, Math.max(14,p.y-8)); }); }); ctx.restore(); } };
-  const bar3DPlugin={ id:BAR3D_PLUGIN_ID, afterDatasetsDraw(chart){ if(chart.config.type!=='bar') return; const {ctx}=chart; const dx=8, dy=-7; ctx.save(); chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const v=Number(ds.data[i]||0); if(!v) return; const w=bar.width || 24; const x=bar.x, y=bar.y, base=bar.base; const left=x-w/2, right=x+w/2; ctx.fillStyle='rgba(255,255,255,.18)'; ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(right,y); ctx.lineTo(right+dx,y+dy); ctx.lineTo(left+dx,y+dy); ctx.closePath(); ctx.fill(); ctx.fillStyle='rgba(0,0,0,.30)'; ctx.beginPath(); ctx.moveTo(right,y); ctx.lineTo(right,base); ctx.lineTo(right+dx,base+dy); ctx.lineTo(right+dx,y+dy); ctx.closePath(); ctx.fill(); }); }); ctx.restore(); } };
-  function reg(){ unregister(); try{Chart.register(bar3DPlugin,labelPlugin); }catch(e){} }
-  function destroy(id){ if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} } if(!window.dashboardCharts) window.dashboardCharts={}; }
-  function make3D(id, labels, values, title, clickFn){
-    if(!window.Chart) return; const canvas=q(id); if(!canvas) return; reg(); destroy(id);
-    const pal=palette(); const total=values.reduce((a,b)=>a+num(b),0); const max=Math.max(...values.map(num),0);
-    dashboardCharts[id]=__safeNewChart(canvas,{ type:'bar', data:{ labels, datasets:[{ label:title||'Cases', data:values, backgroundColor:labels.map((_,i)=>pal[i%pal.length]), borderColor:labels.map((_,i)=>pal[(i+1)%pal.length]), borderWidth:1, borderRadius:4, borderSkipped:false }]}, options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:32,right:14}}, plugins:{ legend:{display:false, labels:{color:'#ffffff'}}, tooltip:{callbacks:{label:ctx=>`${title||'Cases'}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}, [LABEL_PLUGIN_ID]:{color:'#ffffff'}, [BAR3D_PLUGIN_ID]:{} }, scales:{ x:{ticks:{color:'#ffffff', autoSkip:false, maxRotation:45, minRotation:0}, grid:{color:'rgba(255,255,255,.10)'}}, y:{beginAtZero:true, suggestedMax:max*1.25+1, ticks:{color:'#ffffff'}, grid:{color:'rgba(255,255,255,.10)'}} }, onClick:(evt,elements)=>{ if(elements.length && clickFn) clickFn(labels[elements[0].index]); } } });
-  }
-
-  function baseSkyFiltered(){ try { return typeof getSkyFilteredRows==='function' ? getSkyFilteredRows() : allSky(); } catch(e){ return allSky(); } }
-  function skyRowsForTable(){ let rows=baseSkyFiltered(); if(state.skyReadyBucket){ rows=rows.filter(r=>isReady(r)&&readyBucket(r)===state.skyReadyBucket); } return rows; }
-  function clearChartSelects(){ ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(id=>{ const el=q(id); if(el) el.value=''; }); }
-  window.clearSkyChartFilter=function(){ state.skyReadyBucket=null; clearChartSelects(); markActiveCards(); if(typeof window.renderSky==='function') window.renderSky(); };
-  window.setSkyQueue=function(value){ state.skyReadyBucket=null; setSingle('skyQueueFilter', value); if(typeof window.renderSky==='function') window.renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-  window.setSkyBrand=function(value){ state.skyReadyBucket=null; setSingle('skyBrandFilter', value); if(typeof window.renderSky==='function') window.renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-
-  const oldClearSky=window.clearSkyFilters;
-  window.clearSkyFilters=function(scroll){ state.skyReadyBucket=null; clearChartSelects(); if(oldClearSky) oldClearSky(scroll); else { ['skyQueueFilter','skyBrandFilter'].forEach(id=>setSingle(id,'')); ['skyBranchFilter','skyStageFilter','skyJobTypeFilter'].forEach(resetMulti); const s=q('skySearchBox'); if(s) s.value=''; if(window.renderSky) window.renderSky(); } };
-
-  function markActiveCards(){
-    document.querySelectorAll('.sky-cards .card').forEach(c=>c.classList.remove('active-card'));
-    const queue=q('skyQueueFilter')?.value||''; const brand=q('skyBrandFilter')?.value||'';
-    document.querySelectorAll('.sky-cards .card').forEach(c=>{ const label=c.querySelector('.label')?.textContent||''; if((queue==='Open_Cases'&&label.includes('Open Cases'))||(queue==='Ready For Delivery Cases'&&label.includes('Ready For Delivery'))||(queue==='__REMOVED_QUEUE__'&&label.includes('Delivered'))||(brand==='Samsung'&&label==='Samsung')||(brand==='Apple'&&label==='Apple')) c.classList.add('active-card'); });
-  }
-  function renderSkyTable(rows){
-    const cols=[['Queue','Queue'],['Brand','Brand'],['Branch','Branch'],['Open_Date_Display','Open Date'],['Aging_Days','Aging Days'],['Job_Number','Job Number'],['Status','Status'],['Stage','Stage'],['Item English Name','Item English Name'],['Price','Price']];
-    if(typeof renderTable==='function') renderTable('skyCasesTable', rows.slice(0,1000), cols, false);
-  }
-  function updateSkyCards(){
-    const rows=allSky(); const total=rows.length; const open=rows.filter(isOpen).length; const ready=rows.filter(isReady).length; const delivered=rows.filter(isDelivered).length; const samsung=rows.filter(r=>clean(r.Brand).toLowerCase()==='samsung').length; const apple=rows.filter(r=>clean(r.Brand).toLowerCase()==='apple').length;
-    setText('skyTotalCases',total); setText('skyOpenCases',open); setText('skyReadyCases',ready); setText('skyDeliveredCases',delivered); setText('skySamsungCases',samsung); setText('skyAppleCases',apple);
-    setText('skyOpenPercent',`${pct(open,total)}% of Total`); setText('skyReadyPercent',`${pct(ready,total)}% of Total`); setText('skyDeliveredPercent',`${pct(delivered,total)}% of Total`); setText('skySamsungPercent',`${pct(samsung,total)}% of Total`); setText('skyApplePercent',`${pct(apple,total)}% of Total`);
-  }
-  function setSummary(id, labels, values, total){ const el=q(id); if(el) el.innerHTML=labels.map((l,i)=>`<span class="sky-chart-chip">${l}: ${values[i]} (${pct(values[i],total)}%)</span>`).join('') + (id==='skyReadyAgingSummary' && state.skyReadyBucket ? `<span class="chart-selection-note">Selected: ${state.skyReadyBucket}</span>` : ''); }
-  function updateSkyChartsV25(rows){
-    rows=Array.isArray(rows)?rows:[];
-    const queueRows=chartFilter(rows,'skyQueueChartBrandFilter','Brand');
-    const brandRows=chartFilter(rows,'skyBrandChartQueueFilter','Queue');
-    const stageRows=chartFilter(rows.filter(validOpenStage),'skyStageChartBranchFilter','Branch');
-    const branchRows=chartFilter(rows.filter(isOpen),'skyBranchChartStageFilter','Stage');
-    const readyRows=chartFilter(rows.filter(isReady),'skyReadyAgingBrandFilter','Brand');
-    const qd=countBy(queueRows,'Queue',QUEUES); const bd=countBy(brandRows,'Brand',['Samsung','Apple']); const sd=countBy(stageRows,'Stage',null,20); const brd=countBy(branchRows,'Branch',null,30); const ag=readyAging(readyRows);
-    setSummary('skyQueueSummary',qd.labels,qd.values,queueRows.length); setSummary('skyBrandSummary',bd.labels,bd.values,brandRows.length); setSummary('skyStageSummary',sd.labels,sd.values,stageRows.length); setSummary('skyBranchSummary',brd.labels,brd.values,branchRows.length); setSummary('skyReadyAgingSummary',ag.labels,ag.values,readyRows.length);
-    make3D('skyQueueChart', qd.labels, qd.values, 'Cases', label=>window.setSkyQueue(label));
-    make3D('skyBrandChart', bd.labels, bd.values, 'Cases', label=>window.setSkyBrand(label));
-    make3D('skyStageChart', sd.labels, sd.values, 'Open Cases', label=>{ state.skyReadyBucket=null; setMulti('skyStageFilter',label); window.renderSky(); });
-    make3D('skyBranchChart', brd.labels, brd.values, 'Open Cases', label=>{ state.skyReadyBucket=null; setMulti('skyBranchFilter',label); window.renderSky(); });
-    make3D('skyReadyAgingChart', ag.labels, ag.values, 'Ready Cases', label=>{ state.skyReadyBucket=label; setSingle('skyQueueFilter','Ready For Delivery Cases'); updateExcelLabel('skyQueueFilter'); window.renderSky(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); });
-  }
-
-  const previousRenderSky=window.renderSky;
-  window.renderSky=function(){
-    if(previousRenderSky) { try{ previousRenderSky.apply(this,arguments); }catch(e){ } }
-    setTimeout(()=>{ try{ const base=baseSkyFiltered(); const tableRows=skyRowsForTable(); window.currentSkyRows=tableRows; updateSkyCards(); markActiveCards(); renderSkyTable(tableRows); updateSkyChartsV25(base); }catch(e){} },30);
-  };
-
-  function updateGspnV25(rows){
-    rows=Array.isArray(rows)?rows:curGspn();
-    const failed=rows.filter(r=>clean(r.KPIAlert).includes('Failed')); const fr=countBy(failed,'KPIFailName',['LTP','TAT']);
-    const kLabels=['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done'];
-    const kVals=[rows.filter(r=>clean(r.KPIAlert)==='Failed'&&clean(r.KPIFailName)==='LTP').length, rows.filter(r=>clean(r.KPIAlert)==='Failed'&&clean(r.KPIFailName)==='TAT').length, rows.filter(r=>clean(r.KPIAlert)==='Fix Today').length, rows.filter(r=>clean(r.KPIAlert)==='Watch').length, rows.filter(r=>clean(r.KPIAlert)==='On Track').length, rows.filter(r=>clean(r.KPIAlert)==='Review').length, rows.filter(r=>clean(r.KPIAlert)==='Done').length];
-    const open=rows.filter(r=>clean(r.StatusFinal)==='Open'); const br=countBy(open,'GSPN_Branch',null,15); const st=countBy(open,'GSPN_Status',null,15); const rep=avgBy(rows,'GSPN_Branch',15); const ag=agingBuckets(rows);
-    make3D('failedReasonChart',fr.labels,fr.values,'Failed KPI',label=>{ if(typeof showFailedType==='function') showFailedType(label); });
-    make3D('kpiChart',kLabels,kVals,'Cases',label=>{ if(label==='Failed LTP'&&typeof showFailedType==='function') showFailedType('LTP'); else if(label==='Failed TAT'&&typeof showFailedType==='function') showFailedType('TAT'); else if(label==='Fix Today'&&typeof showOnlyAlert==='function') showOnlyAlert('Fix Today'); else if(label==='Watch 48h'&&typeof showOnlyAlert==='function') showOnlyAlert('Watch'); });
-    make3D('branchChart',br.labels,br.values,'Open Cases',label=>{ if(typeof filterByBranch==='function') filterByBranch(label); });
-    make3D('techChart',st.labels,st.values,'Open Cases',label=>{ if(typeof filterByGspnStatus==='function') filterByGspnStatus(label); });
-    make3D('repairDaysChart',rep.labels,rep.values,'Avg Repair Days',label=>{ if(typeof filterByBranch==='function') filterByBranch(label); });
-    make3D('agingChart',ag.labels,ag.values,'Open Cases',null);
-  }
-  window.updateCharts=updateGspnV25;
-  const previousRender=window.render;
-  window.render=function(){ const res=previousRender?previousRender.apply(this,arguments):undefined; setTimeout(()=>{ try{ updateGspnV25(curGspn()); }catch(e){ } },30); return res; };
-
-  function install(){
-    ensureColorSelector();
-    const tab=activeTab(); applyColor(localStorage.getItem('serviceEyeColor_'+tab)||'purple', tab);
-    const oldSwitch=window.switchTab;
-    if(typeof window.render==='function') window.render();
-    if(q('skyPage') && q('skyPage').style.display!=='none' && typeof window.renderSky==='function') window.renderSky();
-  }
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(install,1500));
-  setTimeout(install,2000);
-})();
-
-
-/* ===== sky-v36-requested-script ===== */
-
-(function(){
-  const SKY_LOGO_V36 = window._SITE_LOGO;
-  const GRAPH_SYNC_KEY = 'serviceEyeGraphSyncConfig_v1';
-  const GRAPH_TOKEN_KEY = 'serviceEyeGraphToken_v2';
-  const ANALYSIS_ROWS_KEY = 'serviceEyeAnalysisRows_v1';
-
-  function q(sel, root=document){ return root.querySelector(sel); }
-  function qa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
-  function esc(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function cfg(){ try{ return Object.assign({analysisExcelFileName:'Analyses_Dashboard', analysisTableName:'AnalysisTable'}, JSON.parse(localStorage.getItem(GRAPH_SYNC_KEY)||'{}')); }catch(e){ return {analysisExcelFileName:'Analyses_Dashboard', analysisTableName:'AnalysisTable'}; } }
-  function saveCfg(next){ localStorage.setItem(GRAPH_SYNC_KEY, JSON.stringify(Object.assign(cfg(), next||{}))); }
-
-  function setOnlySkyFavicon(){
-    qa('link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').forEach(x=>x.remove());
-    const fav=document.createElement('link'); fav.rel='icon'; fav.type='image/jpeg'; fav.href=SKY_LOGO_V36; document.head.appendChild(fav);
-  }
-
-  function fixLogos(){
-    setOnlySkyFavicon();
-    qa('.logo-box img').forEach(img=>{ img.src=SKY_LOGO_V36; img.alt='SKY Distribution Logo'; });
-    const sideLogo=q('.side-logo-mark img'); if(sideLogo) sideLogo.src=SKY_LOGO_V36;
-    qa('.side-tab').forEach(tab=>{
-      const text=(tab.textContent||'').toLowerCase();
-      if(text.includes('sky tracking')){
-        tab.classList.add('sky-v36-clean');
-        qa('img', tab).forEach(img=>img.remove());
-        const img=document.createElement('img'); img.className='side-tab-logo sky-v36-logo'; img.src=SKY_LOGO_V36; img.alt='SKY';
-        tab.insertBefore(img, tab.firstChild);
-      }
-    });
-  }
-
-  function setSelectValue(id, value){ const el=document.getElementById(id); if(!el) return; el.value=value||''; }
-  window.skyApplyCardFilter = function(queue, brand){
-    setSelectValue('skyQueueFilter', queue || '');
-    setSelectValue('skyBrandFilter', brand || '');
-    if(typeof window.renderSky==='function') window.renderSky();
-  };
-  window.skyResetAllFiltersV36 = function(){
-    if(typeof window.clearSkyFilters==='function') window.clearSkyFilters(true);
-    setSelectValue('skyQueueFilter',''); setSelectValue('skyBrandFilter','');
-    if(typeof window.renderSky==='function') window.renderSky();
-  };
-
-  function addCardMenus(){
-    const defs=[
-      ['skyTotalCases', [['','All SKY Cases'], ['Open_Cases','Open Cases'], ['Ready For Delivery Cases','Ready For Delivery'], ['Delivered'], ['brand:Samsung','Samsung'], ['brand:Apple','Apple']]],
-      ['skyOpenCases', [['Open_Cases','Open All'], ['Open_Cases|Samsung','Open Samsung'], ['Open_Cases|Apple','Open Apple']]],
-      ['skyReadyCases', [['Ready For Delivery Cases','Ready All'], ['Ready For Delivery Cases|Samsung','Ready Samsung'], ['Ready For Delivery Cases|Apple','Ready Apple']]],
-      ['skyDeliveredCases', [['Delivered All'], ['__REMOVED_QUEUE__|Samsung','Delivered Samsung'], ['__REMOVED_QUEUE__|Apple','Delivered Apple']]],
-      ['skySamsungCases', [['brand:Samsung','Samsung All'], ['Open_Cases|Samsung','Samsung Open'], ['Ready For Delivery Cases|Samsung','Samsung Ready'], ['__REMOVED_QUEUE__|Samsung','Samsung Delivered']]],
-      ['skyAppleCases', [['brand:Apple','Apple All'], ['Open_Cases|Apple','Apple Open'], ['Ready For Delivery Cases|Apple','Apple Ready'], ['__REMOVED_QUEUE__|Apple','Apple Delivered']]]
-    ];
-    defs.forEach(([id, opts])=>{
-      const valueEl=document.getElementById(id); if(!valueEl) return;
-      const card=valueEl.closest('.card'); if(!card || card.querySelector('.sky-card-menu')) return;
-      const select=document.createElement('select'); select.className='sky-card-menu';
-      select.innerHTML='<option value="">Filter Menu</option>'+opts.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('');
-      select.addEventListener('click', e=>e.stopPropagation());
-      select.addEventListener('change', e=>{
-        e.stopPropagation();
-        const v=select.value; if(v==='') return;
-        if(v.startsWith('brand:')) skyApplyCardFilter('', v.split(':')[1]);
-        else { const [queue, brand=''] = v.split('|'); skyApplyCardFilter(queue, brand); }
-        setTimeout(()=>{ select.value=''; },50);
-      });
-      card.appendChild(select);
-    });
-  }
-
-  window.clearSkyChartFilter = function(id){
-    const el=document.getElementById(id); if(el){ el.value=''; el.dispatchEvent(new Event('change', {bubbles:true})); }
-    if(typeof window.renderSky==='function') window.renderSky();
-  };
-  function fixChartClearButtons(){
-    qa('#skyPage .sky-chart-toolbar button').forEach(btn=>{
-      const m=(btn.getAttribute('onclick')||'').match(/clearSkyChartFilter\(['"]([^'"]+)['"]\)/);
-      if(!m) return;
-      const id=m[1];
-      btn.classList.add('sky-v36-chart-clear');
-      btn.onclick=function(e){ e.preventDefault(); e.stopPropagation(); window.clearSkyChartFilter(id); return false; };
-    });
-  }
-
-  function valuesToObjects(values){
-    if(!Array.isArray(values) || values.length<2) return [];
-    const headers=values[0].map(h=>String(h??'').trim());
-    return values.slice(1).filter(r=>r && r.some(v=>String(v??'').trim()!=='')).map(row=>{ const o={}; headers.forEach((h,i)=>{ if(h) o[h]=row[i]??''; }); return o; });
-  }
-  async function graphFetch(path){
-    const token=JSON.parse(localStorage.getItem(GRAPH_TOKEN_KEY)||'null');
-    if(!token || !token.access_token) throw new Error('Please sign in to Microsoft 365 first.');
-    const res=await fetch('https://graph.microsoft.com/v1.0'+path, {headers:{Authorization:'Bearer '+token.access_token}});
-    if(!res.ok) throw new Error('Graph error '+res.status+': '+(await res.text()).slice(0,300));
-    return await res.json();
-  }
-  async function findAnalysisFileId(){
-    const c=cfg(); const name=c.analysisExcelFileName || 'Analyses_Dashboard';
-    const data=await graphFetch(`/me/drive/root/search(q='${encodeURIComponent(name)}')?$select=id,name,webUrl,file&$top=25`);
-    const items=(data.value||[]).filter(x=>x.file && /\.(xlsx|xlsm|xlsb)$/i.test(x.name||''));
-    const exact=items.find(x=>(x.name||'').toLowerCase().replace(/\.(xlsx|xlsm|xlsb)$/,'')===name.toLowerCase());
-    const item=exact||items[0];
-    if(!item) throw new Error('Excel file not found in OneDrive: '+name);
-    return item.id;
-  }
-  async function readAnalysisRows(fileId){
-    const c=cfg();
-    try{
-      const table=await graphFetch(`/me/drive/items/${fileId}/workbook/tables/${encodeURIComponent(c.analysisTableName||'AnalysisTable')}/range`);
-      return valuesToObjects(table.values||[]);
-    }catch(e){
-      const sheets=await graphFetch(`/me/drive/items/${fileId}/workbook/worksheets?$select=id,name`);
-      const first=(sheets.value||[])[0]; if(!first) return [];
-      const used=await graphFetch(`/me/drive/items/${fileId}/workbook/worksheets/${first.id}/usedRange`);
-      return valuesToObjects(used.values||[]);
-    }
-  }
-  window.syncAnalysesDashboardFromOneDrive = async function(){
-    try{
-      const status=q('#graphSyncStatus'); if(status) status.textContent='Reading Analyses_Dashboard from OneDrive...';
-      const fileId=await findAnalysisFileId();
-      const rows=await readAnalysisRows(fileId);
-      window.analysisRows=rows;
-      localStorage.setItem(ANALYSIS_ROWS_KEY, JSON.stringify(rows));
-      const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
-      set('analysisCombinedTotal', (window.allRows?.length||0)+(window.skyRows?.length||0)+rows.length);
-      let card=document.getElementById('analysisFileTotalCard');
-      if(!card && q('#analysisPage .analysis-grid')){
-        q('#analysisPage .analysis-grid').insertAdjacentHTML('beforeend','<div class="analysis-card" id="analysisFileTotalCard"><div>Analyses_Dashboard Rows</div><div class="value" id="analysisFileTotal">0</div></div>');
-      }
-      set('analysisFileTotal', rows.length);
-      if(status) status.textContent=`Analyses_Dashboard sync completed. Rows: ${rows.length}.`;
-    }catch(e){ const status=q('#graphSyncStatus'); if(status) status.textContent='Analyses_Dashboard sync failed: '+(e.message||e); ; }
-  };
-
-  function addAnalysisFileToGraphPanel(){
-    const panel=q('#graphSyncPanel .graph-sync-body'); if(!panel || q('#graphAnalysisExcelName')) return;
-    const c=cfg();
-    const anchor=q('#graphExcelName')?.closest('label') || panel.firstElementChild;
-    anchor.insertAdjacentHTML('afterend', `
-      <label>Analyses table name <input id="graphAnalysisTable" value="${esc(c.analysisTableName || 'AnalysisTable')}"></label>
-    `);
-    const btn=document.createElement('button'); btn.type='button'; btn.textContent='Sync Analyses'; btn.onclick=()=>{
-      saveCfg({analysisExcelFileName:q('#graphAnalysisExcelName')?.value.trim()||'Analyses_Dashboard', analysisTableName:q('#graphAnalysisTable')?.value.trim()||'AnalysisTable'});
-      window.syncAnalysesDashboardFromOneDrive();
-    };
-    q('#graphSyncNow')?.insertAdjacentElement('afterend', btn);
-    const save=q('#graphSaveConfig'); if(save) save.addEventListener('click',()=>saveCfg({analysisExcelFileName:q('#graphAnalysisExcelName')?.value.trim()||'Analyses_Dashboard', analysisTableName:q('#graphAnalysisTable')?.value.trim()||'AnalysisTable'}));
-  }
-
-  function install(){ fixLogos(); addCardMenus(); fixChartClearButtons(); addAnalysisFileToGraphPanel(); }
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(install,800); });
-/* removed duplicate delayed install at 15s */
-})();
-
-
-/* ===== inline-script-20 ===== */
-
-/* =========================================================
-   v40 - SKY Tracking Cases: replace JobType filter with
-   Aging Days Group for Open_Cases only.
-   Groups: 0 to 3 Days / 4 to 10 Days / More than 10 Days
-   ========================================================= */
-(function(){
-  const ALL = (window.ALL_VALUE || '__ALL__');
-  function q(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? '').trim(); }
-  function num(v){
-    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-    const n = Number(String(v ?? '').replace(/,/g,'').trim());
-    return Number.isFinite(n) ? n : 0;
-  }
-  function getSelectedValues(id){
-    const el = q(id);
-    if (!el) return [];
-    if (el.multiple) return [...el.options].filter(o => o.selected).map(o => o.value).filter(v => v && v !== ALL);
-    return el.value ? [el.value] : [];
-  }
-  function setMultiAll(id){
-    const el = q(id); if (!el) return;
-    [...el.options].forEach((o,i)=>{ o.selected = (o.value === ALL || i === 0); });
-    if (typeof window.updateExcelLabel === 'function') window.updateExcelLabel(id);
-  }
-  function setSingle(id, value){
-    const el = q(id); if (!el) return;
-    el.value = value || '';
-    if (typeof window.updateExcelLabel === 'function') window.updateExcelLabel(id);
-  }
-  function agingGroupForRow(row){
-    const d = num(row.Aging_Days ?? row.AgingDays ?? row['Aging Days'] ?? row.aging_days ?? row.Aging);
-    if (d <= 3) return '0 to 3 Days';
-    if (d <= 10) return '4 to 10 Days';
-    return 'More than 10 Days';
-  }
-  function isOpenCase(row){ return clean(row.Queue) === 'Open_Cases'; }
-
-  function ensureAgingFilter(){
-    let old = q('skyJobTypeFilter');
-    const existing = q('skyAgingDaysGroupFilter');
-    if (old && !existing) {
-      old.id = 'skyAgingDaysGroupFilter';
-      old.removeAttribute('multiple');
-      const label = old.parentElement && old.parentElement.querySelector('.filter-label');
-      if (label) label.textContent = 'Aging Days Group';
-      const wrap = q('skyJobTypeFilter_excel');
-      if (wrap) wrap.remove();
-    }
-    let el = q('skyAgingDaysGroupFilter');
-    if (!el) {
-      const filters = document.querySelector('.sky-filters');
-      const searchBox = q('skySearchBox');
-      const host = document.createElement('div');
-      host.innerHTML = '<div class="filter-label">Aging Days Group</div><select id="skyAgingDaysGroupFilter"></select>';
-      if (filters && searchBox && searchBox.closest('div')) filters.insertBefore(host, searchBox.closest('div'));
-      else if (filters) filters.appendChild(host);
-      el = q('skyAgingDaysGroupFilter');
-    }
-    if (el) {
-      el.multiple = false;
-      el.innerHTML = '<option value="">All Aging Days Groups</option><option value="0 to 3 Days">0 to 3 Days</option><option value="4 to 10 Days">4 to 10 Days</option><option value="More than 10 Days">More than 10 Days</option>';
-      el.onchange = function(){ if (typeof window.renderSky === 'function') window.renderSky(); };
-    }
-    const stale = q('skyJobTypeFilter_excel');
-    if (stale) stale.remove();
-  }
-
-  window.getSkyFilteredRows = function(){
-    ensureAgingFilter();
-    const source = Array.isArray(window.skyRows) ? window.skyRows : [];
-    const branches = getSelectedValues('skyBranchFilter');
-    const stages = getSelectedValues('skyStageFilter');
-    const queue = q('skyQueueFilter') ? clean(q('skyQueueFilter').value) : '';
-    const brand = q('skyBrandFilter') ? clean(q('skyBrandFilter').value) : '';
-    const agingGroup = q('skyAgingDaysGroupFilter') ? clean(q('skyAgingDaysGroupFilter').value) : '';
-    const search = q('skySearchBox') ? clean(q('skySearchBox').value).toLowerCase() : '';
-
-    return source.filter(row => {
-      if (branches.length && !branches.includes(clean(row.Branch))) return false;
-      if (stages.length && !stages.includes(clean(row.Stage))) return false;
-      if (queue && clean(row.Queue) !== queue) return false;
-      if (brand && clean(row.Brand) !== brand) return false;
-
-      // Aging Days Group is applied to Open_Cases only.
-      // When selected, the result is restricted to Open_Cases in the chosen aging bucket.
-      if (agingGroup) {
-        if (!isOpenCase(row)) return false;
-        if (agingGroupForRow(row) !== agingGroup) return false;
-      }
-
-      if (search) {
-        const hay = [row.Job_Number, row.IMEI, row.SerialNumber, row.Customer_Mobile, row.Customer_phone, row['Customer Mobile'], row['Customer Phone']]
-          .map(v => clean(v).toLowerCase()).join(' ');
-        if (!hay.includes(search)) return false;
-      }
-      return true;
-    });
-  };
-
-  const oldClear = window.clearSkyFilters;
-  window.clearSkyFilters = function(scroll){
-    ensureAgingFilter();
-    setSingle('skyQueueFilter','');
-    setSingle('skyBrandFilter','');
-    setSingle('skyAgingDaysGroupFilter','');
-    setMultiAll('skyBranchFilter');
-    setMultiAll('skyStageFilter');
-    const s = q('skySearchBox'); if (s) s.value = '';
-    if (typeof oldClear === 'function') {
-      try { oldClear.call(this, scroll); } catch(e) {}
-      setSingle('skyAgingDaysGroupFilter','');
-    }
-    if (typeof window.renderSky === 'function') window.renderSky();
-    if (scroll && typeof window.scrollToElement === 'function') window.scrollToElement('skyCasesTable');
-  };
-
-  const oldReset = window.resetSkyFiltersToAll;
-  window.resetSkyFiltersToAll = function(){
-    ensureAgingFilter();
-    if (typeof oldReset === 'function') { try { oldReset.apply(this, arguments); } catch(e) {} }
-    setSingle('skyAgingDaysGroupFilter','');
-  };
-
-  const oldRefreshExcel = window.refreshSkyExcelFilterWidgets;
-  window.refreshSkyExcelFilterWidgets = function(){
-    ensureAgingFilter();
-    if (typeof oldRefreshExcel === 'function') { try { oldRefreshExcel.apply(this, arguments); } catch(e) {} }
-    const stale = q('skyJobTypeFilter_excel'); if (stale) stale.remove();
-  };
-
-  const oldRender = window.renderSky;
-  window.renderSky = function(){
-    ensureAgingFilter();
-    return oldRender ? oldRender.apply(this, arguments) : undefined;
-  };
-
-  document.addEventListener('DOMContentLoaded', () => setTimeout(() => { ensureAgingFilter(); if (typeof window.renderSky === 'function') window.renderSky(); }, 800));
-  window.addEventListener('load', () => setTimeout(() => { ensureAgingFilter(); if (typeof window.renderSky === 'function') window.renderSky(); }, 1200));
-})();
-
-
-/* ===== inline-script-21 ===== */
-
-/* =========================================================
-   v41 - SKY Tracking Cases filter repair
-   Fixes: native working dropdowns, SKY Filtered Cases data,
-   Aging Days Group applied to Open_Cases only.
-   ========================================================= */
-(function(){
-  const ALL = (typeof window.ALL_VALUE !== 'undefined' ? window.ALL_VALUE : '__ALL__');
-  const SKY_QUEUES = ["Open_Cases", "Ready For Delivery Cases"];
-  const SKY_BRANDS = ["Samsung", "Apple"];
-  const SKY_FILTER_IDS = ["skyBranchFilter", "skyQueueFilter", "skyBrandFilter", "skyStageFilter", "skyAgingDaysGroupFilter"];
-  const AGING_GROUPS = ["from 0 to 3 Days", "From 4 to 10 Days", "More than 10 Days"];
-
-  function el(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? "").trim(); }
-  function esc(v){
-    return clean(v).replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[s]));
-  }
-  function sourceRows(){
-    try { if (typeof skyRows !== "undefined" && Array.isArray(skyRows)) return skyRows; } catch(e) {}
-    return Array.isArray(window.skyRows) ? window.skyRows : [];
-  }
-  function selected(id){
-    const x = el(id); if (!x) return [];
-    if (x.multiple) return [...x.selectedOptions].map(o => o.value).filter(v => v && v !== ALL);
-    return x.value ? [x.value] : [];
-  }
-  function numberValue(v){
-    if (typeof v === "number") return Number.isFinite(v) ? v : null;
-    const n = Number(clean(v).replace(/,/g, "").replace(/[^0-9.-]/g, ""));
-    return Number.isFinite(n) ? n : null;
-  }
-  function agingGroup(row){
-    const n = numberValue(row.Aging_Days ?? row.AgingDays ?? row["Aging Days"] ?? row.aging_days ?? row.Aging);
-    if (n === null) return "";
-    if (n <= 3) return "from 0 to 3 Days";
-    if (n <= 10) return "From 4 to 10 Days";
-    return "More than 10 Days";
-  }
-  function isOpen(row){ return clean(row.Queue) === "Open_Cases"; }
-  function removeExcelWrappers(){
-    ["skyBranchFilter_excel", "skyQueueFilter_excel", "skyBrandFilter_excel", "skyStageFilter_excel", "skyJobTypeFilter_excel", "skyAgingDaysGroupFilter_excel"].forEach(id => {
-      const w = el(id); if (w) w.remove();
-    });
-    SKY_FILTER_IDS.forEach(id => { const x = el(id); if (x) x.style.display = ""; });
-  }
-  function ensureAgingFilter(){
-    const oldJob = el("skyJobTypeFilter");
-    if (oldJob) {
-      const box = oldJob.closest("div");
-      if (box && !el("skyAgingDaysGroupFilter")) {
-        const lbl = box.querySelector(".filter-label");
-        if (lbl) lbl.textContent = "Aging Days Group";
-        oldJob.id = "skyAgingDaysGroupFilter";
-        oldJob.removeAttribute("multiple");
-      } else if (box) {
-        box.remove();
-      } else {
-        oldJob.remove();
-      }
-    }
-    if (!el("skyAgingDaysGroupFilter")) {
-      const filters = document.querySelector("#skyPage .filters") || document.querySelector(".sky-filters");
-      const searchBox = el("skySearchBox");
-      const host = document.createElement("div");
-      host.innerHTML = '<div class="filter-label">Aging Days Group</div><select id="skyAgingDaysGroupFilter"></select>';
-      if (filters && searchBox && searchBox.closest("div")) filters.insertBefore(host, searchBox.closest("div"));
-      else if (filters) filters.appendChild(host);
-    }
-    const ag = el("skyAgingDaysGroupFilter");
-    if (ag) {
-      ag.multiple = false;
-      const cur = ag.value;
-      ag.innerHTML = '<option value="">All Aging Days Groups</option>' + AGING_GROUPS.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-      if (AGING_GROUPS.includes(cur)) ag.value = cur;
-    }
-  }
-  function fillSelect(id, values, multi, allText){
-    const x = el(id); if (!x) return;
-    const old = selected(id);
-    const opts = (multi ? `<option value="${ALL}">(Select All)</option>` : `<option value="">${esc(allText || "(Select All)")}</option>`) +
-      values.filter(v => clean(v)).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-    x.innerHTML = opts;
-    if (multi) {
-      let any = false;
-      [...x.options].forEach(o => { if (old.includes(o.value)) { o.selected = true; any = true; } });
-      if (!any && x.options[0]) x.options[0].selected = true;
-    } else {
-      if (old[0] && [...x.options].some(o => o.value === old[0])) x.value = old[0];
-      else x.value = "";
-    }
-  }
-  function refreshSkyNativeFilters(){
-    ensureAgingFilter();
-    const rows = sourceRows();
-    fillSelect("skyBranchFilter", [...new Set(rows.map(r => clean(r.Branch)).filter(Boolean))].sort(), true);
-    fillSelect("skyQueueFilter", SKY_QUEUES, false, "All Queue");
-    fillSelect("skyBrandFilter", SKY_BRANDS, false, "All Brands");
-    fillSelect("skyStageFilter", [...new Set(rows.map(r => clean(r.Stage)).filter(Boolean))].sort(), true);
-    const ag = el("skyAgingDaysGroupFilter");
-    if (ag) { const cur = ag.value; ag.innerHTML = '<option value="">All Aging Days Groups</option>' + AGING_GROUPS.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join(""); if (AGING_GROUPS.includes(cur)) ag.value = cur; }
-    removeExcelWrappers();
-    SKY_FILTER_IDS.forEach(id => { const x = el(id); if (x) x.onchange = () => window.renderSky && window.renderSky(); });
-    const search = el("skySearchBox"); if (search) search.oninput = () => window.renderSky && window.renderSky();
-  }
-
-  window.getSkyFilteredRows = function(){
-    ensureAgingFilter();
-    const branches = selected("skyBranchFilter");
-    const queues = selected("skyQueueFilter");
-    const brands = selected("skyBrandFilter");
-    const stages = selected("skyStageFilter");
-    const ag = clean(el("skyAgingDaysGroupFilter")?.value || "");
-    const q = clean(el("skySearchBox")?.value || "").toLowerCase();
-    return sourceRows().filter(row => {
-      if (branches.length && !branches.includes(clean(row.Branch))) return false;
-      if (queues.length && !queues.includes(clean(row.Queue))) return false;
-      if (brands.length && !brands.includes(clean(row.Brand))) return false;
-      if (stages.length && !stages.includes(clean(row.Stage))) return false;
-      if (ag) {
-        if (!isOpen(row)) return false;
-        if (agingGroup(row) !== ag) return false;
-      }
-      if (q) {
-        const hay = [row.Job_Number, row.IMEI, row.SerialNumber, row.Customer_Mobile, row.Customer_phone, row["Customer Mobile"], row["Customer Phone"], row.Status, row.Stage, row.Branch]
-          .map(v => clean(v).toLowerCase()).join(" ");
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  };
-
-  const previousRenderSky = window.renderSky;
-  window.renderSky = function(){
-    ensureAgingFilter();
-    removeExcelWrappers();
-    const result = previousRenderSky ? previousRenderSky.apply(this, arguments) : undefined;
-    removeExcelWrappers();
-    return result;
-  };
-
-  window.refreshSkyFilterOptionsV19 = refreshSkyNativeFilters;
-  window.buildExcelFiltersV19 = removeExcelWrappers;
-  window.refreshSkyExcelFilterWidgets = removeExcelWrappers;
-
-  window.clearSkyFilters = function(skipScroll){
-    ensureAgingFilter();
-    ["skyBranchFilter", "skyStageFilter"].forEach(id => { const x = el(id); if (x) [...x.options].forEach((o,i) => o.selected = i === 0 || o.value === ALL); });
-    ["skyQueueFilter", "skyBrandFilter", "skyAgingDaysGroupFilter"].forEach(id => { const x = el(id); if (x) x.value = ""; });
-    const s = el("skySearchBox"); if (s) s.value = "";
-    window.renderSky && window.renderSky();
-    if (!skipScroll && typeof scrollToElement === "function") scrollToElement("skyCasesTable");
-  };
-  window.setSkyQueue = function(value){ const x = el("skyQueueFilter"); if (x) x.value = value || ""; window.renderSky && window.renderSky(); if (typeof scrollToElement === "function") scrollToElement("skyCasesTable"); };
-  window.setSkyBrand = function(value){ const x = el("skyBrandFilter"); if (x) x.value = value || ""; window.renderSky && window.renderSky(); if (typeof scrollToElement === "function") scrollToElement("skyCasesTable"); };
-
-  function install(){ refreshSkyNativeFilters(); if (typeof window.renderSky === "function") window.renderSky(); }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(install, 300));
-  else setTimeout(install, 300);
-})();
-
-
-/* ===== inline-script-22 ===== */
-
-/* =========================================================
-   v42 - SKY Tracking Cases final filter panel + aging group
-   - Filter Section design aligned with attached screenshot
-   - Replaces JobType with Aging Days Group
-   - Aging Days Group works for Open_Cases only
-   - Summary Cards always update after any filter change
-   - Animated browser tab title
-   ========================================================= */
-(function(){
-  const ALL = (typeof ALL_VALUE !== 'undefined') ? ALL_VALUE : '__ALL__';
-  const AGING_GROUPS = ['from 0 to 3 Days','From 4 to 10 Days','More than 10 Days'];
-  const QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const BRANDS = ['Samsung','Apple'];
-
-  function q(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? '').trim(); }
-  function esc(v){ return clean(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function num(v){
-    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-    const n = Number(clean(v).replace(/,/g,'').replace(/[^0-9.-]/g,''));
-    return Number.isFinite(n) ? n : null;
-  }
-  function rows(){
-    try { if (Array.isArray(skyRows)) return skyRows; } catch(e) {}
-    return Array.isArray(window.skyRows) ? window.skyRows : [];
-  }
-  function isOpenCase(r){ return clean(r.Queue) === 'Open_Cases'; }
-  function agingGroup(r){
-    const n = num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days'] ?? r.Aging ?? r.aging_days);
-    if (n === null) return '';
-    if (n <= 3) return 'from 0 to 3 Days';
-    if (n <= 10) return 'From 4 to 10 Days';
-    return 'More than 10 Days';
-  }
-  function selected(id){
-    const el = q(id); if (!el) return [];
-    if (el.multiple) return [...el.selectedOptions].map(o=>o.value).filter(v => v && v !== ALL);
-    return el.value ? [el.value] : [];
-  }
-  function uniqueValues(list){ return [...new Set(list.map(clean).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
-
-  function removeExcelShell(id){ const w = q(id + '_excel'); if (w) w.remove(); const el = q(id); if (el) el.style.display = ''; }
-  function removeOldExcelFilters(){ ['skyBranchFilter','skyQueueFilter','skyBrandFilter','skyStageFilter','skyJobTypeFilter','skyAgingDaysGroupFilter'].forEach(removeExcelShell); }
-
-  function ensureFilterPanel(){
-    const panel = document.querySelector('#skyPage .filters');
-    if (!panel) return;
-    panel.classList.add('sky-v42-filter-panel');
-
-    // Convert/remove JobType and create Aging Days Group in the same place.
-    const job = q('skyJobTypeFilter');
-    if (job) {
-      const box = job.closest('div');
-      if (!q('skyAgingDaysGroupFilter')) {
-        job.id = 'skyAgingDaysGroupFilter';
-        job.name = 'skyAgingDaysGroupFilter';
-        job.multiple = false;
-        job.removeAttribute('multiple');
-        const label = box && box.querySelector('.filter-label');
-        if (label) label.textContent = 'Aging Days Group';
-      } else if (box) {
-        box.remove();
-      } else job.remove();
-    }
-    if (!q('skyAgingDaysGroupFilter')) {
-      const host = document.createElement('div');
-      host.className = 'sky-v42-filter-item';
-      host.innerHTML = '<div class="filter-label">Aging Days Group</div><select id="skyAgingDaysGroupFilter"></select>';
-      const searchHost = q('skySearchBox')?.closest('div');
-      panel.insertBefore(host, searchHost || null);
-    }
-    [...panel.children].forEach(ch => ch.classList.add('sky-v42-filter-item'));
-
-    const ag = q('skyAgingDaysGroupFilter');
-    if (ag) {
-      ag.multiple = false;
-      ag.removeAttribute('multiple');
-      const cur = ag.value;
-      ag.innerHTML = '<option value="">(Select All)</option>' + AGING_GROUPS.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-      if (AGING_GROUPS.includes(cur)) ag.value = cur;
-    }
-    const search = q('skySearchBox');
-    if (search) search.placeholder = 'Job_Number / IMEI / SerialNumber';
-  }
-
-  function fillSelect(id, values, multiple){
-    const el = q(id); if (!el) return;
-    const old = selected(id);
-    el.multiple = !!multiple;
-    if (!multiple) el.removeAttribute('multiple');
-    const first = multiple ? `<option value="${ALL}">(Select All)</option>` : '<option value="">(Select All)</option>';
-    el.innerHTML = first + values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    if (multiple) {
-      let kept = false;
-      [...el.options].forEach(o => { if (old.includes(o.value)) { o.selected = true; kept = true; } });
-      if (!kept && el.options[0]) el.options[0].selected = true;
-    } else {
-      el.value = old.find(v => [...el.options].some(o => o.value === v)) || '';
-    }
-  }
-
-  function refreshFilterLists(){
-    ensureFilterPanel();
-    const data = rows();
-    fillSelect('skyBranchFilter', uniqueValues(data.map(r=>r.Branch)), true);
-    fillSelect('skyQueueFilter', QUEUES, false);
-    fillSelect('skyBrandFilter', BRANDS, false);
-    fillSelect('skyStageFilter', uniqueValues(data.map(r=>r.Stage)), true);
-    const ag = q('skyAgingDaysGroupFilter');
-    if (ag) {
-      const cur = ag.value;
-      ag.innerHTML = '<option value="">(Select All)</option>' + AGING_GROUPS.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-      if (AGING_GROUPS.includes(cur)) ag.value = cur;
-    }
-    removeOldExcelFilters();
-  }
-
-  function filteredRows(){
-    const branches = selected('skyBranchFilter');
-    const queues = selected('skyQueueFilter');
-    const brands = selected('skyBrandFilter');
-    const stages = selected('skyStageFilter');
-    const ag = clean(q('skyAgingDaysGroupFilter')?.value || '');
-    const search = clean(q('skySearchBox')?.value || '').toLowerCase();
-    return rows().filter(r => {
-      if (branches.length && !branches.includes(clean(r.Branch))) return false;
-      if (queues.length && !queues.includes(clean(r.Queue))) return false;
-      if (brands.length && !brands.includes(clean(r.Brand))) return false;
-      if (stages.length && !stages.includes(clean(r.Stage))) return false;
-      if (ag) {
-        if (!isOpenCase(r)) return false;
-        if (agingGroup(r) !== ag) return false;
-      }
-      if (search) {
-        const hay = [r.Job_Number, r.IMEI, r.SerialNumber, r.Customer_Mobile, r.Customer_phone, r['Customer Mobile'], r['Customer Phone'], r.Status, r.Stage, r.Branch, r.Model]
-          .map(v=>clean(v).toLowerCase()).join(' ');
-        if (!hay.includes(search)) return false;
-      }
-      return true;
-    });
-  }
-
-  function setTxt(id, value){ const x = q(id); if (x) x.textContent = value; }
-  function percent(part,total){ return total ? ((part/total)*100).toFixed(1) : '0.0'; }
-  function renderTableSafe(data){
-    if (typeof renderTable !== 'function') return;
-    const cols = [
-      ['Queue','Queue'], ['Brand','Brand'], ['Branch','Branch'], ['Open_Date_Display','Open Date'],
-      ['Aging_Days','Aging Days'], ['Job_Number','Job Number'], ['Status','Status'], ['Stage','Stage'],
-      ['Item English Name','Item English Name'], ['IMEI','IMEI'], ['SerialNumber','Serial Number'], ['Model','Model'],
-      ['Customer_Mobile','Customer Mobile'], ['Customer_phone','Customer Phone']
-    ];
-    renderTable('skyCasesTable', data.slice(0,1000), cols, false);
-  }
-  function renderCards(data){
-    const total = data.length;
-    const open = data.filter(r=>clean(r.Queue)==='Open_Cases').length;
-    const ready = data.filter(r=>clean(r.Queue)==='Ready For Delivery Cases').length;
-    const delivered = data.filter(r=>clean(r.Queue)==='__REMOVED_QUEUE__').length;
-    const closed = ready + delivered;
-    const samsung = data.filter(r=>clean(r.Brand).toLowerCase()==='samsung').length;
-    const apple = data.filter(r=>clean(r.Brand).toLowerCase()==='apple').length;
-    setTxt('skyTotalCases', total);
-    setTxt('skyOpenCases', open); setTxt('skyOpenPercent', `${percent(open,total)}% of Total`);
-    setTxt('skyReadyCases', ready); setTxt('skyReadyPercent', `${percent(ready,total)}% of Total`);
-    setTxt('skyDeliveredCases', delivered); setTxt('skyDeliveredPercent', `${percent(delivered,total)}% of Total`);
-    setTxt('skyClosedCases', closed); setTxt('skyClosedPercent', `${percent(closed,total)}% Ready/Delivered`);
-    setTxt('skySamsungCases', samsung); setTxt('skySamsungPercent', `${percent(samsung,total)}% of Total`);
-    setTxt('skyAppleCases', apple); setTxt('skyApplePercent', `${percent(apple,total)}% of Total`);
-  }
-  function renderSkyV42(){
-    if (!q('skyPage')) return;
-    removeOldExcelFilters();
-    const data = filteredRows();
-    try { currentSkyRows = data; } catch(e) { window.currentSkyRows = data; }
-    renderCards(data);
-    renderTableSafe(data);
-    if (typeof updateSkyCharts === 'function') updateSkyCharts(data);
-  }
-
-  function wire(){
-    refreshFilterLists();
-    ['skyBranchFilter','skyQueueFilter','skyBrandFilter','skyStageFilter','skyAgingDaysGroupFilter'].forEach(id => {
-      const el = q(id); if (!el) return;
-      el.onchange = renderSkyV42;
-      el.oninput = renderSkyV42;
-    });
-    const search = q('skySearchBox');
-    if (search) search.oninput = renderSkyV42;
-    const clearBtn = [...document.querySelectorAll('#skyPage button,.sky-v42-filter-panel button')].find(b => /clear filters/i.test(b.textContent||''));
-    if (clearBtn) clearBtn.onclick = function(){ window.clearSkyFilters && window.clearSkyFilters(false); };
-  }
-
-  // Replace old global functions and lexical function declarations where possible.
-  try { getSkyFilteredRows = filteredRows; } catch(e) { window.getSkyFilteredRows = filteredRows; }
-  try { refreshSkyFilters = refreshFilterLists; } catch(e) { window.refreshSkyFilters = refreshFilterLists; }
-  try { refreshSkyExcelFilterWidgets = removeOldExcelFilters; } catch(e) { window.refreshSkyExcelFilterWidgets = removeOldExcelFilters; }
-  try { renderSky = renderSkyV42; } catch(e) { window.renderSky = renderSkyV42; }
-  window.getSkyFilteredRows = filteredRows;
-  window.refreshSkyFilters = refreshFilterLists;
-  window.refreshSkyExcelFilterWidgets = removeOldExcelFilters;
-  window.renderSky = renderSkyV42;
-  window.clearSkyFilters = function(scroll){
-    ensureFilterPanel();
-    ['skyBranchFilter','skyStageFilter'].forEach(id => { const el=q(id); if(el) [...el.options].forEach((o,i)=>o.selected = i===0 || o.value===ALL); });
-    ['skyQueueFilter','skyBrandFilter','skyAgingDaysGroupFilter'].forEach(id => { const el=q(id); if(el) el.value=''; });
-    const s=q('skySearchBox'); if(s) s.value='';
-    renderSkyV42();
-    if (scroll && typeof scrollToElement === 'function') scrollToElement('skyCasesTable');
-  };
-  window.setSkyQueue = function(v){ const el=q('skyQueueFilter'); if(el) el.value = v || ''; renderSkyV42(); };
-  window.setSkyBrand = function(v){ const el=q('skyBrandFilter'); if(el) el.value = v || ''; renderSkyV42(); };
-
-  function animateTitle(){
-    const base = 'SKY Tracking Cases';
-    let i = 0;
-    clearInterval(window.skyV42TitleTimer);
-    window.skyV42TitleTimer =void(() => {
-      const activeSky = q('skyPage') && q('skyPage').style.display !== 'none';
-      const text = activeSky ? `✦ ${base} ✦` : 'Service Support Center';
-      document.title = text.slice(i % text.length) + '   ' + text.slice(0, i % text.length);
-      i++;
-    }, 450);
-  }
-
-  function install(){ wire(); renderSkyV42(); animateTitle(); }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(install, 250));
-  else setTimeout(install, 250);
-  window.addEventListener('load', () => setTimeout(install, 900));
-})();
-
-
-/* ===== inline-script-23 ===== */
-
-/* =========================================================
-   v43 - SKY Tracking Cases fixes
-   - Branches/Stage multi filters redesigned as dropdown buttons like Queue/Brand
-   - SKY Filtered Cases visible columns only + derived Aging Days Group
-   - Summary cards use Filter Section filtered data
-   - Chart value labels de-duplicated
-   - Browser tab title animated as comma-separated "Service Support Center"
-   ========================================================= */
-(function(){
-  const ALL = (typeof ALL_VALUE !== 'undefined') ? ALL_VALUE : '__ALL__';
-  const AGING_GROUPS = ['from 0 to 3 Days','From 4 to 10 Days','More than 10 Days'];
-  const QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const BRANDS = ['Samsung','Apple'];
-  const MULTI_IDS = ['skyBranchFilter','skyStageFilter'];
-  const CHART_IDS = ['skyQueueChart','skyBrandChart','skyStageChart','skyBranchChart','skyReadyAgingChart','skyStageAllChart'];
-
-  function q(id){ return document.getElementById(id); }
-  function txt(v){ return String(v ?? '').trim(); }
-  function esc(v){ return txt(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function num(v){ if(typeof v==='number') return Number.isFinite(v)?v:null; const n=Number(txt(v).replace(/,/g,'').replace(/[^0-9.-]/g,'')); return Number.isFinite(n)?n:null; }
-  function pct(a,b){ return b ? ((Number(a||0)/Number(b||0))*100).toFixed(1) : '0.0'; }
-  function setText(id,val){ const el=q(id); if(el) el.textContent=val; }
-  function allRows(){ try{ if(Array.isArray(skyRows)) return skyRows; }catch(e){} return Array.isArray(window.skyRows)?window.skyRows:[]; }
-  function unique(arr){ return [...new Set((arr||[]).map(txt).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
-  function isOpen(r){ return txt(r.Queue)==='Open_Cases'; }
-  function isReady(r){ return txt(r.Queue)==='Ready For Delivery Cases'; }
-  function isDelivered(r){ return txt(r.Queue)==='__REMOVED_QUEUE__'; }
-  function agingGroup(r){ const n=num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days'] ?? r.Aging ?? r.aging_days); if(n===null) return ''; if(n<=3) return 'from 0 to 3 Days'; if(n<=10) return 'From 4 to 10 Days'; return 'More than 10 Days'; }
-  function enriched(r){ return Object.assign({}, r, { Aging_Days_Group: isOpen(r) ? agingGroup(r) : '' }); }
-
-  function selected(id){
-    const el=q(id); if(!el) return [];
-    if(el.multiple) return [...el.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL);
-    return el.value ? [el.value] : [];
-  }
-  function setMulti(id, values){
-    const el=q(id); if(!el) return;
-    const vals = new Set(Array.isArray(values)?values:[values]);
-    let any=false;
-    [...el.options].forEach((o,i)=>{ o.selected = (o.value!==ALL && vals.has(o.value)); if(o.selected) any=true; });
-    if(!any && el.options[0]) el.options[0].selected=true;
-    updateMultiButton(id);
-  }
-  function ensureSingleSelect(id, values){
-    const el=q(id); if(!el) return;
-    const cur=el.value||'';
-    el.multiple=false; el.removeAttribute('multiple');
-    el.innerHTML='<option value="">(Select All)</option>'+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    if(values.includes(cur)) el.value=cur;
-  }
-  function ensureMultiSelect(id, values){
-    const el=q(id); if(!el) return;
-    const old=selected(id);
-    el.multiple=true;
-    el.innerHTML=`<option value="${ALL}">(Select All)</option>`+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    let kept=false;
-    [...el.options].forEach(o=>{ if(old.includes(o.value)){ o.selected=true; kept=true; } });
-    if(!kept && el.options[0]) el.options[0].selected=true;
-  }
-  function ensureAgingFilter(){
-    const panel=document.querySelector('#skyPage .filters'); if(!panel) return;
-    let job=q('skyJobTypeFilter');
-    if(job){
-      const box=job.closest('div');
-      if(!q('skyAgingDaysGroupFilter')){
-        job.id='skyAgingDaysGroupFilter'; job.name='skyAgingDaysGroupFilter'; job.multiple=false; job.removeAttribute('multiple');
-        const label=box?.querySelector('.filter-label'); if(label) label.textContent='Aging Days Group';
-      } else if(box) box.remove(); else job.remove();
-    }
-    if(!q('skyAgingDaysGroupFilter')){
-      const host=document.createElement('div'); host.className='sky-v43-filter-item';
-      host.innerHTML='<div class="filter-label">Aging Days Group</div><select id="skyAgingDaysGroupFilter"></select>';
-      const searchHost=q('skySearchBox')?.closest('div'); panel.insertBefore(host, searchHost || null);
-    }
-    const ag=q('skyAgingDaysGroupFilter'); if(ag){ const cur=ag.value||''; ag.innerHTML='<option value="">(Select All)</option>'+AGING_GROUPS.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(''); if(AGING_GROUPS.includes(cur)) ag.value=cur; }
-    const search=q('skySearchBox'); if(search) search.placeholder='Job_Number / IMEI / SerialNumber';
-  }
-  function refreshFilters(){
-    ensureAgingFilter();
-    const data=allRows();
-    ensureMultiSelect('skyBranchFilter', unique(data.map(r=>r.Branch)));
-    ensureSingleSelect('skyQueueFilter', QUEUES);
-    ensureSingleSelect('skyBrandFilter', BRANDS);
-    ensureMultiSelect('skyStageFilter', unique(data.map(r=>r.Stage)));
-    buildMultiDropdowns();
-  }
-  function filteredRows(){
-    const branches=selected('skyBranchFilter');
-    const queues=selected('skyQueueFilter');
-    const brands=selected('skyBrandFilter');
-    const stages=selected('skyStageFilter');
-    const ag=txt(q('skyAgingDaysGroupFilter')?.value||'');
-    const search=txt(q('skySearchBox')?.value||'').toLowerCase();
-    return allRows().filter(r=>{
-      if(branches.length && !branches.includes(txt(r.Branch))) return false;
-      if(queues.length && !queues.includes(txt(r.Queue))) return false;
-      if(brands.length && !brands.includes(txt(r.Brand))) return false;
-      if(stages.length && !stages.includes(txt(r.Stage))) return false;
-      if(ag){ if(!isOpen(r)) return false; if(agingGroup(r)!==ag) return false; }
-      if(search){
-        const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r['Serial Number'],r.Customer_Mobile,r.Customer_phone,r['Customer Mobile'],r['Customer Phone'],r.Status,r.Stage,r.Branch,r.Model,r['Item English Name']].map(v=>txt(v).toLowerCase()).join(' ');
-        if(!hay.includes(search)) return false;
-      }
-      return true;
-    }).map(enriched);
-  }
-
-  function updateMultiButton(id){
-    const wrap=q(id+'_v43'); if(!wrap) return;
-    const btn=wrap.querySelector('.sky-v43-multi-btn');
-    const vals=selected(id);
-    btn.textContent = vals.length ? (vals.length>2 ? `${vals.length} selected` : vals.join(', ')) : '(Select All)';
-    btn.title=btn.textContent;
-  }
-  function buildMultiDropdowns(){
-    MULTI_IDS.forEach(id=>{
-      const el=q(id); if(!el) return;
-      el.classList.add('sky-v43-native-hidden');
-      let wrap=q(id+'_v43');
-      if(!wrap){
-        wrap=document.createElement('div'); wrap.className='sky-v43-multi'; wrap.id=id+'_v43';
-        wrap.innerHTML='<button type="button" class="sky-v43-multi-btn">(Select All)</button><div class="sky-v43-multi-panel"><div class="sky-v43-multi-list"></div></div>';
-        el.insertAdjacentElement('afterend', wrap);
-      }
-      const list=wrap.querySelector('.sky-v43-multi-list');
-      list.innerHTML=[...el.options].map(o=>`<label class="sky-v43-check"><input type="checkbox" value="${esc(o.value)}" ${o.selected?'checked':''}> <span>${esc(o.textContent)}</span></label>`).join('');
-      wrap.querySelector('.sky-v43-multi-btn').onclick=function(ev){ ev.stopPropagation(); document.querySelectorAll('.sky-v43-multi.open').forEach(x=>{ if(x!==wrap) x.classList.remove('open'); }); wrap.classList.toggle('open'); };
-      wrap.onclick=ev=>ev.stopPropagation();
-      list.querySelectorAll('input').forEach(cb=>{
-        cb.onchange=function(){
-          const val=this.value;
-          if(val===ALL){
-            [...el.options].forEach((o,i)=>o.selected=(i===0));
-          }else{
-            const allOpt=[...el.options].find(o=>o.value===ALL); if(allOpt) allOpt.selected=false;
-            const opt=[...el.options].find(o=>o.value===val); if(opt) opt.selected=this.checked;
-            const real=[...el.options].filter(o=>o.value!==ALL && o.selected);
-            if(!real.length && allOpt) allOpt.selected=true;
-          }
-          updateMultiButton(id);
-          buildMultiDropdowns();
-          finalRender();
-        };
-      });
-      updateMultiButton(id);
-    });
-  }
-  document.addEventListener('click',()=>document.querySelectorAll('.sky-v43-multi.open').forEach(x=>x.classList.remove('open')));
-
-  function renderCards(data){
-    const total=data.length, open=data.filter(isOpen).length, ready=data.filter(isReady).length, delivered=data.filter(isDelivered).length, closed=ready+delivered;
-    const samsung=data.filter(r=>txt(r.Brand).toLowerCase()==='samsung').length, apple=data.filter(r=>txt(r.Brand).toLowerCase()==='apple').length;
-    setText('skyTotalCases', total);
-    setText('skyOpenCases', open); setText('skyOpenPercent', `${pct(open,total)}% of Total`);
-    setText('skyReadyCases', ready); setText('skyReadyPercent', `${pct(ready,total)}% of Total`);
-    setText('skyDeliveredCases', delivered); setText('skyDeliveredPercent', `${pct(delivered,total)}% of Total`);
-    setText('skyClosedCases', closed); setText('skyClosedPercent', `${pct(closed,total)}% Ready/Delivered`);
-    setText('skySamsungCases', samsung); setText('skySamsungPercent', `${pct(samsung,total)}% of Total`);
-    setText('skyAppleCases', apple); setText('skyApplePercent', `${pct(apple,total)}% of Total`);
-  }
-  function renderTableV43(data){
-    if(typeof renderTable!=='function') return;
-    const cols=[
-      ['Queue','Queue'], ['Brand','Brand'], ['Branch','Branch'], ['Open_Date_Display','Open Date'],
-      ['Aging_Days','Aging Days'], ['Aging_Days_Group','aging Days Group'], ['Job_Number','Job Number'],
-      ['Status','Status'], ['Stage','Stage'], ['Item English Name','Item English Name'], ['Price','Price']
-    ];
-    renderTable('skyCasesTable', data.slice(0,1000), cols, false);
-  }
-  function countBy(data, field, ordered, limit){
-    const c={}; (data||[]).forEach(r=>{ const k=txt(r[field])||'Blank'; c[k]=(c[k]||0)+1; });
-    let arr=ordered ? ordered.map(k=>[k,c[k]||0]) : Object.entries(c).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-    if(limit) arr=arr.slice(0,limit);
-    return {labels:arr.map(x=>x[0]), values:arr.map(x=>x[1])};
-  }
-  function readyAging(data){
-    const labels=['0-3','4-7','more than 7'], values=[0,0,0];
-    (data||[]).forEach(r=>{ const months=Number(r.Aging_Days ?? r.AgingDays ?? 0)/30.4375; if(months<=3) values[0]++; else if(months<=7) values[1]++; else values[2]++; });
-    return {labels,values};
-  }
-  function setSummary(id, labels, values, total){ const el=q(id); if(el) el.innerHTML=labels.map((l,i)=>`<span class="sky-chart-chip">${esc(l)}: ${values[i]} (${pct(values[i],total)}%)</span>`).join(''); }
-  function unregisterChartLabelPlugins(){
-    if(!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    ['serviceEyeV24SingleLabels','serviceEyeV25Labels3D','serviceEyeV25Bar3D','v19Labels','v20SkyLabels','v21SingleChartValueLabels','serviceEyeV22LabelsOnly','skyBarLabelErrorPlugin','skyV43SingleLabels'].forEach(id=>{ try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){} });
-  }
-  const singleLabelPlugin={ id:'skyV43SingleLabels', afterDatasetsDraw(chart){ const {ctx}=chart; ctx.save(); ctx.font='bold 12px Calibri, Arial, sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center'; ctx.textBaseline='bottom'; chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const val=Number(ds.data[i]||0); if(!val) return; const p=bar.tooltipPosition?bar.tooltipPosition():{x:bar.x,y:bar.y}; ctx.fillText(String(val), p.x, Math.max(14,p.y-8)); }); }); ctx.restore(); } };
-  function destroyChart(id){ if(window.dashboardCharts && dashboardCharts[id]){ try{ dashboardCharts[id].destroy(); }catch(e){} } if(!window.dashboardCharts) window.dashboardCharts={}; }
-  function chart(id, labels, values, title, clickFn){
-    if(!window.Chart) return; const canvas=q(id); if(!canvas) return;
-    destroyChart(id);
-    const total=values.reduce((a,b)=>a+Number(b||0),0), max=Math.max(...values.map(v=>Number(v||0)),0);
-    dashboardCharts[id]=__safeNewChart(canvas,{ type:'bar', data:{ labels, datasets:[{ label:title||'Cases', data:values, borderWidth:1, borderRadius:4 }] }, options:{ responsive:true, maintainAspectRatio:false, animation:false, layout:{padding:{top:30,right:14}}, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${title||'Cases'}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}} }, scales:{ x:{ticks:{autoSkip:false,maxRotation:45,minRotation:0,color:'#ffffff'},grid:{color:'rgba(255,255,255,.10)'}}, y:{beginAtZero:true,suggestedMax:max*1.25+1,ticks:{color:'#ffffff'},grid:{color:'rgba(255,255,255,.10)'}} }, onClick:(evt,elements)=>{ if(elements.length && clickFn) clickFn(labels[elements[0].index]); } }, plugins:[singleLabelPlugin] });
-  }
-  function updateCharts(data){
-    unregisterChartLabelPlugins();
-    const queueRows=data.filter(r=>{ const v=q('skyQueueChartBrandFilter')?.value||''; return !v || txt(r.Brand)===v; });
-    const brandRows=data.filter(r=>{ const v=q('skyBrandChartQueueFilter')?.value||''; return !v || txt(r.Queue)===v; });
-    const stageRows=data.filter(r=>isOpen(r)).filter(r=>{ const v=q('skyStageChartBranchFilter')?.value||''; return !v || txt(r.Branch)===v; });
-    const branchRows=data.filter(r=>isOpen(r)).filter(r=>{ const v=q('skyBranchChartStageFilter')?.value||''; return !v || txt(r.Stage)===v; });
-    const readyRows=data.filter(r=>isReady(r)).filter(r=>{ const v=q('skyReadyAgingBrandFilter')?.value||''; return !v || txt(r.Brand)===v; });
-    const stageAllRows=data.filter(r=>{ const v=q('skyStageAllQueueFilter')?.value||''; return !v || txt(r.Queue)===v; });
-    const qd=countBy(queueRows,'Queue',QUEUES), bd=countBy(brandRows,'Brand',BRANDS), sd=countBy(stageRows,'Stage',null,20), brd=countBy(branchRows,'Branch',null,30), ag=readyAging(readyRows), sa=countBy(stageAllRows,'Stage',null,20);
-    setSummary('skyQueueSummary',qd.labels,qd.values,queueRows.length); setSummary('skyBrandSummary',bd.labels,bd.values,brandRows.length); setSummary('skyStageSummary',sd.labels,sd.values,stageRows.length); setSummary('skyBranchSummary',brd.labels,brd.values,branchRows.length); setSummary('skyReadyAgingSummary',ag.labels,ag.values,readyRows.length); setSummary('skyStageAllSummary',sa.labels,sa.values,stageAllRows.length);
-    chart('skyQueueChart',qd.labels,qd.values,'Cases',label=>{ const e=q('skyQueueFilter'); if(e) e.value=label; finalRender(); });
-    chart('skyBrandChart',bd.labels,bd.values,'Cases',label=>{ const e=q('skyBrandFilter'); if(e) e.value=label; finalRender(); });
-    chart('skyStageChart',sd.labels,sd.values,'Open Cases',label=>{ setMulti('skyStageFilter',[label]); finalRender(); });
-    chart('skyBranchChart',brd.labels,brd.values,'Open Cases',label=>{ setMulti('skyBranchFilter',[label]); finalRender(); });
-    chart('skyReadyAgingChart',ag.labels,ag.values,'Ready Cases',null);
-    chart('skyStageAllChart',sa.labels,sa.values,'Cases',label=>{ setMulti('skyStageFilter',[label]); finalRender(); });
-  }
-
-  function finalRender(){
-    ensureAgingFilter(); buildMultiDropdowns();
-    const data=filteredRows(); window.currentSkyRows=data;
-    renderCards(data); renderTableV43(data); updateCharts(data); buildMultiDropdowns();
-  }
-  function wire(){
-    refreshFilters();
-    ['skyQueueFilter','skyBrandFilter','skyAgingDaysGroupFilter'].forEach(id=>{ const el=q(id); if(el){ el.onchange=finalRender; el.oninput=finalRender; } });
-    const search=q('skySearchBox'); if(search) search.oninput=finalRender;
-    document.querySelectorAll('#skyPage button').forEach(btn=>{ if(/clear filters/i.test(btn.textContent||'')){ btn.onclick=function(){ clearFilters(false); }; } });
-  }
-  function clearFilters(scroll){
-    ['skyQueueFilter','skyBrandFilter','skyAgingDaysGroupFilter'].forEach(id=>{ const e=q(id); if(e) e.value=''; });
-    MULTI_IDS.forEach(id=>{ const e=q(id); if(e) [...e.options].forEach((o,i)=>o.selected=i===0 || o.value===ALL); updateMultiButton(id); });
-    const s=q('skySearchBox'); if(s) s.value='';
-    finalRender(); if(scroll && typeof scrollToElement==='function') scrollToElement('skyCasesTable');
-  }
-
-  try{ getSkyFilteredRows = filteredRows; }catch(e){ window.getSkyFilteredRows=filteredRows; }
-  try{ updateSkyCharts = updateCharts; }catch(e){ window.updateSkyCharts=updateCharts; }
-  window.getSkyFilteredRows=filteredRows; window.updateSkyCharts=updateCharts; window.clearSkyFilters=clearFilters;
-  const oldRender=window.renderSky;
-  window.renderSky=function(){ if(oldRender){ try{ oldRender.apply(this,arguments); }catch(e){} } setTimeout(()=>{ wire(); finalRender(); },180); };
-
-  function animateTitle(){
-    const base='Service Support Center'; const parts=base.split('').join(', '); let i=0;
-    clearInterval(window.serviceEyeTitleTimerV43);
-    window.serviceEyeTitleTimerV43=void(()=>{ const t=parts; const p=i%t.length; document.title=t.slice(p)+'   '+t.slice(0,p); i++; },420);
-  }
-  function install(){ wire(); finalRender(); animateTitle(); }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(install,500)); else setTimeout(install,500);
-  window.addEventListener('load',()=>setTimeout(install,1200));
-})();
-
-
 /* ===== inline-script-24 ===== */
 
 (function(){
@@ -4095,723 +2007,6 @@ const d = safeParseDate(out.Open_Date);
   else setTimeout(installV44, 700);
   window.addEventListener('load', function(){ setTimeout(installV44, 1600); });
   setTimeout(installV44, 3500);
-})();
-
-
-/* ===== v45_sky_local_dropdown_fix_script ===== */
-
-(function(){
-  'use strict';
-
-  function neutralizeFixedPanelInlineStyles(){
-    document.querySelectorAll('#skyPage .sky-v43-multi-panel').forEach(function(panel){
-      panel.style.removeProperty('position');
-      panel.style.removeProperty('left');
-      panel.style.removeProperty('top');
-      panel.style.removeProperty('right');
-      panel.style.removeProperty('bottom');
-      panel.style.removeProperty('width');
-      panel.style.removeProperty('max-height');
-    });
-  }
-
-  function install(){
-    neutralizeFixedPanelInlineStyles();
-    document.querySelectorAll('#skyPage .sky-v43-multi-btn').forEach(function(btn){
-      if(btn.dataset.v45Fixed === '1') return;
-      btn.dataset.v45Fixed = '1';
-      btn.addEventListener('click', function(){
-        setTimeout(neutralizeFixedPanelInlineStyles, 60);
-      }, true);
-    });
-  }
-
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 500); });
-  else setTimeout(install, 500);
-  window.addEventListener('load', function(){ setTimeout(install, 1000); });
-/* removed duplicate delayed install at 15s */
-})();
-
-
-/* ===== v46_sky_filter_design_script ===== */
-
-(function(){
-  'use strict';
-
-  const ALL = (typeof window.ALL_VALUE !== 'undefined' ? window.ALL_VALUE : '__ALL__');
-  const FILTERS = [
-    { id: 'skyBranchFilter', multiple: true, allText: 'All Branches' },
-    { id: 'skyQueueFilter', multiple: false, allText: '(Select All)' },
-    { id: 'skyBrandFilter', multiple: false, allText: '(Select All)' },
-    { id: 'skyStageFilter', multiple: true, allText: '(Select All)' },
-    { id: 'skyAgingDaysGroupFilter', multiple: false, allText: '(Select All)' }
-  ];
-
-  function q(id){ return document.getElementById(id); }
-  function esc(v){ return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function closePanels(){ document.querySelectorAll('.sky-v46-panel.open').forEach(p => p.classList.remove('open')); }
-  function optionText(opt, cfg){
-    if(!opt) return '';
-    const value = opt.value || '';
-    const raw = (opt.textContent || value || '').trim();
-    if(!value || value === ALL || /^all$/i.test(raw) || /select all/i.test(raw) || /^all /i.test(raw)) return cfg.allText || '(Select All)';
-    return raw;
-  }
-  function getOptions(select, cfg){
-    const opts = Array.from(select.options).map(o => ({ value: o.value || '', text: optionText(o, cfg), selected: o.selected }));
-    if(!opts.some(o => !o.value || o.value === ALL)) opts.unshift({ value: cfg.multiple ? ALL : '', text: cfg.allText || '(Select All)', selected: cfg.multiple ? !opts.some(o=>o.selected) : !select.value });
-    return opts;
-  }
-  function selectedLabel(select, cfg){
-    const opts = getOptions(select, cfg);
-    if(cfg.multiple){
-      const selected = Array.from(select.selectedOptions).filter(o => o.value && o.value !== ALL);
-      const allSelected = !selected.length || Array.from(select.selectedOptions).some(o => o.value === ALL);
-      if(allSelected) return cfg.allText || '(Select All)';
-      if(selected.length > 2) return selected.length + ' selected';
-      return selected.map(o => optionText(o, cfg)).join(', ');
-    }
-    if(!select.value) return cfg.allText || '(Select All)';
-    const found = opts.find(o => o.value === select.value);
-    return found ? found.text : select.value;
-  }
-  function ensureButton(select, cfg){
-    select.style.display = 'none';
-    const oldExcel = q(select.id + '_excel'); if(oldExcel) oldExcel.style.display = 'none';
-    const parent = select.parentElement;
-    if(parent){ parent.querySelectorAll('.sky-v43-multi').forEach(x => x.style.display = 'none'); }
-    let wrap = q(select.id + '_v46');
-    if(!wrap){
-      wrap = document.createElement('div');
-      wrap.id = select.id + '_v46';
-      wrap.className = 'sky-v46-filter';
-      wrap.innerHTML = '<button type="button" class="sky-v46-btn"><span></span></button>';
-      select.insertAdjacentElement('afterend', wrap);
-    }
-    const btn = wrap.querySelector('.sky-v46-btn');
-    btn.querySelector('span').textContent = selectedLabel(select, cfg);
-    btn.title = selectedLabel(select, cfg);
-    if(btn.dataset.v46Ready !== '1'){
-      btn.dataset.v46Ready = '1';
-      btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        openPanel(select, cfg, btn);
-      });
-    }
-  }
-  function placePanel(panel, btn){
-    const r = btn.getBoundingClientRect();
-    const width = Math.min(Math.max(r.width, 320), window.innerWidth - 24, 425);
-    let left = Math.min(Math.max(12, r.left), window.innerWidth - width - 12);
-    let top = r.bottom + 8;
-    const maxH = Math.min(430, window.innerHeight - 24);
-    if(top + maxH > window.innerHeight) top = Math.max(12, r.top - maxH - 8);
-    panel.style.left = left + 'px';
-    panel.style.top = top + 'px';
-    panel.style.width = width + 'px';
-    panel.style.maxHeight = maxH + 'px';
-  }
-  function applyTemp(select, cfg, temp){
-    if(cfg.multiple){
-      const vals = new Set(Array.from(temp));
-      const realVals = Array.from(vals).filter(v => v && v !== ALL);
-      Array.from(select.options).forEach(o => {
-        if(!realVals.length) o.selected = (!o.value || o.value === ALL);
-        else o.selected = realVals.includes(o.value);
-      });
-      if(!Array.from(select.selectedOptions).length && select.options[0]) select.options[0].selected = true;
-    } else {
-      const vals = Array.from(temp).filter(v => v !== ALL);
-      select.value = vals[0] || '';
-    }
-    select.dispatchEvent(new Event('change', { bubbles:true }));
-  }
-  function openPanel(select, cfg, btn){
-    const oldOpen = q(select.id + '_v46_panel')?.classList.contains('open');
-    closePanels();
-    if(oldOpen) return;
-    let panel = q(select.id + '_v46_panel');
-    if(!panel){
-      panel = document.createElement('div');
-      panel.id = select.id + '_v46_panel';
-      panel.className = 'sky-v46-panel';
-      document.body.appendChild(panel);
-    }
-    const currentSelected = cfg.multiple ? Array.from(select.selectedOptions).map(o=>o.value) : [select.value || ''];
-    let temp = new Set(currentSelected.length ? currentSelected : [cfg.multiple ? ALL : '']);
-    if(cfg.multiple && (!temp.size || temp.has(ALL))) temp = new Set([ALL]);
-
-    function draw(filter){
-      const opts = getOptions(select, cfg);
-      const term = String(filter || '').toLowerCase();
-      const visible = opts.filter(o => !term || o.text.toLowerCase().includes(term));
-      panel.innerHTML = '<input class="sky-v46-search" placeholder="Search">' +
-        '<div class="sky-v46-list">' + visible.map(o => '<label class="sky-v46-option"><input type="checkbox" data-value="' + esc(o.value) + '" ' + (temp.has(o.value) || (!o.value && temp.has('')) ? 'checked' : '') + '><span>' + esc(o.text) + '</span></label>').join('') + '</div>' +
-        '<div class="sky-v46-actions"><button type="button" class="sky-v46-ok">OK</button><button type="button" class="sky-v46-cancel">Cancel</button></div>';
-      const search = panel.querySelector('.sky-v46-search');
-      search.value = filter || '';
-      search.oninput = () => draw(search.value);
-      panel.querySelectorAll('.sky-v46-option input').forEach(cb => {
-        cb.onchange = function(){
-          const val = cb.getAttribute('data-value') || '';
-          if(cfg.multiple){
-            if(val === ALL || val === '') temp = cb.checked ? new Set([ALL]) : new Set();
-            else { temp.delete(ALL); temp.delete(''); cb.checked ? temp.add(val) : temp.delete(val); if(!temp.size) temp.add(ALL); }
-          } else {
-            temp = new Set(cb.checked ? [val] : ['']);
-          }
-          draw(search.value);
-          setTimeout(()=>panel.querySelector('.sky-v46-search')?.focus(), 0);
-        };
-      });
-      panel.querySelector('.sky-v46-ok').onclick = function(e){
-        e.stopPropagation();
-        applyTemp(select, cfg, temp);
-        panel.classList.remove('open');
-        ensureAll();
-        if(typeof window.renderSky === 'function') window.renderSky();
-      };
-      panel.querySelector('.sky-v46-cancel').onclick = function(e){ e.stopPropagation(); panel.classList.remove('open'); };
-    }
-    draw('');
-    placePanel(panel, btn);
-    panel.classList.add('open');
-    panel.onclick = e => e.stopPropagation();
-    setTimeout(()=>panel.querySelector('.sky-v46-search')?.focus(), 0);
-  }
-  function ensureAll(){
-    FILTERS.forEach(cfg => { const select = q(cfg.id); if(select) ensureButton(select, cfg); });
-  }
-
-  document.addEventListener('click', closePanels);
-  window.addEventListener('resize', closePanels, { passive:true });
-  window.addEventListener('scroll', closePanels, { passive:true });
-
-  const previousRenderSky = window.renderSky;
-  if(typeof previousRenderSky === 'function' && !window.__skyV46RenderPatched){
-    window.__skyV46RenderPatched = true;
-    window.renderSky = function(){
-      const result = previousRenderSky.apply(this, arguments);
-      setTimeout(ensureAll, 40);
-      return result;
-    };
-  }
-
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(ensureAll, 900); });
-  else setTimeout(ensureAll, 900);
-  window.addEventListener('load', function(){ setTimeout(ensureAll, 1300); });
-  (window._ivals=window._ivals||[]).push(setInterval(function(){ ensureAll(); },15000));
-  // NOTE: GitHub auto-fetch on load and hourly interval are handled by serviceEyeFinalPatchV4Script — not duplicated here
-})();
-
-
-/* ===== v47_sky_compact_multi_filters_script ===== */
-
-(function(){
-  'use strict';
-
-  const ALL = (typeof window.ALL_VALUE !== 'undefined') ? window.ALL_VALUE : '__ALL__';
-  const AGING_GROUPS = ['from 0 to 3 Days','From 4 to 10 Days','More than 10 Days'];
-  const QUEUES = ['Open_Cases','Ready For Delivery Cases'];
-  const BRANDS = ['Samsung','Apple'];
-  const FILTERS = [
-    { id:'skyBranchFilter', multiple:true,  allText:'All Branches' },
-    { id:'skyQueueFilter', multiple:true,  allText:'All Queue' },
-    { id:'skyBrandFilter', multiple:false, allText:'(Select All)' },
-    { id:'skyStageFilter', multiple:true,  allText:'(Select All)' },
-    { id:'skyAgingDaysGroupFilter', multiple:true, allText:'All Aging Days Groups' }
-  ];
-
-  function q(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? '').trim(); }
-  function esc(v){ return clean(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function rows(){ try { if (Array.isArray(skyRows)) return skyRows; } catch(e) {} return Array.isArray(window.skyRows) ? window.skyRows : []; }
-  function uniq(arr){ return [...new Set((arr||[]).map(clean).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
-  function num(v){ if(typeof v==='number') return Number.isFinite(v)?v:null; const n=Number(clean(v).replace(/,/g,'').replace(/[^0-9.-]/g,'')); return Number.isFinite(n)?n:null; }
-  function isOpen(r){ return clean(r.Queue)==='Open_Cases'; }
-  function agingGroup(r){ const n=num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days'] ?? r.Aging ?? r.aging_days); if(n===null) return ''; if(n<=3) return 'from 0 to 3 Days'; if(n<=10) return 'From 4 to 10 Days'; return 'More than 10 Days'; }
-  function selected(id){ const el=q(id); if(!el) return []; return el.multiple ? [...el.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL) : (el.value ? [el.value] : []); }
-  function selectedLabel(select, cfg){
-    const vals = selected(select.id);
-    if(!vals.length) return cfg.allText || '(Select All)';
-    if(vals.length > 2) return vals.length + ' selected';
-    return vals.join(', ');
-  }
-  function setSelectOptions(id, values, cfg){
-    const el=q(id); if(!el) return;
-    const old=selected(id);
-    el.multiple=!!cfg.multiple;
-    if(!cfg.multiple) el.removeAttribute('multiple');
-    const first = cfg.multiple ? `<option value="${ALL}">${esc(cfg.allText||'(Select All)')}</option>` : `<option value="">${esc(cfg.allText||'(Select All)')}</option>`;
-    el.innerHTML = first + values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    if(cfg.multiple){
-      let any=false;
-      [...el.options].forEach(o=>{ if(old.includes(o.value)){ o.selected=true; any=true; } });
-      if(!any && el.options[0]) el.options[0].selected=true;
-    } else {
-      const keep=old.find(v=>values.includes(v));
-      el.value = keep || '';
-    }
-  }
-  function ensureAgingFilter(){
-    const panel=document.querySelector('#skyPage .filters');
-    const job=q('skyJobTypeFilter');
-    if(job){
-      const box=job.closest('div');
-      if(!q('skyAgingDaysGroupFilter')){
-        job.id='skyAgingDaysGroupFilter'; job.name='skyAgingDaysGroupFilter';
-        const lbl=box && box.querySelector('.filter-label'); if(lbl) lbl.textContent='Aging Days Group';
-      } else if(box) box.remove(); else job.remove();
-    }
-    if(!q('skyAgingDaysGroupFilter') && panel){
-      const host=document.createElement('div');
-      host.innerHTML='<div class="filter-label">Aging Days Group</div><select id="skyAgingDaysGroupFilter"></select>';
-      const searchHost=q('skySearchBox')?.closest('div');
-      panel.insertBefore(host, searchHost || null);
-    }
-  }
-  function refreshLists(){
-    ensureAgingFilter();
-    const data=rows();
-    setSelectOptions('skyBranchFilter', uniq(data.map(r=>r.Branch)), FILTERS[0]);
-    setSelectOptions('skyQueueFilter', QUEUES, FILTERS[1]);
-    setSelectOptions('skyBrandFilter', BRANDS, FILTERS[2]);
-    setSelectOptions('skyStageFilter', uniq(data.map(r=>r.Stage)), FILTERS[3]);
-    setSelectOptions('skyAgingDaysGroupFilter', AGING_GROUPS, FILTERS[4]);
-    FILTERS.forEach(makeDropdown);
-  }
-  function closeAll(except){
-    document.querySelectorAll('#skyPage .sky-v47-filter.open').forEach(w=>{ if(w!==except) w.classList.remove('open'); });
-  }
-  function makeDropdown(cfg){
-    const select=q(cfg.id); if(!select) return;
-    select.style.display='none';
-    const parent=select.parentElement;
-    if(parent){
-      parent.querySelectorAll('.sky-v46-filter,.excel-filter-container,.sky-v43-multi').forEach(x=>{ x.style.display='none'; x.style.visibility='hidden'; });
-    }
-    let wrap=q(cfg.id+'_v47');
-    if(!wrap){
-      wrap=document.createElement('div'); wrap.id=cfg.id+'_v47'; wrap.className='sky-v47-filter';
-      wrap.innerHTML='<button type="button" class="sky-v47-btn"></button><div class="sky-v47-panel"></div>';
-      select.insertAdjacentElement('afterend', wrap);
-    }
-    const btn=wrap.querySelector('.sky-v47-btn');
-    btn.textContent=selectedLabel(select,cfg); btn.title=btn.textContent;
-    if(btn.dataset.ready!=='1'){
-      btn.dataset.ready='1';
-      btn.onclick=function(e){ e.stopPropagation(); closeAll(wrap); wrap.classList.toggle('open'); drawPanel(select,cfg,wrap); };
-    }
-  }
-  function drawPanel(select,cfg,wrap){
-    const panel=wrap.querySelector('.sky-v47-panel'); if(!panel) return;
-    let temp=new Set(selected(select.id)); if(!temp.size) temp.add(cfg.multiple?ALL:'');
-    function draw(term){
-      const opts=[...select.options].map(o=>({value:o.value,text:(o.textContent||o.value).trim()}));
-      const t=String(term||'').toLowerCase();
-      const visible=opts.filter(o=>!t || o.text.toLowerCase().includes(t));
-      panel.innerHTML='<input class="sky-v47-search" placeholder="Search">'+
-        '<div class="sky-v47-list">'+visible.map(o=>`<label class="sky-v47-option"><input type="checkbox" data-value="${esc(o.value)}" ${(temp.has(o.value)||(!o.value&&temp.has('')))?'checked':''}><span>${esc(o.text)}</span></label>`).join('')+'</div>'+
-        '<div class="sky-v47-actions"><button type="button" class="sky-v47-ok">OK</button><button type="button" class="sky-v47-cancel">Cancel</button></div>';
-      const search=panel.querySelector('.sky-v47-search'); search.value=term||''; search.oninput=()=>draw(search.value);
-      panel.querySelectorAll('.sky-v47-option input').forEach(cb=>{
-        cb.onchange=function(){
-          const val=cb.getAttribute('data-value')||'';
-          if(cfg.multiple){
-            if(val===ALL || val==='') temp = cb.checked ? new Set([ALL]) : new Set();
-            else { temp.delete(ALL); temp.delete(''); cb.checked ? temp.add(val) : temp.delete(val); if(!temp.size) temp.add(ALL); }
-          } else {
-            temp = new Set(cb.checked ? [val] : ['']);
-          }
-          draw(search.value);
-          setTimeout(()=>panel.querySelector('.sky-v47-search')?.focus(),0);
-        };
-      });
-      panel.querySelector('.sky-v47-ok').onclick=function(e){ e.stopPropagation(); applyTemp(select,cfg,temp); wrap.classList.remove('open'); ensureButtons(); if(typeof window.renderSky==='function') window.renderSky(); };
-      panel.querySelector('.sky-v47-cancel').onclick=function(e){ e.stopPropagation(); wrap.classList.remove('open'); };
-    }
-    draw('');
-    setTimeout(()=>panel.querySelector('.sky-v47-search')?.focus(),0);
-  }
-  function applyTemp(select,cfg,temp){
-    if(cfg.multiple){
-      const real=[...temp].filter(v=>v && v!==ALL);
-      [...select.options].forEach(o=>{ o.selected = real.length ? real.includes(o.value) : (!o.value || o.value===ALL); });
-      if(![...select.selectedOptions].length && select.options[0]) select.options[0].selected=true;
-    } else {
-      const val=[...temp].find(v=>v!==ALL) || '';
-      select.value=val;
-    }
-    select.dispatchEvent(new Event('change',{bubbles:true}));
-  }
-  function ensureButtons(){ FILTERS.forEach(makeDropdown); }
-  function filteredRows(){
-    const branches=selected('skyBranchFilter'), queues=selected('skyQueueFilter'), brands=selected('skyBrandFilter'), stages=selected('skyStageFilter'), ags=selected('skyAgingDaysGroupFilter');
-    const search=clean(q('skySearchBox')?.value||'').toLowerCase();
-    return rows().filter(r=>{
-      if(branches.length && !branches.includes(clean(r.Branch))) return false;
-      if(queues.length && !queues.includes(clean(r.Queue))) return false;
-      if(brands.length && !brands.includes(clean(r.Brand))) return false;
-      if(stages.length && !stages.includes(clean(r.Stage))) return false;
-      if(ags.length){ if(!isOpen(r)) return false; if(!ags.includes(agingGroup(r))) return false; }
-      if(search){
-        const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r.Customer_Mobile,r.Customer_phone,r['Customer Mobile'],r['Customer Phone'],r.Status,r.Stage,r.Branch,r.Model].map(v=>clean(v).toLowerCase()).join(' ');
-        if(!hay.includes(search)) return false;
-      }
-      return true;
-    });
-  }
-  function setTxt(id,val){ const el=q(id); if(el) el.textContent=val; }
-  function pct(a,b){ return b ? ((Number(a||0)/Number(b||0))*100).toFixed(1) : '0.0'; }
-  function renderCards(data){
-    const total=data.length, open=data.filter(r=>clean(r.Queue)==='Open_Cases').length, ready=data.filter(r=>clean(r.Queue)==='Ready For Delivery Cases').length, delivered=data.filter(r=>clean(r.Queue)==='__REMOVED_QUEUE__').length, closed=ready+delivered, samsung=data.filter(r=>clean(r.Brand).toLowerCase()==='samsung').length, apple=data.filter(r=>clean(r.Brand).toLowerCase()==='apple').length;
-    setTxt('skyTotalCases',total); setTxt('skyOpenCases',open); setTxt('skyOpenPercent',`${pct(open,total)}% of Total`); setTxt('skyReadyCases',ready); setTxt('skyReadyPercent',`${pct(ready,total)}% of Total`); setTxt('skyDeliveredCases',delivered); setTxt('skyDeliveredPercent',`${pct(delivered,total)}% of Total`); setTxt('skyClosedCases',closed); setTxt('skyClosedPercent',`${pct(closed,total)}% Ready/Delivered`); setTxt('skySamsungCases',samsung); setTxt('skySamsungPercent',`${pct(samsung,total)}% of Total`); setTxt('skyAppleCases',apple); setTxt('skyApplePercent',`${pct(apple,total)}% of Total`);
-  }
-  function renderTableSafe(data){
-    if(typeof renderTable!=='function') return;
-    const enriched=data.map(r=>Object.assign({},r,{Aging_Days_Group:isOpen(r)?agingGroup(r):''}));
-    const cols=[['Queue','Queue'],['Brand','Brand'],['Branch','Branch'],['Open_Date_Display','Open Date'],['Aging_Days','Aging Days'],['Aging_Days_Group','Aging Days Group'],['Job_Number','Job Number'],['Status','Status'],['Stage','Stage'],['Item English Name','Item English Name'],['Price','Price']];
-    renderTable('skyCasesTable', enriched.slice(0,1000), cols, false);
-  }
-  function renderSkyV47(){
-    ensureAgingFilter();
-    const data=filteredRows();
-    try{ currentSkyRows=data; }catch(e){ window.currentSkyRows=data; }
-    renderCards(data); renderTableSafe(data); if(typeof updateSkyCharts==='function') updateSkyCharts(data); requestAnimationFrame(ensureButtons);
-  }
-  function clearFilters(scroll){
-    ensureAgingFilter();
-    ['skyBranchFilter','skyQueueFilter','skyStageFilter','skyAgingDaysGroupFilter'].forEach(id=>{ const el=q(id); if(el) [...el.options].forEach((o,i)=>o.selected=(i===0 || o.value===ALL)); });
-    const brand=q('skyBrandFilter'); if(brand) brand.value='';
-    const s=q('skySearchBox'); if(s) s.value='';
-    renderSkyV47(); if(scroll && typeof scrollToElement==='function') scrollToElement('skyCasesTable');
-  }
-  function setSingleOrMulti(id,value){
-    const el=q(id); if(!el) return; const val=clean(value);
-    if(el.multiple){ let any=false; [...el.options].forEach((o,i)=>{ o.selected = val ? o.value===val : (i===0 || o.value===ALL); if(o.selected && val) any=true; }); if(val && !any && el.options[0]) el.options[0].selected=true; }
-    else el.value=val||'';
-  }
-  function install(){
-    refreshLists();
-    FILTERS.forEach(cfg=>{ const el=q(cfg.id); if(el) el.onchange=renderSkyV47; });
-    const search=q('skySearchBox'); if(search) search.oninput=renderSkyV47;
-    try{ window.getSkyFilteredRows=filteredRows; window.refreshSkyFilters=refreshLists; window.refreshSkyExcelFilterWidgets=ensureButtons; window.renderSky=renderSkyV47; window.clearSkyFilters=clearFilters; }catch(e){}
-    window.setSkyQueue=function(v){ setSingleOrMulti('skyQueueFilter',v); renderSkyV47(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-    window.setSkyBrand=function(v){ setSingleOrMulti('skyBrandFilter',v); renderSkyV47(); if(typeof scrollToElement==='function') scrollToElement('skyCasesTable'); };
-    renderSkyV47();
-  }
-
-  document.addEventListener('click', e=>{ if(!e.target.closest('#skyPage .sky-v47-filter')) closeAll(); });
-  window.addEventListener('resize', closeAll, {passive:true});
-  window.addEventListener('scroll', closeAll, {passive:true});
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(install,300)); else setTimeout(install,300);
-  window.addEventListener('load',()=>{ setTimeout(install,900); });
-void(()=>{ ensureButtons(); document.querySelectorAll('#skyPage .sky-v46-filter,.sky-v46-panel').forEach(x=>{x.style.display='none';x.style.visibility='hidden';}); },2500);
-})();
-
-
-/* ===== v48_sky_multi_and_gspn_scroll_fix ===== */
-
-(function(){
-  'use strict';
-  const ALL = (typeof window.ALL_VALUE !== 'undefined') ? window.ALL_VALUE : '__ALL__';
-  const QUEUE_VALUES = ['Open_Cases','Ready For Delivery Cases'];
-  const AGING_VALUES = ['from 0 to 3 Days','From 4 to 10 Days','More than 10 Days'];
-
-  function q(id){ return document.getElementById(id); }
-  function clean(v){ return String(v ?? '').trim(); }
-  function esc(v){ return clean(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function rows(){ try{ if(Array.isArray(skyRows)) return skyRows; }catch(e){} return Array.isArray(window.skyRows) ? window.skyRows : []; }
-  function uniq(a){ return [...new Set((a||[]).map(clean).filter(Boolean))].sort((x,y)=>x.localeCompare(y)); }
-  function num(v){ const n = typeof v === 'number' ? v : Number(clean(v).replace(/,/g,'').replace(/[^0-9.-]/g,'')); return Number.isFinite(n) ? n : null; }
-  function isOpen(r){ return clean(r.Queue) === 'Open_Cases'; }
-  function agingGroup(r){ const n=num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days'] ?? r.Aging); if(n===null) return ''; if(n<=3) return 'from 0 to 3 Days'; if(n<=10) return 'From 4 to 10 Days'; return 'More than 10 Days'; }
-
-  function selected(id){ const el=q(id); if(!el) return []; return el.multiple ? [...el.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL) : (el.value ? [el.value] : []); }
-  function setOptions(id, values, allText, multiple){
-    const el=q(id); if(!el) return;
-    const old=selected(id);
-    el.multiple=!!multiple;
-    if(multiple) el.setAttribute('multiple','multiple'); else el.removeAttribute('multiple');
-    el.innerHTML = `<option value="${multiple?ALL:''}">${esc(allText||'(Select All)')}</option>` + values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-    let kept=false;
-    [...el.options].forEach((o,i)=>{ if(old.includes(o.value)){ o.selected=true; kept=true; } });
-    if(!kept && el.options[0]) el.options[0].selected=true;
-  }
-  function summary(id, allText){ const vals=selected(id); if(!vals.length) return allText || '(Select All)'; return vals.length>2 ? vals.length+' selected' : vals.join(', '); }
-  function closeSky(except){ document.querySelectorAll('#skyPage .sky-v48-filter.open').forEach(w=>{ if(w!==except) w.classList.remove('open'); }); }
-
-  function buildSkyDropdown(id, allText, multiple){
-    const select=q(id); if(!select) return;
-    select.style.display='none';
-    const parent=select.parentElement;
-    if(parent){ parent.querySelectorAll('.excel-filter-container,.sky-v46-filter,.sky-v47-filter').forEach(x=>{ if(x.id!==id+'_v48'){ x.style.display='none'; x.style.visibility='hidden'; }}); }
-    let wrap=q(id+'_v48');
-    if(!wrap){
-      wrap=document.createElement('div'); wrap.id=id+'_v48'; wrap.className='sky-v47-filter sky-v48-filter';
-      wrap.innerHTML='<button type="button" class="sky-v47-btn sky-v48-btn"></button><div class="sky-v47-panel sky-v48-panel"></div>';
-      select.insertAdjacentElement('afterend', wrap);
-    }
-    wrap.style.display='block'; wrap.style.visibility='visible';
-    const btn=wrap.querySelector('button'); const panel=wrap.querySelector('.sky-v48-panel');
-    btn.textContent=summary(id, allText); btn.title=btn.textContent;
-    btn.onclick=function(e){ e.stopPropagation(); const was=wrap.classList.contains('open'); closeSky(wrap); if(was){ wrap.classList.remove('open'); return; } draw(); wrap.classList.add('open'); setTimeout(()=>panel.querySelector('input')?.focus(),0); };
-    function draw(term=''){
-      let temp=new Set(selected(id)); if(!temp.size) temp.add(ALL);
-      const opts=[...select.options].map(o=>({value:o.value,text:o.textContent||o.value}));
-      function paint(filter=''){
-        const t=String(filter||'').toLowerCase();
-        const visible=opts.filter(o=>!t || o.text.toLowerCase().includes(t));
-        panel.innerHTML='<input class="sky-v47-search" placeholder="Search">'+
-          '<div class="sky-v47-list">'+visible.map(o=>`<label class="sky-v47-option"><input type="checkbox" data-value="${esc(o.value)}" ${temp.has(o.value)?'checked':''}><span>${esc(o.text)}</span></label>`).join('')+'</div>'+ 
-          '<div class="sky-v47-actions"><button type="button" class="sky-v47-ok">OK</button><button type="button" class="sky-v47-cancel">Cancel</button></div>';
-        const search=panel.querySelector('.sky-v47-search'); const list=panel.querySelector('.sky-v47-list');
-        search.value=filter||''; search.oninput=()=>paint(search.value);
-        list.addEventListener('wheel', ev=>ev.stopPropagation(), {passive:true});
-        list.addEventListener('scroll', ev=>ev.stopPropagation(), {passive:true});
-        panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-          cb.onchange=function(){
-            const val=cb.getAttribute('data-value')||'';
-            if(multiple){
-              if(val===ALL || val===''){ temp = cb.checked ? new Set([ALL]) : new Set(); }
-              else { temp.delete(ALL); temp.delete(''); cb.checked ? temp.add(val) : temp.delete(val); if(!temp.size) temp.add(ALL); }
-            } else { temp = new Set(cb.checked ? [val] : [ALL]); }
-            paint(search.value); setTimeout(()=>panel.querySelector('.sky-v47-search')?.focus(),0);
-          };
-        });
-        panel.querySelector('.sky-v47-ok').onclick=function(e){
-          e.stopPropagation();
-          const real=[...temp].filter(v=>v && v!==ALL);
-          [...select.options].forEach((o,i)=>o.selected = real.length ? real.includes(o.value) : (i===0 || o.value===ALL || o.value===''));
-          wrap.classList.remove('open');
-          select.dispatchEvent(new Event('change',{bubbles:true}));
-          if(typeof window.renderSky==='function') window.renderSky();
-        };
-        panel.querySelector('.sky-v47-cancel').onclick=e=>{ e.stopPropagation(); wrap.classList.remove('open'); };
-      }
-      paint(term);
-    }
-  }
-
-  function enforceSkyMulti(){
-    const data=rows();
-    setOptions('skyQueueFilter', QUEUE_VALUES, '(Select All)', true);
-    setOptions('skyAgingDaysGroupFilter', AGING_VALUES, '(Select All)', true);
-    if(q('skyBranchFilter')) setOptions('skyBranchFilter', uniq(data.map(r=>r.Branch)), '(Select All)', true);
-    if(q('skyStageFilter')) setOptions('skyStageFilter', uniq(data.map(r=>r.Stage)), '(Select All)', true);
-    buildSkyDropdown('skyBranchFilter','(Select All)',true);
-    buildSkyDropdown('skyQueueFilter','(Select All)',true);
-    buildSkyDropdown('skyBrandFilter','(Select All)',false);
-    buildSkyDropdown('skyStageFilter','(Select All)',true);
-    buildSkyDropdown('skyAgingDaysGroupFilter','(Select All)',true);
-  }
-
-  const oldGet=window.getSkyFilteredRows;
-  window.getSkyFilteredRows=function(){
-    const base = rows();
-    const branches=selected('skyBranchFilter'), queues=selected('skyQueueFilter'), brands=selected('skyBrandFilter'), stages=selected('skyStageFilter'), ags=selected('skyAgingDaysGroupFilter');
-    const search=clean(q('skySearchBox')?.value||'').toLowerCase();
-    return base.filter(r=>{
-      if(branches.length && !branches.includes(clean(r.Branch))) return false;
-      if(queues.length && !queues.includes(clean(r.Queue))) return false;
-      if(brands.length && !brands.includes(clean(r.Brand))) return false;
-      if(stages.length && !stages.includes(clean(r.Stage))) return false;
-      if(ags.length){ if(!isOpen(r)) return false; if(!ags.includes(agingGroup(r))) return false; }
-      if(search){ const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r.Status,r.Stage,r.Branch,r.Brand,r.Queue].map(x=>clean(x).toLowerCase()).join(' '); if(!hay.includes(search)) return false; }
-      return true;
-    });
-  };
-
-  const oldRenderSky=window.renderSky;
-  window.renderSky=function(){
-    enforceSkyMulti();
-    if(oldRenderSky) oldRenderSky();
-    enforceSkyMulti();
-  };
-  window.refreshSkyExcelFilterWidgets=enforceSkyMulti;
-
-  /* GSPN: allow mouse wheel/trackpad scrolling inside filter lists without closing or moving the page */
-  function fixGspnScroll(){
-    document.querySelectorAll('#gspnPage .excel-filter-list, .excel-filter-panel.v22-portal .excel-filter-list').forEach(list=>{
-      if(list.dataset.v48ScrollFix==='1') return;
-      list.dataset.v48ScrollFix='1';
-      list.addEventListener('wheel', function(e){ e.stopPropagation(); }, {passive:true});
-      list.addEventListener('touchmove', function(e){ e.stopPropagation(); }, {passive:true});
-      list.addEventListener('scroll', function(e){ e.stopPropagation(); }, {passive:true});
-    });
-  }
-
-  document.addEventListener('click', e=>{ if(!e.target.closest('#skyPage .sky-v48-filter')) closeSky(); });
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(()=>{ enforceSkyMulti(); fixGspnScroll(); if(typeof window.renderSky==='function') window.renderSky(); },600); });
-  window.addEventListener('load',()=>{ setTimeout(()=>{ enforceSkyMulti(); fixGspnScroll(); },1200); setTimeout(()=>{ enforceSkyMulti(); fixGspnScroll(); },2500); });
-void(fixGspnScroll, 8000);
-})();
-
-
-/* ===== v49_urgent_filter_fixes_script ===== */
-
-(function(){
-  'use strict';
-  const ALL='__ALL__';
-  const QUEUES=['Open_Cases','Ready For Delivery Cases'];
-  const AGING=['from 0 to 3 Days','From 4 to 10 Days','More than 10 Days'];
-  const SKY_FILTERS=[
-    {id:'skyBranchFilter', multi:true, all:'All Branches', values:()=>uniq(dataRows().map(r=>r.Branch))},
-    {id:'skyQueueFilter', multi:true, all:'(Select All)', values:()=>QUEUES},
-    {id:'skyBrandFilter', multi:false, all:'(Select All)', values:()=>['Samsung','Apple']},
-    {id:'skyStageFilter', multi:true, all:'(Select All)', values:()=>uniq(dataRows().map(r=>r.Stage))},
-    {id:'skyAgingDaysGroupFilter', multi:true, all:'(Select All)', values:()=>AGING}
-  ];
-  function byId(id){return document.getElementById(id);} 
-  function clean(v){return String(v ?? '').trim();}
-  function html(v){return clean(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));}
-  function uniq(a){return [...new Set((a||[]).map(clean).filter(Boolean))].sort((x,y)=>x.localeCompare(y));}
-  function dataRows(){try{if(Array.isArray(window.skyRows))return window.skyRows;if(Array.isArray(skyRows))return skyRows;}catch(e){} return [];}
-  function num(v){const n=typeof v==='number'?v:Number(clean(v).replace(/,/g,'').replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null;}
-  function isOpen(r){return clean(r.Queue)==='Open_Cases';}
-  function agingGroup(r){const n=num(r.Aging_Days ?? r.AgingDays ?? r['Aging Days'] ?? r.Aging); if(n===null)return ''; if(n<=3)return 'from 0 to 3 Days'; if(n<=10)return 'From 4 to 10 Days'; return 'More than 10 Days';}
-  function selected(id){const el=byId(id); if(!el)return []; return [...el.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL);}
-  function setText(id,val){const el=byId(id); if(el)el.textContent=val;}
-  function pct(a,b){return b?((Number(a||0)/Number(b||0))*100).toFixed(1):'0.0';}
-  function ensureSelect(cfg){
-    const el=byId(cfg.id); if(!el)return;
-    const keep=selected(cfg.id);
-    el.classList.add('sky-filter-native-v49');
-    el.multiple=!!cfg.multi;
-    if(cfg.multi)el.setAttribute('multiple','multiple'); else el.removeAttribute('multiple');
-    const values=cfg.values();
-    const firstValue=cfg.multi?ALL:'';
-    el.innerHTML=`<option value="${firstValue}">${html(cfg.all||'(Select All)')}</option>`+values.map(v=>`<option value="${html(v)}">${html(v)}</option>`).join('');
-    let kept=false;
-    [...el.options].forEach((o,i)=>{ if(keep.includes(o.value)){o.selected=true; kept=true;} });
-    if(!kept && el.options[0]) el.options[0].selected=true;
-  }
-  function summary(cfg){const vals=selected(cfg.id); if(!vals.length)return cfg.all||'(Select All)'; return vals.length>2?`${vals.length} selected`:vals.join(', ');}
-  function closeAll(except){document.querySelectorAll('#skyPage .sky-v49-filter.open').forEach(w=>{if(w!==except)w.classList.remove('open');});}
-  function buildWidget(cfg){
-    const el=byId(cfg.id); if(!el)return;
-    const parent=el.parentElement;
-    if(parent){parent.querySelectorAll('.excel-filter-container,.sky-v46-filter,.sky-v47-filter,.sky-v48-filter').forEach(x=>{ if(!x.classList.contains('sky-v49-filter')){x.style.display='none';x.style.visibility='hidden';x.style.pointerEvents='none';} });}
-    let wrap=byId(cfg.id+'_v49');
-    if(!wrap){
-      wrap=document.createElement('div'); wrap.id=cfg.id+'_v49'; wrap.className='sky-v49-filter';
-      wrap.innerHTML='<button type="button" class="sky-v49-btn"></button><div class="sky-v49-panel"></div>';
-      el.insertAdjacentElement('afterend',wrap);
-    }
-    const btn=wrap.querySelector('.sky-v49-btn'), panel=wrap.querySelector('.sky-v49-panel');
-    function syncDark(){
-      const dark = document.body.dataset.pageColor === 'dark' || localStorage.getItem('serviceEyePageColor_v2') === 'dark' || localStorage.getItem('serviceEyeColor_sky') === 'black' || document.body.classList.contains('color-black') || document.body.classList.contains('theme-glass');
-      wrap.classList.toggle('sky-v49-dark', dark);
-    }
-    syncDark();
-    btn.textContent=summary(cfg); btn.title=btn.textContent;
-    btn.onclick=function(e){e.preventDefault();e.stopPropagation(); const was=wrap.classList.contains('open'); closeAll(wrap); if(was){wrap.classList.remove('open');return;} syncDark(); drawPanel(cfg,el,wrap,panel); wrap.classList.add('open'); setTimeout(()=>panel.querySelector('.sky-v49-search')?.focus(),0);};
-  }
-  function drawPanel(cfg,select,wrap,panel){
-    let temp=new Set(selected(cfg.id));
-    if(!temp.size)temp.add(cfg.multi?ALL:'');
-    const allVal=cfg.multi?ALL:'';
-    function paint(filter=''){
-      const opts=[...select.options].map(o=>({value:o.value,text:o.textContent||o.value}));
-      const term=String(filter||'').toLowerCase();
-      const visible=opts.filter(o=>!term||o.text.toLowerCase().includes(term));
-      panel.innerHTML=`<input class="sky-v49-search" placeholder="Search" value="${html(filter)}">`+
-        `<div class="sky-v49-list">${visible.map(o=>`<label class="sky-v49-option"><input type="checkbox" data-value="${html(o.value)}" ${temp.has(o.value)?'checked':''}><span>${html(o.text)}</span></label>`).join('')}</div>`+
-        '<div class="sky-v49-actions"><button type="button" class="sky-v49-ok">OK</button><button type="button" class="sky-v49-cancel">Cancel</button></div>';
-      const search=panel.querySelector('.sky-v49-search'), list=panel.querySelector('.sky-v49-list');
-      search.oninput=()=>paint(search.value);
-      ['wheel','touchmove','scroll'].forEach(evt=>list.addEventListener(evt,e=>e.stopPropagation(),{passive:true}));
-      panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-        cb.onchange=function(){
-          const val=cb.getAttribute('data-value')||'';
-          if(cfg.multi){
-            if(val===ALL){ temp=cb.checked?new Set([ALL]):new Set(); }
-            else { temp.delete(ALL); if(cb.checked)temp.add(val); else temp.delete(val); if(!temp.size)temp.add(ALL); }
-          } else { temp=cb.checked?new Set([val]):new Set(['']); }
-          paint(search.value);
-        };
-      });
-      panel.querySelector('.sky-v49-ok').onclick=function(e){
-        e.preventDefault();e.stopPropagation();
-        const real=[...temp].filter(v=>v && v!==ALL);
-        [...select.options].forEach((o,i)=>{ o.selected=real.length?real.includes(o.value):(i===0||o.value===allVal); });
-        wrap.classList.remove('open');
-        select.dispatchEvent(new Event('change',{bubbles:true}));
-        renderSkyV49();
-      };
-      panel.querySelector('.sky-v49-cancel').onclick=function(e){e.preventDefault();e.stopPropagation();wrap.classList.remove('open');};
-      const s=panel.querySelector('.sky-v49-search'); s.focus(); try{s.setSelectionRange(s.value.length,s.value.length);}catch(e){}
-    }
-    paint('');
-  }
-  function ensureSkyFilters(){SKY_FILTERS.forEach(ensureSelect); SKY_FILTERS.forEach(buildWidget);}
-  function filteredRowsV49(){
-    const branches=selected('skyBranchFilter'), queues=selected('skyQueueFilter'), brands=selected('skyBrandFilter'), stages=selected('skyStageFilter'), aging=selected('skyAgingDaysGroupFilter');
-    const search=clean(byId('skySearchBox')?.value||'').toLowerCase();
-    return dataRows().filter(r=>{
-      if(branches.length && !branches.includes(clean(r.Branch)))return false;
-      if(queues.length && !queues.includes(clean(r.Queue)))return false;
-      if(brands.length && !brands.includes(clean(r.Brand)))return false;
-      if(stages.length && !stages.includes(clean(r.Stage)))return false;
-      if(aging.length){ if(!isOpen(r))return false; if(!aging.includes(agingGroup(r)))return false; }
-      if(search){const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r['Serial Number'],r.Customer_Mobile,r['Customer Mobile'],r.Customer_phone,r['Customer Phone'],r.Status,r.Stage,r.Branch,r.Brand,r.Queue,r.Model].map(x=>clean(x).toLowerCase()).join(' '); if(!hay.includes(search))return false;}
-      return true;
-    });
-  }
-  function renderCards(data){
-    const total=data.length, open=data.filter(r=>clean(r.Queue)==='Open_Cases').length, ready=data.filter(r=>clean(r.Queue)==='Ready For Delivery Cases').length, delivered=data.filter(r=>clean(r.Queue)==='__REMOVED_QUEUE__').length, closed=ready+delivered, samsung=data.filter(r=>clean(r.Brand).toLowerCase()==='samsung').length, apple=data.filter(r=>clean(r.Brand).toLowerCase()==='apple').length;
-    setText('skyTotalCases',total); setText('skyOpenCases',open); setText('skyOpenPercent',`${pct(open,total)}% of Total`); setText('skyReadyCases',ready); setText('skyReadyPercent',`${pct(ready,total)}% of Total`); setText('skyDeliveredCases',delivered); setText('skyDeliveredPercent',`${pct(delivered,total)}% of Total`); setText('skyClosedCases',closed); setText('skyClosedPercent',`${pct(closed,total)}% Ready/Delivered`); setText('skySamsungCases',samsung); setText('skySamsungPercent',`${pct(samsung,total)}% of Total`); setText('skyAppleCases',apple); setText('skyApplePercent',`${pct(apple,total)}% of Total`);
-  }
-  function renderTableV49(data){
-    if(typeof window.renderTable!=='function')return;
-    const enriched=data.map(r=>Object.assign({},r,{Aging_Days_Group:isOpen(r)?agingGroup(r):''}));
-    const cols=[['Queue','Queue'],['Brand','Brand'],['Branch','Branch'],['Open_Date_Display','Open Date'],['Aging_Days','Aging Days'],['Aging_Days_Group','Aging Days Group'],['Job_Number','Job Number'],['Status','Status'],['Stage','Stage'],['Item English Name','Item English Name'],['Price','Price']];
-    window.renderTable('skyCasesTable',enriched.slice(0,1000),cols,false);
-  }
-  function renderSkyV49(){
-    ensureSkyFilters();
-    const data=filteredRowsV49();
-    window.currentSkyRows=data;
-    renderCards(data); renderTableV49(data);
-    if(typeof window.updateSkyCharts==='function') window.updateSkyCharts(data);
-    setTimeout(()=>SKY_FILTERS.forEach(buildWidget),0);
-  }
-  function clearSkyV49(scroll){
-    ensureSkyFilters();
-    SKY_FILTERS.forEach(cfg=>{const el=byId(cfg.id); if(el&&el.options[0]){[...el.options].forEach((o,i)=>o.selected=i===0);}});
-    const s=byId('skySearchBox'); if(s)s.value='';
-    renderSkyV49(); if(scroll&&typeof window.scrollToElement==='function')window.scrollToElement('skyCasesTable');
-  }
-  function setOne(id,val){const el=byId(id); if(!el)return; const v=clean(val); [...el.options].forEach((o,i)=>{o.selected=v?o.value===v:i===0;}); renderSkyV49(); if(typeof window.scrollToElement==='function')window.scrollToElement('skyCasesTable');}
-
-  window.getSkyFilteredRows=filteredRowsV49;
-  window.renderSky=renderSkyV49;
-  window.refreshSkyExcelFilterWidgets=ensureSkyFilters;
-  window.clearSkyFilters=clearSkyV49;
-  window.setSkyQueue=v=>setOne('skyQueueFilter',v);
-  window.setSkyBrand=v=>setOne('skyBrandFilter',v);
-
-  function installSky(){
-    ensureSkyFilters();
-    SKY_FILTERS.forEach(cfg=>{const el=byId(cfg.id); if(el)el.onchange=renderSkyV49;});
-    const s=byId('skySearchBox'); if(s)s.oninput=renderSkyV49;
-    renderSkyV49();
-  }
-
-  function fixGspnScroll(){
-    document.querySelectorAll('#gspnPage .excel-filter-panel, body > .excel-filter-panel, .excel-filter-panel.v22-portal').forEach(panel=>{
-      panel.style.overflow='hidden';
-      panel.querySelectorAll('.excel-filter-list').forEach(list=>{
-        list.style.maxHeight='220px'; list.style.overflowY='auto'; list.style.overflowX='hidden'; list.style.overscrollBehavior='contain'; list.style.touchAction='pan-y';
-        if(list.dataset.v49ScrollFix==='1')return; list.dataset.v49ScrollFix='1';
-        ['wheel','touchmove','scroll'].forEach(evt=>list.addEventListener(evt,function(e){e.stopPropagation();},{passive:true,capture:true}));
-      });
-    });
-  }
-  document.addEventListener('click',e=>{if(!e.target.closest('#skyPage .sky-v49-filter'))closeAll();});
-  document.addEventListener('DOMContentLoaded',()=>{setTimeout(installSky,350);setTimeout(fixGspnScroll,350);});
-  window.addEventListener('load',()=>{setTimeout(installSky,800);setTimeout(fixGspnScroll,800);});
-void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll(); },1200);
 })();
 
 
@@ -4906,12 +2101,7 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
     paint(filter||'');
   }
   function ensure(){ FILTERS.forEach(build); }
-  const oldRender=window.render;
-  if(typeof oldRender==='function' && !oldRender.__gspnV50Wrapped){
-    const wrapped=function(){ const res=oldRender.apply(this,arguments); requestAnimationFrame(ensure); return res; };
-    wrapped.__gspnV50Wrapped=true;
-    window.render=wrapped;
-  }
+  if (typeof window.registerGspnAfterRenderHook === 'function') window.registerGspnAfterRenderHook(function(){ requestAnimationFrame(ensure); });
   document.addEventListener('click',e=>{ if(!e.target.closest('#gspnPage .gspn-v50-filter')) closeAll(); });
   document.addEventListener('DOMContentLoaded',()=>{ setTimeout(ensure,250); });
   window.addEventListener('load',()=>{ setTimeout(ensure,800); });
@@ -6238,11 +3428,7 @@ window.addEventListener('load', () => setTimeout(v58_boot, 1200));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runSoon); else runSoon();
 
   // Re-apply after dashboard renders rebuild filters.
-  const originalRender = window.render;
-  if (typeof originalRender === 'function' && !originalRender.__v62Dropdowns) {
-    window.render = function(){ const r = originalRender.apply(this, arguments); requestAnimationFrame(run); return r; };
-    window.render.__v62Dropdowns = true;
-  }
+  if (typeof window.registerGspnAfterRenderHook === 'function') window.registerGspnAfterRenderHook(function(){ requestAnimationFrame(run); });
   const originalV57 = window.v57_render;
   if (typeof originalV57 === 'function' && !originalV57.__v62Dropdowns) {
     window.v57_render = function(){ const r = originalV57.apply(this, arguments); requestAnimationFrame(run); return r; };
@@ -6922,14 +4108,8 @@ function run(){
     const p=function(tab){ const r=old.apply(this,arguments); scheduleRun(120); return r; };
     p.__v65Patched=true;  }
 })();
-/* ── Patch render so jobType widget stays in sync ── */
-(function(){
-  const old=window.render;
-  if(typeof old==='function'&&!old.__v65Patched){
-    const p=function(){ const r=old.apply(this,arguments); scheduleRun(50); return r; };
-    p.__v65Patched=true; window.render=p;
-  }
-})();
+/* ── Keep jobType widget in sync after GSPN render ── */
+if (typeof window.registerGspnAfterRenderHook === 'function') window.registerGspnAfterRenderHook(function(){ scheduleRun(50); });
 /* ── Patch analysis render ── */
 (function(){
   const patched=[]; ['v58_render','renderAnalysisDashboardV35','renderV58AnalysisDashboard'].forEach(name=>{
@@ -7421,7 +4601,7 @@ void(removeExportButtons, 10000);
     if(q('fromDate')) q('fromDate').value=''; if(q('toDate')) q('toDate').value=''; if(q('searchBox')) q('searchBox').value='';
     try{ appliedFromDate=null; appliedToDate=null; quickFilter=null; }catch(e){}
   };
-  window.render = function(){
+  function legacyGspnRenderDisabled(){
     ensureGspnDom(); window.refreshFilterLists();
     const rows=window.getFilteredRows(); window.currentFilteredRows=rows;
     const total=rows.length, open=rows.filter(r=>r.StatusFinal==='Open'), failed=rows.filter(r=>txt(r.KPIResult).startsWith('Failed')),
@@ -7447,6 +4627,7 @@ void(removeExportButtons, 10000);
     document.querySelectorAll('#skyPage .card').forEach(card=>{ if(txt(card.querySelector('.label')?.textContent)==='__REMOVED_QUEUE__') card.remove(); });
     document.querySelectorAll('#skyPage .chart-card').forEach(sec=>{ const t=txt(sec.querySelector('h2')?.textContent); if(t==='Ready For Delivery Cases - Aging Months'||t==='Stage with Count Cases') sec.remove(); });
   }
+  window.ensureGspnDom = ensureGspnDom;
   function skyRowsSafe(){ return Array.isArray(window.skyRows) ? window.skyRows : (typeof skyRows !== 'undefined' ? skyRows : []); }
   function getSkyAging(r){ return txt(r['Aging Days Group'] || r.Aging_Days_Group || r.AgingDaysGroup); }
   window.getSkyFilteredRows = function(){
@@ -7604,7 +4785,7 @@ void(removeExportButtons, 10000);
     dashboardCharts[canvasId]=__safeNewChart(canvas,{type,data:{labels,datasets:[{label:datasetLabel,data:values,backgroundColor:labels.map((_,i)=>palette[i%palette.length]),borderColor:labels.map((_,i)=>palette[i%palette.length]),borderWidth:1.5,borderRadius:type==='bar'?10:0,maxBarThickness:44}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',layout:{padding:{top:18,right:18,bottom:12,left:10}},onClick:(evt,els)=>{ if(onClick&&els.length) onClick(labels[els[0].index]); },plugins:{legend:{display:type==='doughnut',position:'bottom'},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}},scales:type==='doughnut'?{}:{x:{ticks:{autoSkip:false,maxRotation:35,minRotation:0,font:{weight:'600'}}},y:{beginAtZero:true,ticks:{precision:0},suggestedMax:Math.max(...values,0)*1.18+1}}}});
   }
   function top(rows,field,n){ const m={}; (rows||[]).forEach(r=>{ const k=clean(rowValue(r,field))||'Blank'; m[k]=(m[k]||0)+1; }); const e=Object.entries(m).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,n||12); return {labels:e.map(x=>x[0]), values:e.map(x=>x[1])}; }
-  window.updateCharts = function(rows){
+  function legacyGspnUpdateChartsV2Disabled(rows){
     rows=Array.isArray(rows)?rows:[];
     const open=rows.filter(r=>r.StatusFinal==='Open');
     const failedLtp=rows.filter(r=>r.KPIResult==='Failed - LTP').length, failedTat=rows.filter(r=>r.KPIResult==='Failed - TAT').length;
@@ -7795,7 +4976,7 @@ void(removeExportButtons, 10000);
   function topAging(rows){ if(typeof getAgingBuckets==='function') return getAgingBuckets(rows); return countBy(rows,'AgingStatus',null,10); }
   function avgBy(rows, field, limit){ const g={}; (rows||[]).forEach(r=>{ const n=Number(r.RepairDurationDays); if(!Number.isFinite(n)) return; const k=txt(val(r,field))||'Blank'; (g[k]||(g[k]=[])).push(n); }); let arr=Object.entries(g).map(([k,a])=>[k,Number((a.reduce((x,y)=>x+y,0)/a.length).toFixed(1))]).sort((a,b)=>b[1]-a[1]); if(limit) arr=arr.slice(0,limit); return {labels:arr.map(x=>x[0]),values:arr.map(x=>x[1])}; }
 
-  window.updateCharts = function(rows){
+  function legacyGspnUpdateChartsV3Disabled(rows){
     rows=Array.isArray(rows)?rows:[];
     const open=rows.filter(r=>r.StatusFinal==='Open');
     const failedLtp=rows.filter(r=>r.KPIResult==='Failed - LTP').length, failedTat=rows.filter(r=>r.KPIResult==='Failed - TAT').length;
@@ -7913,137 +5094,9 @@ void(removeExportButtons, 10000);
   function registerLabels(){ if(!window.Chart) return; try{ const old=Chart.registry.plugins.get(LABEL_ID); if(old) Chart.unregister(old); }catch(e){} try{ Chart.register({id:LABEL_ID, afterDatasetsDraw(chart){ const horizontal=chart.options.indexAxis==='y'; const {ctx}=chart; ctx.save(); ctx.font='bold 12px Calibri, Arial, sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign=horizontal?'left':'center'; ctx.textBaseline='middle'; ctx.shadowColor='rgba(0,0,0,.65)'; ctx.shadowBlur=4; chart.data.datasets.forEach((ds,di)=>{ const meta=chart.getDatasetMeta(di); meta.data.forEach((bar,i)=>{ const n=Number(ds.data[i]||0); if(!n) return; const p=bar.tooltipPosition?bar.tooltipPosition():{x:bar.x,y:bar.y}; ctx.fillText(String(n), horizontal ? Math.min(p.x+8, chart.chartArea.right-20) : p.x, horizontal ? p.y : Math.max(14,p.y-10)); }); }); ctx.restore(); }}); }catch(e){} }
   function makeBar(id, labels, values, title, horizontal, clickFn){ const canvas=q(id); if(!canvas || !window.Chart) return; registerLabels(); destroy(id); const max=Math.max(...(values||[]),0); const total=(values||[]).reduce((a,b)=>a+Number(b||0),0); const yLabelWidth=horizontal ? Math.min(190, Math.max(100, ...labels.map(l=>String(l).length*7))) : 10; dashboardCharts[id]=__safeNewChart(canvas,{ type:'bar', data:{ labels, datasets:[{label:title||'Cases',data:values,backgroundColor:labels.map((_,i)=>COLORS[i%COLORS.length]),borderColor:labels.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1.5,borderRadius:8,maxBarThickness:horizontal?22:48}]}, options:{ responsive:true, maintainAspectRatio:false, indexAxis:horizontal?'y':'x', layout:{padding:{top:34,right:horizontal?54:22,bottom:18,left:horizontal?18:12}}, onClick:(e,els)=>{ if(clickFn&&els.length) clickFn(labels[els[0].index]); }, plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${title||'Cases'}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}}, scales:{ x:{beginAtZero:true,suggestedMax:horizontal?max*1.25+1:undefined,ticks:{color:'#ffffff',autoSkip:false,maxRotation:horizontal?0:35,minRotation:0,precision:0,font:{weight:'700'}},grid:{color:'rgba(255,255,255,.12)'}}, y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.22+1,afterFit:scale=>{ if(horizontal) scale.width=yLabelWidth; },ticks:{color:'#ffffff',autoSkip:false,precision:0,font:{weight:'700'},callback:function(value){ const label=this.getLabelForValue ? this.getLabelForValue(value) : value; return horizontal && String(label).length>24 ? String(label).slice(0,23)+'…' : label; }},grid:{color:'rgba(255,255,255,.12)'}} } } }); }
   function makeDoughnut(id, labels, values, title, clickFn){ const canvas=q(id); if(!canvas || !window.Chart) return; destroy(id); const total=(values||[]).reduce((a,b)=>a+Number(b||0),0); dashboardCharts[id]=__safeNewChart(canvas,{type:'doughnut',data:{labels,datasets:[{label:title||'Cases',data:values,backgroundColor:labels.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1}]},options:{animation:false,responsive:true,maintainAspectRatio:false,cutout:'50%',layout:{padding:{top:12,right:12,bottom:12,left:12}},onClick:(e,els)=>{ if(clickFn&&els.length) clickFn(labels[els[0].index]); },plugins:{legend:{display:true,position:'bottom',labels:{color:'#ffffff',font:{weight:'700'}}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}}}}); }
-  window.updateCharts=function(data){ data=Array.isArray(data)?data:[]; const open=data.filter(r=>txt(r.StatusFinal)==='Open'); const ltp=data.filter(r=>txt(r.KPIResult)==='Failed - LTP').length; const tat=data.filter(r=>txt(r.KPIResult)==='Failed - TAT').length; makeDoughnut('failedReasonChart',['LTP Failed','TAT Failed'],[ltp,tat],'Failed KPI',l=>{ if(typeof showFailedType==='function') showFailedType(l.includes('LTP')?'LTP':'TAT'); }); makeBar('kpiChart',['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done'],[ltp,tat,data.filter(r=>r.KPIAlert==='Fix Today').length,data.filter(r=>r.KPIAlert==='Watch').length,data.filter(r=>r.KPIAlert==='On Track').length,data.filter(r=>r.KPIAlert==='Review').length,data.filter(r=>r.KPIAlert==='Done').length],'Cases',false,null); const br=countBy(open,'GSPN_Branch',12), st=countBy(open,'GSPN_Status',12), rep=avgBy(data,'GSPN_Branch',12), ag=aging(data); makeBar('branchChart',br.labels,br.values,'Open Cases',true,l=>{ if(typeof filterByBranch==='function') filterByBranch(l); }); makeBar('techChart',st.labels,st.values,'Open Cases',true,l=>{ if(typeof filterByGspnStatus==='function') filterByGspnStatus(l); }); makeBar('repairDaysChart',rep.labels,rep.values,'Avg Repair Days',true,null); makeBar('agingChart',ag.labels,ag.values,'Open Cases',false,null); ensureStageDropdown(); };
+  function legacyGspnUpdateChartsV4Disabled(data){ data=Array.isArray(data)?data:[]; const open=data.filter(r=>txt(r.StatusFinal)==='Open'); const ltp=data.filter(r=>txt(r.KPIResult)==='Failed - LTP').length; const tat=data.filter(r=>txt(r.KPIResult)==='Failed - TAT').length; makeDoughnut('failedReasonChart',['LTP Failed','TAT Failed'],[ltp,tat],'Failed KPI',l=>{ if(typeof showFailedType==='function') showFailedType(l.includes('LTP')?'LTP':'TAT'); }); makeBar('kpiChart',['Failed LTP','Failed TAT','Fix Today','Watch 48h','On Track','Review','Done'],[ltp,tat,data.filter(r=>r.KPIAlert==='Fix Today').length,data.filter(r=>r.KPIAlert==='Watch').length,data.filter(r=>r.KPIAlert==='On Track').length,data.filter(r=>r.KPIAlert==='Review').length,data.filter(r=>r.KPIAlert==='Done').length],'Cases',false,null); const br=countBy(open,'GSPN_Branch',12), st=countBy(open,'GSPN_Status',12), rep=avgBy(data,'GSPN_Branch',12), ag=aging(data); makeBar('branchChart',br.labels,br.values,'Open Cases',true,l=>{ if(typeof filterByBranch==='function') filterByBranch(l); }); makeBar('techChart',st.labels,st.values,'Open Cases',true,l=>{ if(typeof filterByGspnStatus==='function') filterByGspnStatus(l); }); makeBar('repairDaysChart',rep.labels,rep.values,'Avg Repair Days',true,null); makeBar('agingChart',ag.labels,ag.values,'Open Cases',false,null); ensureStageDropdown(); };
   function boot(){ ensureStageDropdown(); if(typeof window.render==='function') window.render(); }
   document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,900)); window.addEventListener('load',()=>setTimeout(boot,700));
-})();
-
-
-/* ===== sky-final-v5-script ===== */
-
-(function(){
-  const COLORS = ['#ff4d2e','#15598d','#0ea5a5','#7b35ad','#70ad47','#f59e0b','#c00000','#38bdf8','#84cc16','#f97316','#6366f1','#14b8a6'];
-  const SKY_LABEL_ID = 'skyFinalV5SingleLabels';
-  const REMOVE_TITLES = new Set([
-    'Failed KPI Reasons %',
-    'KPI Result Breakdown',
-    'Open Cases per Branch',
-    'Open Cases per Status',
-    'Open Cases by Aging Bucket',
-    'SKY Cases by Brand',
-    'SKY Cases by Queue',
-    'Ready For Delivery Cases - Aging Months',
-    'Stage with Count Cases'
-  ]);
-  const REMOVE_CANVASES = new Set([
-    'failedReasonChart','kpiChart','branchChart','techChart','agingChart','skyBrandChart','skyQueueChart','skyStageChart','skyBranchChart','skyReadyAgingChart','skyStageAllChart','repairDaysChart'
-  ]);
-  function q(id){ return document.getElementById(id); }
-  function txt(v){ return String(v ?? '').trim(); }
-  function esc(v){ return txt(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function pct(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? ((n*100/d).toFixed(1).replace(/\.0$/,'')) : '0'; }
-  function val(r,k){
-    if(!r) return '';
-    if(Object.prototype.hasOwnProperty.call(r,k)) return r[k];
-    const norm=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
-    const found=Object.keys(r).find(x=>norm(x)===norm(k));
-    return found ? r[found] : '';
-  }
-  function countBy(data, field, limit){
-    const c={}; (data||[]).forEach(r=>{ const k=txt(val(r,field)) || 'Blank'; c[k]=(c[k]||0)+1; });
-    let arr=Object.entries(c).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-    if(limit) arr=arr.slice(0,limit);
-    return { labels: arr.map(x=>x[0]), values: arr.map(x=>x[1]) };
-  }
-  function destroyChart(id){
-    try{ if(window.dashboardCharts && dashboardCharts[id]){ dashboardCharts[id].destroy(); delete dashboardCharts[id]; } }catch(e){}
-  }
-  function cleanChartPlugins(){
-    if(!window.Chart) return;
-    ['v19Labels','v20SkyLabels','serviceEyeV22LabelsOnly','serviceEyeV24SingleLabels','serviceEyeV25Labels3D','serviceEyeV25Bar3D','v3RequestedCaseLabels','gspnFinalV4Labels','skyBarLabelErrorPlugin','gspnRequestedValueLabels',SKY_LABEL_ID].forEach(id=>{
-      try{ const p=Chart.registry.plugins.get(id); if(p) Chart.unregister(p); }catch(e){}
-    });
-    try{
-      Chart.register({
-        id: SKY_LABEL_ID,
-        afterDatasetsDraw(chart){
-          if(!String(chart.canvas?.id||'').startsWith('sky')) return;
-          const horizontal = chart.options.indexAxis === 'y';
-          const {ctx}=chart; ctx.save();
-          ctx.font='bold 12px Calibri, Arial, sans-serif';
-          ctx.fillStyle='#ffffff';
-          ctx.textAlign=horizontal?'left':'center';
-          ctx.textBaseline='middle';
-          ctx.shadowColor='rgba(0,0,0,.65)'; ctx.shadowBlur=4;
-          chart.data.datasets.forEach((ds,di)=>{
-            const meta=chart.getDatasetMeta(di);
-            meta.data.forEach((bar,i)=>{
-              const n=Number(ds.data[i]||0); if(!n) return;
-              const p=bar.tooltipPosition ? bar.tooltipPosition() : {x:bar.x,y:bar.y};
-              const x = horizontal ? Math.min(p.x+8, chart.chartArea.right-26) : p.x;
-              const y = horizontal ? p.y : Math.max(16, p.y-11);
-              ctx.fillText(String(n), x, y);
-            });
-          });
-          ctx.restore();
-        }
-      });
-    }catch(e){}
-  }
-  function makeBar(id, labels, values, title, horizontal){
-    const canvas=q(id); if(!canvas || !window.Chart) return;
-    cleanChartPlugins(); destroyChart(id);
-    if(!window.dashboardCharts) window.dashboardCharts={};
-    const max=Math.max(...(values||[]),0);
-    const total=(values||[]).reduce((a,b)=>a+Number(b||0),0);
-    const yLabelWidth=horizontal ? Math.min(220, Math.max(110, ...labels.map(l=>String(l).length*7))) : 10;
-    dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title||'Cases',data:values,backgroundColor:labels.map((_,i)=>COLORS[i%COLORS.length]),borderColor:labels.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1.5,borderRadius:8,maxBarThickness:horizontal?24:48}]},options:{animation:false,responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',layout:{padding:{top:36,right:horizontal?62:26,bottom:18,left:horizontal?18:12}},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${title||'Cases'}: ${ctx.raw} (${pct(ctx.raw,total)}%)`}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.25+1:undefined,ticks:{color:'#ffffff',autoSkip:false,maxRotation:horizontal?0:35,minRotation:0,precision:0,font:{weight:'700'}},grid:{color:'rgba(255,255,255,.12)'}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.22+1,afterFit:scale=>{ if(horizontal) scale.width=yLabelWidth; },ticks:{color:'#ffffff',autoSkip:false,precision:0,font:{weight:'700'},callback:function(value){ const label=this.getLabelForValue ? this.getLabelForValue(value) : value; return horizontal && String(label).length>26 ? String(label).slice(0,25)+'…' : label; }},grid:{color:'rgba(255,255,255,.12)'}}}}});
-  }
-  function ensureSkyChartsDom(){
-    const grid=q('skyChartsSection'); if(!grid) return;
-    [...grid.querySelectorAll('section.chart-card, .chart-card')].forEach(sec=>{
-      const title=txt(sec.querySelector('h2')?.textContent).replace(/\s+/g,' ');
-      const canvas=sec.querySelector('canvas');
-      if((canvas && REMOVE_CANVASES.has(canvas.id)) || REMOVE_TITLES.has(title) || (canvas && !['skyStatusChart','skyOpenBranchChart'].includes(canvas.id))){
-        if(canvas) destroyChart(canvas.id);
-        sec.remove();
-      }
-    });
-    const wanted=[['skyStatusChart','SKY Cases by Status','skyStatusSummary'],['skyOpenBranchChart','Open Cases per Branch','skyOpenBranchSummary']];
-    wanted.forEach(([id,title,summary])=>{
-      let canvas=q(id);
-      if(!canvas){
-        const sec=document.createElement('section'); sec.className='chart-card';
-        sec.innerHTML=`<h2>${title}</h2><div class="sky-chart-summary" id="${summary}"></div><div class="chart-box"><canvas id="${id}"></canvas></div>`;
-        grid.appendChild(sec);
-      } else {
-        const sec=canvas.closest('section,.chart-card'); const h=sec?.querySelector('h2'); if(h) h.textContent=title;
-      }
-    });
-    wanted.forEach(([id])=>{ const sec=q(id)?.closest('section,.chart-card'); if(sec) grid.appendChild(sec); });
-  }
-  function setSummary(id, labels, values, total){ const el=q(id); if(el) el.innerHTML=(labels||[]).map((l,i)=>`<span class="badge">${esc(l)}: ${values[i]} (${pct(values[i],total)}%)</span>`).join(' '); }
-  function openRowsOnly(rows){ return (Array.isArray(rows)?rows:[]).filter(r=>txt(val(r,'Queue'))==='Open_Cases'); }
-  const oldRenderSky = window.renderSky;
-  window.updateSkyCharts = function(rows){
-    ensureSkyChartsDom();
-    const openRows=openRowsOnly(rows);
-    const status=countBy(openRows,'Status',20);
-    const branch=countBy(openRows,'Branch',20);
-    setSummary('skyStatusSummary',status.labels,status.values,openRows.length);
-    setSummary('skyOpenBranchSummary',branch.labels,branch.values,openRows.length);
-    makeBar('skyStatusChart',status.labels,status.values,'Open_Cases',true);
-    makeBar('skyOpenBranchChart',branch.labels,branch.values,'Open_Cases',true);
-  };
-  window.renderSky = function(){
-    if(typeof oldRenderSky==='function') oldRenderSky.call(this);
-    ensureSkyChartsDom();
-    const rows=Array.isArray(window.currentSkyRows) ? window.currentSkyRows : (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : []);
-    window.updateSkyCharts(rows);
-  };
-  function boot(){ ensureSkyChartsDom(); if(q('skyPage') && q('skyPage').style.display!=='none') window.renderSky(); }
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,1200));
-  window.addEventListener('load',()=>setTimeout(boot,900));
 })();
 
 
@@ -8081,7 +5134,7 @@ void(removeExportButtons, 10000);
       else canvas.remove();
     });
   }
-  window.updateCharts = function(){ removeGspnChartsOnly(); };
+  window.removeGspnChartsOnly = removeGspnChartsOnly;
   const previousRenderDashboard = window.renderDashboard;
   if (typeof previousRenderDashboard === 'function') {
     window.renderDashboard = function(){
@@ -8093,471 +5146,6 @@ void(removeExportButtons, 10000);
   document.addEventListener('DOMContentLoaded', removeGspnChartsOnly);
   window.addEventListener('load', once(removeGspnChartsOnly));
   requestAnimationFrame(removeGspnChartsOnly);
-})();
-
-
-/* ===== sky-requested-insights-script ===== */
-
-(function(){
-  const COLORS = ['#156082','#e97132','#196b24','#0f9ed5','#a02b93','#4ea72e','#f2c80f','#7f6000','#5b9bd5','#c00000','#7030a0','#00a6a6','#ff4d2e','#8dd17e','#4472c4','#ed7d31','#70ad47','#ffc000'];
-  const DELIVERED = '__REMOVED_QUEUE__';
-  let statusDrill = '';
-  function byId(id){ return document.getElementById(id); }
-  function text(v){ return String(v ?? '').trim(); }
-  function esc(v){ return text(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
-  function norm(s){ return text(s).toLowerCase().replace(/[^a-z0-9]/g,''); }
-  function val(r,k){
-    if(!r) return '';
-    if(Object.prototype.hasOwnProperty.call(r,k)) return r[k];
-    const nk=norm(k); const found=Object.keys(r).find(x=>norm(x)===nk);
-    return found ? r[found] : '';
-  }
-  function pct(n,d){ n=Number(n)||0; d=Number(d)||0; return d ? Math.round((n*100/d)) + '%' : '0%'; }
-  function destroyChart(id){ try{ if(window.dashboardCharts && dashboardCharts[id]){ dashboardCharts[id].destroy(); delete dashboardCharts[id]; } }catch(e){} }
-  function allSkyRows(){ try{ if(Array.isArray(skyRows)) return skyRows; }catch(e){} return Array.isArray(window.skyRows) ? window.skyRows : []; }
-  function removeDeliveredFromSource(){
-    try{ if(Array.isArray(skyRows)){ skyRows = skyRows.filter(r => text(val(r,'Queue')) !== DELIVERED); } }catch(e){}
-    if(Array.isArray(window.skyRows)) window.skyRows = window.skyRows.filter(r => text(val(r,'Queue')) !== DELIVERED);
-    const q=byId('skyQueueFilter');
-    if(q){
-      [...q.options].forEach(o => { if(o.value === DELIVERED || o.textContent.trim() === DELIVERED) o.remove(); });
-      if(![...q.options].some(o=>o.value==='Open_Cases')) q.insertAdjacentHTML('beforeend','<option value="Open_Cases">Open_Cases</option>');
-      if(![...q.options].some(o=>o.value==='Ready For Delivery Cases')) q.insertAdjacentHTML('beforeend','<option value="Ready For Delivery Cases">Ready For Delivery Cases</option>');
-      if(q.value===DELIVERED) q.value='';
-    }
-  }
-  function baseFilteredRows(){
-    removeDeliveredFromSource();
-    let rows=[];
-    try{ if(typeof window.getSkyFilteredRows==='function') rows=window.getSkyFilteredRows(); }catch(e){}
-    if(!Array.isArray(rows) || !rows.length) rows=Array.isArray(window.currentSkyRows)?window.currentSkyRows:allSkyRows();
-    rows=rows.filter(r=>text(val(r,'Queue'))!==DELIVERED);
-    if(statusDrill) rows=rows.filter(r=>text(val(r,'Status'))===statusDrill && text(val(r,'Queue'))==='Open_Cases');
-    return rows;
-  }
-  function countBy(rows, field){
-    const map = new Map();
-    (rows||[]).forEach(r=>{ const k=text(val(r,field)) || 'Blank'; map.set(k,(map.get(k)||0)+1); });
-    return [...map.entries()].sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
-  }
-  function removeObsoleteSkyCharts(){
-    const keep = new Set(['skyOpenBranchChart','skyOpenStatusChart']);
-    document.querySelectorAll('#skyPage canvas').forEach(canvas => {
-      if(!keep.has(canvas.id)){
-        destroyChart(canvas.id);
-        const section = canvas.closest('section,.chart-card');
-        if(section) section.remove(); else canvas.remove();
-      }
-    });
-    document.querySelectorAll('#skyPage .chart-card').forEach(card => {
-      const canvas = card.querySelector('canvas');
-      if(canvas && !keep.has(canvas.id)){ destroyChart(canvas.id); card.remove(); }
-    });
-  }
-  function ensureDom(){
-    const skyMain = document.querySelector('#skyPage main');
-    if(!skyMain) return;
-    removeDeliveredFromSource();
-    removeObsoleteSkyCharts();
-    let grid=byId('skyChartsSection');
-    if(!grid){
-      const casesSection=byId('skyCasesTable')?.closest('section');
-      grid=document.createElement('div'); grid.id='skyChartsSection'; grid.className='charts-grid sky-charts sky-requested-insights';
-      grid.innerHTML=`<section class="chart-card"><h2>Open_Cases Per Branch</h2><div class="sky-chart-summary" id="skyOpenBranchSummary"></div><div class="chart-box sky-open-branch-chart-box"><canvas id="skyOpenBranchChart"></canvas></div></section><section class="chart-card"><h2>Open_Cases Status</h2><div class="sky-chart-summary" id="skyOpenStatusSummary"></div><div class="chart-box sky-open-status-chart-box"><canvas id="skyOpenStatusChart"></canvas></div></section>`;
-      (casesSection || skyMain.firstElementChild).insertAdjacentElement('afterend', grid);
-    }
-    const required=[['skyOpenBranchChart','Open_Cases Per Branch','skyOpenBranchSummary','sky-open-branch-chart-box'],['skyOpenStatusChart','Open_Cases Status','skyOpenStatusSummary','sky-open-status-chart-box']];
-    required.forEach(([cid,title,sid,boxClass])=>{
-      if(!byId(cid)){
-        const sec=document.createElement('section'); sec.className='chart-card';
-        sec.innerHTML=`<h2>${title}</h2><div class="sky-chart-summary" id="${sid}"></div><div class="chart-box ${boxClass}"><canvas id="${cid}"></canvas></div>`;
-        grid.appendChild(sec);
-      }
-    });
-    let tables=document.querySelector('#skyPage .sky-summary-tables');
-    if(!tables){
-      tables=document.createElement('div'); tables.className='grid sky-summary-tables';
-      tables.innerHTML=`<section><h2>Open_Cases Per Stage</h2><div class="table-wrap sky-summary-table-wrap"><table id="skyOpenStageSummaryTable"></table></div></section><section><h2>Ready For Delivery Cases Per Branch</h2><div class="table-wrap sky-summary-table-wrap"><table id="skyReadyBranchSummaryTable"></table></div></section>`;
-      grid.insertAdjacentElement('afterend', tables);
-    }
-    if(!byId('skyDrilldownNote')){
-      const note=document.createElement('div'); note.id='skyDrilldownNote'; note.className='sky-drilldown-note';
-      note.innerHTML='Status filter applied from chart. <button class="btn btn-light" type="button" onclick="window.clearSkyStatusDrilldown && window.clearSkyStatusDrilldown()">Clear Status Filter</button>';
-      const cases=byId('skyCasesTable')?.closest('section'); if(cases) cases.insertAdjacentElement('beforebegin', note);
-    }
-  }
-  function summary(id, arr, total){
-    const el=byId(id); if(!el) return;
-    el.innerHTML=arr.slice(0,8).map(([l,n])=>`<span class="sky-chart-chip">${esc(l)}: ${n} (${pct(n,total)})</span>`).join('');
-  }
-  function chartLabels(arr,total){ return arr.map(([l,n])=>`${l} (${pct(n,total)})`); }
-  function makeBar(id, arr, title, horizontal){
-    const canvas=byId(id); if(!canvas || !window.Chart) return;
-    destroyChart(id); if(!window.dashboardCharts) window.dashboardCharts={};
-    const total=arr.reduce((a,x)=>a+Number(x[1]||0),0);
-    const labels=chartLabels(arr,total), values=arr.map(x=>x[1]);
-    const max=Math.max(...values,0);
-    dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title,data:values,backgroundColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1,borderRadius:horizontal?6:5,maxBarThickness:horizontal?24:46}]},options:{animation:false,responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',layout:{padding:{top:24,right:horizontal?56:24,bottom:20,left:horizontal?8:8}},onClick:(evt,elements)=>{ if(!elements.length) return; const raw=arr[elements[0].index][0]; if(id==='skyOpenBranchChart') setMultiFilter('skyBranchFilter', raw, true); if(id==='skyOpenStatusChart'){ statusDrill=raw; renderSkyRequestedInsights(true); } },plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${title}: ${ctx.raw} (${pct(ctx.raw,total)})`}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.22+1:undefined,ticks:{autoSkip:false,precision:0,maxRotation:horizontal?0:45,minRotation:0},grid:{color:'rgba(120,120,120,.25)'}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.22+1,ticks:{autoSkip:false,precision:0,callback:function(value){ const label=this.getLabelForValue?this.getLabelForValue(value):value; return horizontal && String(label).length>34 ? String(label).slice(0,33)+'…' : label; }},grid:{color:'rgba(120,120,120,.25)'}}}},plugins:[{id:id+'Labels',afterDatasetsDraw(chart){const {ctx}=chart; ctx.save(); ctx.font='bold 12px Calibri, Arial'; ctx.fillStyle='#333'; ctx.textBaseline='middle'; const meta=chart.getDatasetMeta(0); meta.data.forEach((bar,i)=>{const n=values[i]; if(!n) return; const p=bar.tooltipPosition(); ctx.textAlign=horizontal?'left':'center'; ctx.fillText(String(n), horizontal?Math.min(p.x+7,chart.chartArea.right-22):p.x, horizontal?p.y:Math.max(14,p.y-9));}); ctx.restore();}}]});
-  }
-  function setMultiFilter(id, value, setOpen){
-    const el=byId(id); if(el){ [...el.options].forEach(o=>o.selected=(o.value===value || o.textContent.trim()===value)); }
-    if(setOpen){ const q=byId('skyQueueFilter'); if(q) q.value='Open_Cases'; }
-    statusDrill='';
-    if(typeof window.renderSky==='function') window.renderSky();
-    const t=byId('skyCasesTable'); if(t && typeof scrollToElement==='function') scrollToElement('skyCasesTable');
-  }
-  function renderPivot(tableId, labelName, arr){
-    const table=byId(tableId); if(!table) return;
-    const total=arr.reduce((a,x)=>a+Number(x[1]||0),0);
-    table.className='sky-pivot-table';
-    table.innerHTML=`<thead><tr><th>${esc(labelName)}</th><th>Count of Cases</th><th>% of Grand Total</th></tr></thead><tbody>${arr.map(([l,n])=>`<tr><td>${esc(l)}</td><td class="num">${n}</td><td class="pct">${pct(n,total)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Grand Total</td><td class="num">${total}</td><td class="pct">100%</td></tr></tfoot>`;
-  }
-  function updateCaseTableForStatus(rows){
-    const note=byId('skyDrilldownNote');
-    if(note){ note.style.display=statusDrill?'block':'none'; note.firstChild.textContent = statusDrill ? `Status filter applied: ${statusDrill}. ` : 'Status filter applied from chart. '; }
-    if(statusDrill && typeof window.renderTable==='function'){
-      const cols=[["Queue","Queue"],["Brand","Brand"],["Branch","Branch"],["Open_Date_Display","Open Date"],["Aging_Days","Aging Days"],["Job_Number","Job Number"],["Status","Status"],["Stage","Stage"],["Item English Name","Item English Name"],["Price","Price"]];
-      window.currentSkyRows=rows;
-      renderTable('skyCasesTable', rows.slice(0,1000), cols, false);
-    }
-  }
-  function renderSkyRequestedInsights(updateTable){
-    ensureDom();
-    let rows=baseFilteredRows();
-    const openRows=rows.filter(r=>text(val(r,'Queue'))==='Open_Cases');
-    const readyRows=rows.filter(r=>text(val(r,'Queue'))==='Ready For Delivery Cases');
-    const branch=countBy(openRows,'Branch');
-    const status=countBy(openRows,'Status');
-    const stage=countBy(openRows,'Stage');
-    const readyBranch=countBy(readyRows,'Branch');
-    summary('skyOpenBranchSummary',branch,openRows.length);
-    summary('skyOpenStatusSummary',status,openRows.length);
-    makeBar('skyOpenBranchChart',branch,'Open_Cases',false);
-    makeBar('skyOpenStatusChart',status,'Open_Cases',true);
-    renderPivot('skyOpenStageSummaryTable','Stage',stage);
-    renderPivot('skyReadyBranchSummaryTable','Branch',readyBranch);
-    if(updateTable) updateCaseTableForStatus(rows); /* TABLE-FIX: respect updateTable param */
-  }
-  window.clearSkyStatusDrilldown=function(){ statusDrill=''; if(typeof window.renderSky==='function') window.renderSky(); };
-  const oldRender = window.renderSky;
-  window.updateSkyCharts = function(rows){ renderSkyRequestedInsights(false); };
-  window.renderSky = function(){
-    removeDeliveredFromSource();
-    const result = typeof oldRender === 'function' ? oldRender.apply(this, arguments) : undefined;
-    removeDeliveredFromSource();
-    /* CHART-FIX: duplicate renderSkyRequestedInsights removed – oldRender already calls it via updateSkyCharts */
-    return result;
-  };
-  function boot(){ removeDeliveredFromSource(); ensureDom(); renderSkyRequestedInsights(false); }
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(boot,250); });
-  window.addEventListener('load',()=>{ setTimeout(boot,600); });
-})();
-
-
-/* ===== sky-v26-layout-clear-script ===== */
-
-(function(){
-  const DELIVERED='__REMOVED_QUEUE__';
-  const COLORS=['#2563eb','#16a34a','#f97316','#7c3aed','#dc2626','#0891b2','#ca8a04','#4f46e5','#db2777','#0f766e','#65a30d','#9333ea'];
-  function byId(id){ return document.getElementById(id); }
-  function text(v){ return v==null?'':String(v).trim(); }
-  function esc(s){ return text(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-  function val(r,k){ return r ? (r[k] ?? r[String(k).replace(/_/g,' ')] ?? '') : ''; }
-  function pct(n,t){ return t ? Math.round((Number(n||0)/t)*100)+'%' : '0%'; }
-  function allSky(){ return Array.isArray(window.skyRows)?window.skyRows:(Array.isArray(window.currentSkyRows)?window.currentSkyRows:[]); }
-  function noDeliveredRows(rows){ return (Array.isArray(rows)?rows:[]).filter(r=>text(val(r,'Queue'))!==DELIVERED); }
-  function removeDeliveredQueue(){
-    try{ if(Array.isArray(window.skyRows)) window.skyRows=window.skyRows.filter(r=>text(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    try{ if(Array.isArray(window.currentSkyRows)) window.currentSkyRows=window.currentSkyRows.filter(r=>text(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    ['skyQueueFilter','skyBrandChartQueueFilter','skyStageAllQueueFilter'].forEach(id=>{
-      const el=byId(id); if(!el) return;
-      [...el.options].forEach(o=>{ if(o.value===DELIVERED || text(o.textContent)===DELIVERED) o.remove(); });
-      if(el.value===DELIVERED) el.value='';
-    });
-  }
-  function destroyChart(id){ try{ if(window.dashboardCharts && window.dashboardCharts[id]){ window.dashboardCharts[id].destroy(); delete window.dashboardCharts[id]; } }catch(e){} }
-  function countBy(rows, field){ const m=new Map(); (rows||[]).forEach(r=>{ const k=text(val(r,field))||'Blank'; m.set(k,(m.get(k)||0)+1); }); return [...m.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])); }
-  function chartLabels(arr,total){ return arr.map(([l,n])=>`${l} (${pct(n,total)})`); }
-  function setMulti(id,value){ const el=byId(id); if(!el) return; [...el.options].forEach(o=>o.selected=(o.value===value || text(o.textContent)===value)); }
-  function clearSelect(id){ const el=byId(id); if(!el) return; if(el.multiple){ const all=[...el.options].find(o=>o.value==='__ALL__'); [...el.options].forEach(o=>o.selected=false); if(all) all.selected=true; } else el.value=''; }
-  function resetQueue(){ const q=byId('skyQueueFilter'); if(q) q.value=''; }
-  function renderAgain(){ removeDeliveredQueue(); if(typeof window.renderSky==='function') setTimeout(()=>window.renderSky(),0); }
-  function addClearButton(section, type){
-    const h=section && section.querySelector('h2'); if(!h || h.querySelector('.sky-clear-data-btn')) return;
-    const span=document.createElement('span'); span.textContent=h.textContent.trim();
-    h.textContent=''; h.appendChild(span);
-    const b=document.createElement('button'); b.type='button'; b.className='sky-clear-data-btn'; b.textContent='Clear Chart Data';
-    b.onclick=function(e){ e.preventDefault(); e.stopPropagation(); if(window.clearSkyInsightSelection) window.clearSkyInsightSelection(type); };
-    h.appendChild(b);
-  }
-  function ensureDom(){
-    removeDeliveredQueue();
-    const main=document.querySelector('#skyPage main'); if(!main) return;
-    let grid=byId('skyChartsSection');
-    if(!grid){
-      const cases=byId('skyCasesTable')?.closest('section');
-      grid=document.createElement('div'); grid.id='skyChartsSection'; grid.className='charts-grid sky-charts sky-requested-insights';
-      (cases||main.firstElementChild).insertAdjacentElement('afterend',grid);
-    }
-    grid.classList.add('sky-requested-insights');
-    const specs=[
-      ['skyOpenStatusChart','Open_Cases Status','skyOpenStatusSummary','sky-open-status-chart-box','status'],
-      ['skyOpenBranchChart','Open Cases per Branch','skyOpenBranchSummary','sky-open-branch-chart-box','branch'],
-      ['skyOpenStageChart','Open_Cases Per Stage','skyOpenStageSummary','sky-open-stage-chart-box','stage'],
-      ['skyReadyBranchChart','Ready For Delivery Cases Per Branch','skyReadyBranchSummary','sky-ready-branch-chart-box','readyBranch']
-    ];
-    specs.forEach(([cid,title,sid,box,typ])=>{
-      let canvas=byId(cid), sec=canvas?.closest('section,.chart-card');
-      if(!canvas){ sec=document.createElement('section'); sec.className='chart-card'; sec.innerHTML=`<h2>${title}</h2><div class="sky-chart-summary" id="${sid}"></div><div class="chart-box ${box}"><canvas id="${cid}"></canvas></div>`; grid.appendChild(sec); }
-      sec=byId(cid).closest('section,.chart-card'); sec.classList.add('chart-card');
-      sec.classList.toggle('sky-status-row',typ==='status'); sec.classList.toggle('sky-branch-row',typ==='branch'); sec.classList.toggle('sky-stage-row',typ==='stage'); sec.classList.toggle('sky-ready-row',typ==='readyBranch');
-      const h=sec.querySelector('h2'); if(h && !h.querySelector('.sky-clear-data-btn')) h.textContent=title;
-      addClearButton(sec, typ);
-      grid.appendChild(sec);
-    });
-    // Remove old obsolete SKY chart cards but keep the four requested charts.
-    const keep=new Set(specs.map(s=>s[0]));
-    grid.querySelectorAll('canvas').forEach(c=>{ if(!keep.has(c.id)){ destroyChart(c.id); c.closest('section,.chart-card')?.remove(); } });
-    let tables=document.querySelector('#skyPage .sky-summary-tables');
-    if(tables) tables.style.display='none';
-  }
-  function summary(id,arr,total){ const el=byId(id); if(el) el.innerHTML=arr.slice(0,10).map(([l,n])=>`<span class="sky-chart-chip">${esc(l)}: ${n} (${pct(n,total)})</span>`).join(' '); }
-  function makeChart(id, arr, title, horizontal, type){
-    const canvas=byId(id); if(!canvas || !window.Chart) return;
-    destroyChart(id); if(!window.dashboardCharts) window.dashboardCharts={};
-    const total=arr.reduce((a,x)=>a+Number(x[1]||0),0); const values=arr.map(x=>x[1]); const labels=chartLabels(arr,total); const max=Math.max(...values,0);
-    dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title,data:values,backgroundColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1,borderRadius:horizontal?7:6,maxBarThickness:horizontal?24:46}]},options:{animation:false,responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',layout:{padding:{top:28,right:horizontal?70:26,bottom:24,left:horizontal?12:12}},onClick:(evt,elements)=>{ if(!elements.length) return; const raw=arr[elements[0].index][0]; if(type==='status'){ window.skyV26Status=raw; } if(type==='branch'){ setMulti('skyBranchFilter',raw); const q=byId('skyQueueFilter'); if(q) q.value='Open_Cases'; } if(type==='stage'){ setMulti('skyStageFilter',raw); const q=byId('skyQueueFilter'); if(q) q.value='Open_Cases'; } if(type==='readyBranch'){ setMulti('skyBranchFilter',raw); const q=byId('skyQueueFilter'); if(q) q.value='Ready For Delivery Cases'; } renderAgain(); },plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${title}: ${ctx.raw} (${pct(ctx.raw,total)})`}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.25+1:undefined,ticks:{color:'#111827',autoSkip:false,maxRotation:horizontal?0:45,minRotation:0,precision:0,font:{weight:'700'}},grid:{color:'rgba(17,24,39,.16)'}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.25+1,ticks:{color:'#111827',autoSkip:false,precision:0,font:{weight:'700'},callback:function(value){ const label=this.getLabelForValue?this.getLabelForValue(value):value; return horizontal && String(label).length>38 ? String(label).slice(0,37)+'…' : label; }},grid:{color:'rgba(17,24,39,.16)'}}}},plugins:[{id:id+'V26Labels',afterDatasetsDraw(chart){ const {ctx}=chart; const meta=chart.getDatasetMeta(0); ctx.save(); ctx.font='bold 12px Calibri, Arial'; ctx.fillStyle='#111827'; ctx.textBaseline='middle'; meta.data.forEach((bar,i)=>{ const n=values[i]; if(!n) return; const p=bar.tooltipPosition(); ctx.textAlign=horizontal?'left':'center'; ctx.fillText(String(n), horizontal?Math.min(p.x+8,chart.chartArea.right-24):p.x, horizontal?p.y:Math.max(14,p.y-10)); }); ctx.restore(); }}]});
-  }
-  function maybeFilterStatus(rows){ return window.skyV26Status ? rows.filter(r=>text(val(r,'Status'))===window.skyV26Status && text(val(r,'Queue'))==='Open_Cases') : rows; }
-  function renderV26(){
-    ensureDom();
-    let rows=[]; try{ if(typeof window.getSkyFilteredRows==='function') rows=window.getSkyFilteredRows(); }catch(e){}
-    if(!Array.isArray(rows) || !rows.length) rows=window.currentSkyRows || allSky();
-    rows=noDeliveredRows(rows); rows=maybeFilterStatus(rows);
-    const open=rows.filter(r=>text(val(r,'Queue'))==='Open_Cases');
-    const ready=rows.filter(r=>text(val(r,'Queue'))==='Ready For Delivery Cases');
-    const status=countBy(open,'Status'), branch=countBy(open,'Branch'), stage=countBy(open,'Stage'), readyBranch=countBy(ready,'Branch');
-    summary('skyOpenStatusSummary',status,open.length); summary('skyOpenBranchSummary',branch,open.length); summary('skyOpenStageSummary',stage,open.length); summary('skyReadyBranchSummary',readyBranch,ready.length);
-    makeChart('skyOpenStatusChart',status,'Open_Cases',true,'status');
-    makeChart('skyOpenBranchChart',branch,'Open_Cases',false,'branch');
-    makeChart('skyOpenStageChart',stage,'Open_Cases',false,'stage');
-    makeChart('skyReadyBranchChart',readyBranch,'Ready For Delivery Cases',false,'readyBranch');
-  }
-  window.clearSkyInsightSelection=function(type){
-    if(type==='status') window.skyV26Status='';
-    if(type==='branch'){ clearSelect('skyBranchFilter'); resetQueue(); }
-    if(type==='stage'){ clearSelect('skyStageFilter'); resetQueue(); }
-    if(type==='readyBranch'){ clearSelect('skyBranchFilter'); resetQueue(); }
-    ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(clearSelect);
-    renderAgain();
-  };
-  const oldRenderSky=window.renderSky;
-  window.updateSkyCharts=function(){ requestAnimationFrame(renderV26); };
-  window.renderSky=function(){ removeDeliveredQueue(); const res=typeof oldRenderSky==='function'?oldRenderSky.apply(this,arguments):undefined; setTimeout(renderV26,30); return res; };
-  function boot(){ removeDeliveredQueue(); renderV26(); }
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(boot,300); });
-  window.addEventListener('load',()=>{ setTimeout(boot,700); });
-})();
-
-
-/* ===== sky-v27-clean-duplicates-clear-fix-script ===== */
-
-(function(){
-  const DELIVERED='__REMOVED_QUEUE__';
-  const ALL='__ALL__';
-  function byId(id){return document.getElementById(id);}
-  function txt(v){return String(v??'').trim();}
-  function norm(s){return txt(s).toLowerCase().replace(/[^a-z0-9]/g,'');}
-  function val(r,k){ if(!r)return ''; if(Object.prototype.hasOwnProperty.call(r,k))return r[k]; const nk=norm(k); const f=Object.keys(r).find(x=>norm(x)===nk); return f?r[f]:''; }
-  function clearSingle(id){ const el=byId(id); if(el) el.value=''; }
-  function clearMulti(id){ const el=byId(id); if(!el) return; [...el.options].forEach(o=>o.selected=false); const all=[...el.options].find(o=>o.value===ALL || txt(o.textContent)==='(Select All)' || txt(o.textContent)==='All'); if(all) all.selected=true; }
-  function clearCommonChartSelects(){ ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(clearSingle); }
-  function removeDelivered(){
-    try{ if(Array.isArray(window.skyRows)) window.skyRows=window.skyRows.filter(r=>txt(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    try{ if(Array.isArray(window.currentSkyRows)) window.currentSkyRows=window.currentSkyRows.filter(r=>txt(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    ['skyQueueFilter','skyBrandChartQueueFilter','skyStageAllQueueFilter'].forEach(id=>{ const el=byId(id); if(!el)return; [...el.options].forEach(o=>{ if(o.value===DELIVERED || txt(o.textContent)===DELIVERED) o.remove(); }); if(el.value===DELIVERED) el.value=''; });
-  }
-  function removeEmptyDuplicateTables(){
-    const page=byId('skyPage'); if(!page) return;
-    page.querySelectorAll('.sky-summary-tables').forEach(el=>el.remove());
-    ['skyOpenStageSummaryTable','skyReadyBranchSummaryTable'].forEach(id=>{ const t=byId(id); const sec=t&&t.closest('section,.chart-card'); if(sec) sec.remove(); });
-    // Remove any empty standalone sections with only the duplicated titles.
-    page.querySelectorAll('section').forEach(sec=>{
-      const h=sec.querySelector('h2'); if(!h) return;
-      const title=txt(h.textContent).replace(/Clear Chart Data|Clear Chart Filter/gi,'').trim();
-      if((title==='Open_Cases Per Stage' || title==='Ready For Delivery Cases Per Branch') && !sec.querySelector('canvas')) sec.remove();
-    });
-  }
-  function ensureClearButtons(){
-    const specs={
-      skyOpenStatusChart:'status',
-      skyOpenBranchChart:'branch',
-      skyOpenStageChart:'stage',
-      skyReadyBranchChart:'readyBranch'
-    };
-    Object.entries(specs).forEach(([cid,type])=>{
-      const sec=byId(cid)?.closest('section,.chart-card'); const h=sec?.querySelector('h2'); if(!h) return;
-      h.querySelectorAll('.chart-clear-btn,.sky-clear-data-btn').forEach((b,i)=>{ if(i>0)b.remove(); });
-      let b=h.querySelector('.chart-clear-btn,.sky-clear-data-btn');
-      if(!b){ b=document.createElement('button'); h.appendChild(b); }
-      b.type='button'; b.className='sky-clear-data-btn'; b.textContent='Clear Chart Data'; b.dataset.skyClearType=type;
-      b.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); clearSelection(type); };
-    });
-  }
-  function clearSelection(type){
-    window.skyV26Status=''; window.skyV27Status='';
-    removeDelivered(); clearCommonChartSelects();
-    if(type==='status') { clearSingle('skyQueueFilter'); }
-    if(type==='branch' || type==='readyBranch') { clearMulti('skyBranchFilter'); clearSingle('skyQueueFilter'); }
-    if(type==='stage') { clearMulti('skyStageFilter'); clearSingle('skyQueueFilter'); }
-    if(type==='all') { clearMulti('skyBranchFilter'); clearMulti('skyStageFilter'); clearSingle('skyQueueFilter'); }
-    if(typeof window.refreshSkyExcelFilterWidgets==='function') setTimeout(window.refreshSkyExcelFilterWidgets,0);
-    // Render directly first so the chart is visibly reset, then let the normal SKY render refresh tables/cards.
-    if(typeof window.updateSkyCharts==='function') setTimeout(()=>window.updateSkyCharts(window.currentSkyRows||window.skyRows||[]),0);
-    if(typeof window.renderSky==='function') setTimeout(()=>window.renderSky(),20);
-    setTimeout(()=>{ removeEmptyDuplicateTables(); ensureClearButtons(); },120);
-  }
-  window.clearSkyInsightSelection=clearSelection;
-  document.addEventListener('click',function(e){ const b=e.target.closest && e.target.closest('#skyPage .sky-clear-data-btn,#skyPage .chart-clear-btn'); if(!b) return; e.preventDefault(); e.stopPropagation(); clearSelection(b.dataset.skyClearType || 'all'); },true);
-  function fix(){ removeDelivered(); removeEmptyDuplicateTables(); ensureClearButtons(); }
-  const oldRender=window.renderSky;
-  if(typeof oldRender==='function'){
-    window.renderSky=function(){ removeDelivered(); const res=oldRender.apply(this,arguments); setTimeout(fix,60); return res; };
-  }
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(fix,200); });
-  window.addEventListener('load',()=>{ setTimeout(fix,500); });
-  requestAnimationFrame(fix);
-})();
-
-
-/* ===== sky-v28-final-fix-script ===== */
-
-(function(){
-  const DELIVERED=ALL='__ALL__';
-  const COLORS=['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#2563eb','#16a34a','#ea580c','#9333ea','#0891b2','#be123c'];
-  function byId(id){return document.getElementById(id)}
-  function txt(v){return String(v??'').trim()}
-  function norm(s){return txt(s).toLowerCase().replace(/[^a-z0-9]/g,'')}
-  function val(r,k){ if(!r) return ''; if(Object.prototype.hasOwnProperty.call(r,k)) return r[k]; const nk=norm(k); const f=Object.keys(r).find(x=>norm(x)===nk); return f?r[f]:''; }
-  function esc(s){return txt(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
-  function pct(n,t){return t?Math.round(Number(n||0)*100/t)+'%':'0%'}
-  function destroy(id){try{ if(window.dashboardCharts&&window.dashboardCharts[id]){window.dashboardCharts[id].destroy(); delete window.dashboardCharts[id];}}catch(e){}}
-  function cleanDelivered(){
-    try{ if(Array.isArray(window.skyRows)) window.skyRows=window.skyRows.filter(r=>txt(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    try{ if(Array.isArray(window.currentSkyRows)) window.currentSkyRows=window.currentSkyRows.filter(r=>txt(val(r,'Queue'))!==DELIVERED); }catch(e){}
-    ['skyQueueFilter','skyBrandChartQueueFilter','skyStageAllQueueFilter'].forEach(id=>{const el=byId(id); if(!el)return; [...el.options].forEach(o=>{if(o.value===DELIVERED||txt(o.textContent)===DELIVERED)o.remove()}); if(el.value===DELIVERED)el.value='';});
-  }
-  function baseRows(){
-    cleanDelivered(); let rows=[];
-    try{ if(typeof window.getSkyFilteredRows==='function') rows=window.getSkyFilteredRows(); }catch(e){}
-    if(!Array.isArray(rows)||!rows.length) rows=Array.isArray(window.currentSkyRows)&&window.currentSkyRows.length?window.currentSkyRows:(window.skyRows||[]);
-    rows=rows.filter(r=>txt(val(r,'Queue'))!==DELIVERED);
-    if(window.skyV28Status) rows=rows.filter(r=>txt(val(r,'Status'))===window.skyV28Status);
-    return rows;
-  }
-  function countBy(rows, field){const m=new Map(); rows.forEach(r=>{const k=txt(val(r,field))||'Blank'; m.set(k,(m.get(k)||0)+1)}); return [...m.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));}
-  function setSingle(id,value){const el=byId(id); if(el){el.value=value||''; el.dispatchEvent(new Event('change',{bubbles:true}));}}
-  function setMulti(id,value){const el=byId(id); if(!el)return; [...el.options].forEach(o=>o.selected=(o.value===value||txt(o.textContent)===value)); el.dispatchEvent(new Event('change',{bubbles:true}));}
-  function clearSingle(id){const el=byId(id); if(el){el.value=''; el.dispatchEvent(new Event('change',{bubbles:true}));}}
-  function clearMulti(id){const el=byId(id); if(!el)return; [...el.options].forEach(o=>o.selected=false); const all=[...el.options].find(o=>o.value===ALL||txt(o.textContent)==='(Select All)'||txt(o.textContent)==='All'); if(all)all.selected=true; el.dispatchEvent(new Event('change',{bubbles:true}));}
-  function clearAllInsightFilters(){ window.skyV26Status=''; window.skyV27Status=''; window.skyV28Status=''; try{window.statusDrill='';}catch(e){} ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(clearSingle); }
-  function makeButton(type){return `<button type="button" class="sky-clear-data-btn" data-sky-clear-type="${type}">Clear Chart Data</button>`}
-  function ensureDom(){
-    const page=byId('skyPage'), main=page&&page.querySelector('main'); if(!main)return;
-    page.querySelectorAll('#skyDrilldownNote,.sky-drilldown-note').forEach(n=>n.remove());
-    // Remove previous empty/duplicate generated stage/ready cards or tables, then build one clean area.
-    page.querySelectorAll('.sky-summary-tables, .sky-summary-tables-empty').forEach(x=>x.remove());
-    page.querySelectorAll('section').forEach(sec=>{const h=sec.querySelector('h2'); if(!h)return; const title=txt(h.textContent).replace(/Clear Chart Data|Clear Chart Filter/gi,'').trim(); if(['Open_Cases Per Stage','Ready For Delivery Cases Per Branch','Open_Cases Per Branch','Open Cases per Branch','Open_Cases Status'].includes(title) && !sec.closest('#skyChartsSection')) sec.remove();});
-    let grid=byId('skyChartsSection');
-    if(!grid){ grid=document.createElement('div'); grid.id='skyChartsSection'; const cases=byId('skyCasesTable')?.closest('section'); (cases||main.firstElementChild).insertAdjacentElement('afterend',grid); }
-    grid.className='charts-grid sky-charts sky-requested-insights sky-v28-layout';
-    grid.innerHTML=`
-      <section class="chart-card sky-v28-full" data-sky-v28="status"><h2><span>Open_Cases Status</span>${makeButton('status')}</h2><div class="sky-chart-summary" id="skyOpenStatusSummary"></div><div class="chart-box sky-v28-chart-box sky-v28-status-box"><canvas id="skyOpenStatusChart"></canvas></div></section>
-      <section class="chart-card sky-v28-full" data-sky-v28="branch"><h2><span>Open Cases per Branch</span>${makeButton('branch')}</h2><div class="sky-chart-summary" id="skyOpenBranchSummary"></div><div class="chart-box sky-v28-chart-box"><canvas id="skyOpenBranchChart"></canvas></div></section>
-      <section class="chart-card" data-sky-v28="stage"><h2><span>Open_Cases Per Stage</span>${makeButton('stage')}</h2><div class="sky-chart-summary" id="skyOpenStageSummary"></div><div class="table-wrap sky-v28-table-wrap"><table id="skyOpenStageSummaryTable" class="sky-v28-pivot"></table></div></section>
-      <section class="chart-card" data-sky-v28="readyBranch"><h2><span>Ready For Delivery Cases Per Branch</span>${makeButton('readyBranch')}</h2><div class="sky-chart-summary" id="skyReadyBranchSummary"></div><div class="table-wrap sky-v28-table-wrap"><table id="skyReadyBranchSummaryTable" class="sky-v28-pivot"></table></div></section>`;
-  }
-  function summary(id, arr, total){const el=byId(id); if(!el)return; el.innerHTML=arr.slice(0,12).map(([l,n])=>`<span class="sky-chart-chip">${esc(l)}: ${n} (${pct(n,total)})</span>`).join('');}
-  function renderTable(id,label,arr,type){const table=byId(id); if(!table)return; const total=arr.reduce((a,x)=>a+Number(x[1]||0),0); table.innerHTML=`<thead><tr><th>${esc(label)}</th><th>Count of Cases</th><th>% of Grand Total</th></tr></thead><tbody>${arr.map(([l,n])=>`<tr data-value="${esc(l)}" data-type="${type}"><td>${esc(l)}</td><td class="num">${n}</td><td class="pct">${pct(n,total)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Grand Total</td><td class="num">${total}</td><td class="pct">100%</td></tr></tfoot>`;}
-  function makeChart(id, arr, title, horizontal, type){
-    const canvas=byId(id); if(!canvas||!window.Chart)return; destroy(id); if(!window.dashboardCharts)window.dashboardCharts={};
-    const total=arr.reduce((a,x)=>a+Number(x[1]||0),0), labels=arr.map(x=>`${x[0]} (${pct(x[1],total)})`), values=arr.map(x=>x[1]), max=Math.max(...values,0);
-    window.dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title,data:values,backgroundColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderColor:values.map((_,i)=>COLORS[i%COLORS.length]),borderWidth:1,borderRadius:horizontal?6:5,maxBarThickness:horizontal?26:48}]},options:{animation:false,responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',layout:{padding:{top:20,right:55,bottom:16,left:8}},onClick:(evt,els)=>{ if(!els.length)return; const raw=arr[els[0].index][0]; if(type==='status'){window.skyV28Status=raw;} if(type==='branch'){setSingle('skyQueueFilter','Open_Cases'); setMulti('skyBranchFilter',raw);} rerender();},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${title}: ${ctx.raw} (${pct(ctx.raw,total)})`}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.25+1:undefined,ticks:{color:'#111827',autoSkip:false,precision:0,maxRotation:horizontal?0:45,minRotation:0,font:{weight:'700'}},grid:{color:'rgba(17,24,39,.18)'}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.25+1,ticks:{color:'#111827',autoSkip:false,precision:0,font:{weight:'700'},callback:function(v){const label=this.getLabelForValue?this.getLabelForValue(v):v; return horizontal&&String(label).length>45?String(label).slice(0,44)+'…':label;}},grid:{color:'rgba(17,24,39,.18)'}}}},plugins:[{id:id+'V28Labels',afterDatasetsDraw(chart){const {ctx}=chart, meta=chart.getDatasetMeta(0); ctx.save(); ctx.font='bold 12px Calibri, Arial'; ctx.fillStyle='#111827'; ctx.textBaseline='middle'; meta.data.forEach((bar,i)=>{const n=values[i]; if(!n)return; const p=bar.tooltipPosition(); ctx.textAlign=horizontal?'left':'center'; ctx.fillText(String(n),horizontal?Math.min(p.x+8,chart.chartArea.right-22):p.x,horizontal?p.y:Math.max(14,p.y-10));}); ctx.restore();}}]});
-  }
-  function renderInsights(){
-    ensureDom(); cleanDelivered();
-    const rows=baseRows();
-    const open=rows.filter(r=>txt(val(r,'Queue'))==='Open_Cases');
-    const ready=rows.filter(r=>txt(val(r,'Queue'))==='Ready For Delivery Cases');
-    const status=countBy(open,'Status'), branch=countBy(open,'Branch'), stage=countBy(open,'Stage'), readyBranch=countBy(ready,'Branch');
-    summary('skyOpenStatusSummary',status,open.length); summary('skyOpenBranchSummary',branch,open.length); summary('skyOpenStageSummary',stage,open.length); summary('skyReadyBranchSummary',readyBranch,ready.length);
-    makeChart('skyOpenStatusChart',status,'Open_Cases',true,'status');
-    makeChart('skyOpenBranchChart',branch,'Open_Cases',false,'branch');
-    renderTable('skyOpenStageSummaryTable','Stage',stage,'stage');
-    renderTable('skyReadyBranchSummaryTable','Branch',readyBranch,'readyBranch');
-  }
-  function clearSelection(type){
-    clearAllInsightFilters();
-    if(type==='branch'){clearMulti('skyBranchFilter'); clearSingle('skyQueueFilter');}
-    if(type==='stage'){clearMulti('skyStageFilter'); clearSingle('skyQueueFilter');}
-    if(type==='readyBranch'){clearMulti('skyBranchFilter'); clearSingle('skyQueueFilter');}
-    if(type==='status'){clearSingle('skyQueueFilter');}
-    if(type==='all'){clearMulti('skyBranchFilter'); clearMulti('skyStageFilter'); clearSingle('skyQueueFilter');}
-    try{ if(typeof window.refreshSkyExcelFilterWidgets==='function') window.refreshSkyExcelFilterWidgets(); }catch(e){}
-    // Directly redraw the visuals so the button has an immediate visible effect.
-    setTimeout(()=>{renderInsights();},0);
-    setTimeout(()=>{ if(typeof originalRenderSky==='function') originalRenderSky.call(window); renderInsights();},60);
-  }
-  function rerender(){ setTimeout(()=>{ if(typeof originalRenderSky==='function') originalRenderSky.call(window); renderInsights();},0); }
-  window.clearSkyInsightSelection=clearSelection;
-  const originalRenderSky=window.renderSky;
-  window.updateSkyCharts=function(){ requestAnimationFrame(renderInsights); };
-  window.renderSky=function(){ cleanDelivered(); const res=typeof originalRenderSky==='function'?originalRenderSky.apply(this,arguments):undefined; setTimeout(renderInsights,40); return res; };
-  document.addEventListener('click',function(e){
-    const btn=e.target.closest&&e.target.closest('#skyPage .sky-clear-data-btn,#skyPage .chart-clear-btn');
-    if(btn){e.preventDefault(); e.stopPropagation(); clearSelection(btn.dataset.skyClearType||'all'); return;}
-    const row=e.target.closest&&e.target.closest('#skyPage table.sky-v28-pivot tbody tr');
-    if(row){const type=row.dataset.type, raw=row.dataset.value; if(type==='stage'){setSingle('skyQueueFilter','Open_Cases'); setMulti('skyStageFilter',raw);} if(type==='readyBranch'){setSingle('skyQueueFilter','Ready For Delivery Cases'); setMulti('skyBranchFilter',raw);} rerender();}
-  },true);
-  document.addEventListener('DOMContentLoaded',()=>{setTimeout(renderInsights,300);});
-  window.addEventListener('load',()=>{setTimeout(renderInsights,600);});
-  requestAnimationFrame(renderInsights);
-})();
-
-
-/* ===== sky-v29-show-summary-tables-fix-script ===== */
-
-(function(){
-  function forceSkySummaryTablesVisible(){
-    try{
-      document.querySelectorAll('#skyChartsSection [data-sky-v28="stage"], #skyChartsSection [data-sky-v28="readyBranch"]').forEach(function(sec){
-        sec.style.setProperty('display','block','important');
-        sec.style.setProperty('visibility','visible','important');
-        sec.style.setProperty('opacity','1','important');
-      });
-      document.querySelectorAll('#skyOpenStageSummaryTable, #skyReadyBranchSummaryTable').forEach(function(tbl){
-        tbl.style.setProperty('display','table','important');
-        tbl.style.setProperty('visibility','visible','important');
-        var wrap=tbl.closest('.table-wrap');
-        if(wrap){ wrap.style.setProperty('display','block','important'); wrap.style.setProperty('min-height','220px','important'); }
-      });
-    }catch(e){}
-  }
-  var previousUpdate=window.updateSkyCharts;
-  window.updateSkyCharts=function(){
-    var res=typeof previousUpdate==='function'?previousUpdate.apply(this,arguments):undefined;
-    setTimeout(forceSkySummaryTablesVisible,50);
-    return res;
-  };
-  var previousRender=window.renderSky;
-  window.renderSky=function(){
-    var res=typeof previousRender==='function'?previousRender.apply(this,arguments):undefined;
-    setTimeout(forceSkySummaryTablesVisible,80);
-    return res;
-  };
-  document.addEventListener('DOMContentLoaded',function(){setTimeout(forceSkySummaryTablesVisible,800);});
-  window.addEventListener('load',function(){setTimeout(forceSkySummaryTablesVisible,1000);});
-  requestAnimationFrame(forceSkySummaryTablesVisible);
 })();
 
 
@@ -8739,12 +5327,9 @@ void(removeExportButtons, 10000);
     makeChart('gspnReqStageChart', stage.labels, stage.values, false, label=>{ setMultiFilter('stageFilter', label); rerender(); });
   }
 
-  const previousUpdateCharts = window.updateCharts;
-  window.updateCharts=function(rows){
-    const res = typeof previousUpdateCharts === 'function' ? previousUpdateCharts.apply(this, arguments) : undefined;
-    setTimeout(()=>renderRequestedCharts(Array.isArray(rows)?rows:rowsAll()), 0);
-    return res;
-  };
+  if (typeof window.registerGspnAfterRenderHook === 'function') {
+    window.registerGspnAfterRenderHook(function(){ setTimeout(()=>renderRequestedCharts(rowsAll()), 0); });
+  }
   const previousRefreshFilters = window.refreshFilterLists;
   if(typeof previousRefreshFilters === 'function'){
     window.refreshFilterLists=function(){ const res=previousRefreshFilters.apply(this,arguments); setTimeout(()=>{ensureStageMultipleSelect(); ensureStageCustomDropdown();},0); return res; };
@@ -8862,14 +5447,7 @@ void(removeExportButtons, 10000);
     moveRequestedChartsToBottom();
   }
 
-  const previousUpdateCharts = window.updateCharts;
-  if(typeof previousUpdateCharts === 'function'){
-    window.updateCharts = function(){
-      const result = previousUpdateCharts.apply(this, arguments);
-      requestAnimationFrame(applyFinalGspnFix);
-      return result;
-    };
-  }
+  if (typeof window.registerGspnAfterRenderHook === 'function') window.registerGspnAfterRenderHook(function(){ requestAnimationFrame(applyFinalGspnFix); });
 
   const previousRefreshFilterLists = window.refreshFilterLists;
   if(typeof previousRefreshFilterLists === 'function'){
@@ -8880,14 +5458,7 @@ void(removeExportButtons, 10000);
     };
   }
 
-  const previousRender = window.render;
-  if(typeof previousRender === 'function'){
-    window.render = function(){
-      const result = previousRender.apply(this, arguments);
-      requestAnimationFrame(applyFinalGspnFix);
-      return result;
-    };
-  }
+  /* GSPN render hook registered above; no render override needed. */
 
   document.addEventListener('click', function(e){
     if(!e.target.closest || !e.target.closest('#gspnPage .gspn-v50-filter')){
@@ -9074,604 +5645,6 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   });
 }
 
-
-
-/* ===== codex-final-visitor-and-sky-table-fix ===== */
-
-(function(){
-  'use strict';
-
-  const PRESENCE_KEY = 'serviceEyeOnlineTabsLocalFallback_v2';
-  const TAB_ID_KEY = 'serviceEyeVisitorTabId_v2';
-  const STALE_MS = 20000;
-
-  function byId(id){ return document.getElementById(id); }
-  function text(value){ return String(value == null ? '' : value).trim(); }
-  function esc(value){
-    return text(value).replace(/[&<>"']/g, function(ch){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
-    });
-  }
-  function activeSection(){
-    const stored = text(localStorage.getItem('serviceEyeActiveTab')).toLowerCase();
-    if (stored === 'profit' || stored === 'profitability' || stored === 'commission') return 'profit';
-    if (stored === 'sky') return 'sky';
-    if (stored.indexOf('analysis') >= 0 || stored.indexOf('analys') >= 0) return 'analysis';
-    const pages = [
-      ['profitPage', 'profit'],
-      ['skyPage', 'sky'],
-      ['analysisPage', 'analysis'],
-      ['gspnPage', 'gspn']
-    ];
-    for (const pair of pages) {
-      const page = byId(pair[0]);
-      if (!page) continue;
-      const style = window.getComputedStyle(page);
-      if (style.display !== 'none' && style.visibility !== 'hidden') return pair[1];
-    }
-    return 'gspn';
-  }
-  function pageKey(){
-    return location.origin + location.pathname + '#' + activeSection();
-  }
-  function ensureVisitorBadge(){
-    let badge = byId('topOnlineUsersBadge');
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.id = 'topOnlineUsersBadge';
-      badge.className = 'top-online-users-badge';
-      document.body.appendChild(badge);
-    }
-    if (!badge.querySelector('#topOnlineUsersCount')) {
-      badge.innerHTML = '<span class="online-users-label">Visitors</span><span class="online-users-count" id="topOnlineUsersCount">0</span>';
-    }
-    const label = badge.querySelector('.online-users-label');
-    if (label) label.textContent = 'Visitors';
-    return badge;
-  }
-  function setVisitorCount(count, source){
-    const safeCount = Math.max(1, Number(count) || 1);
-    const badge = ensureVisitorBadge();
-    const countEl = byId('topOnlineUsersCount');
-    if (countEl) countEl.textContent = String(safeCount);
-    badge.dataset.source = source || 'local';
-    badge.dataset.pageKey = pageKey();
-    badge.title = safeCount + ' visitor' + (safeCount === 1 ? '' : 's') + ' currently viewing this section' + (source ? ' - ' + source : '');
-  }
-  function readPresence(){
-    try { return JSON.parse(localStorage.getItem(PRESENCE_KEY) || '{}') || {}; }
-    catch(e) { return {}; }
-  }
-  function writePresence(store){
-    try { localStorage.setItem(PRESENCE_KEY, JSON.stringify(store)); } catch(e) {}
-  }
-  function localPresenceHeartbeat(){return; }
-
-  const oldSwitchTab = window.switchTab;
-  if (typeof oldSwitchTab === 'function' && !oldSwitchTab.__codexVisitorPatch) {
-    const patched = function(){
-      const result = oldSwitchTab.apply(this, arguments);
-      requestAnimationFrame(localPresenceHeartbeat);
-      return result;
-    };
-    patched.__codexVisitorPatch = true;
-  }
-
-  window.addEventListener('storage', localPresenceHeartbeat);
-  document.addEventListener('visibilitychange', localPresenceHeartbeat);
-  window.addEventListener('beforeunload', function(){
-    const tabId = sessionStorage.getItem(TAB_ID_KEY);
-    if (!tabId) return;
-    const store = readPresence();
-    delete store[tabId];
-    writePresence(store);
-  });
-
-  function rowValue(row, key){
-    if (!row) return '';
-    if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
-    const lower = key.toLowerCase();
-    const found = Object.keys(row).find(function(k){ return k.toLowerCase() === lower; });
-    if (found) return row[found];
-    if (key === 'Aging Days') return row['Aging Days'] ?? row.Aging_Days ?? row.AgingDays ?? '';
-    if (key === 'Aging Days Group') return row['Aging Days Group'] ?? row.Aging_Days_Group ?? row.AgingDaysGroup ?? row.Aging_Group ?? row['aging Days Group'] ?? '';
-    return '';
-  }
-  function renderCompleteSkyTable(rows){
-    const table = byId('skyCasesTable');
-    if (!table || !Array.isArray(rows)) return;
-    const columns = [
-      ['Queue','Queue'],
-      ['Brand','Brand'],
-      ['Branch','Branch'],
-      ['Open_Date_Display','Open Date'],
-      ['Aging Days','Aging Days'],
-      ['Aging Days Group','Aging Days Group'],
-      ['Job_Number','Job Number'],
-      ['Status','Status'],
-      ['Stage','Stage'],
-      ['Item English Name','Item English Name'],
-      ['Price','Price']
-    ];
-    if (!rows.length) {
-      table.innerHTML = '<tr><td>No data available</td></tr>';
-      return;
-    }
-    table.innerHTML =
-      '<thead><tr>' + columns.map(function(col){ return '<th>' + esc(col[1]) + '</th>'; }).join('') + '</tr></thead>' +
-      '<tbody>' + rows.map(function(row){
-        return '<tr>' + columns.map(function(col){ return '<td>' + esc(rowValue(row, col[0])) + '</td>'; }).join('') + '</tr>';
-      }).join('') + '</tbody>';
-  }
-
-  const oldRenderSky = window.renderSky;
-  if (typeof oldRenderSky === 'function' && !oldRenderSky.__codexFullSkyTablePatch) {
-    const patchedRenderSky = function(){
-      const result = oldRenderSky.apply(this, arguments);
-      const rows = typeof window.getSkyFilteredRows === 'function'
-        ? window.getSkyFilteredRows()
-        : (Array.isArray(window.currentSkyRows) ? window.currentSkyRows : []);
-      window.currentSkyRows = rows;
-      renderCompleteSkyTable(rows);
-      return result;
-    };
-    patchedRenderSky.__codexFullSkyTablePatch = true;
-    window.renderSky = patchedRenderSky;
-  }
-
-  function boot(){
-    ensureVisitorBadge();
-    localPresenceHeartbeat();
-    if (byId('skyCasesTable')) {
-      const rows = typeof window.getSkyFilteredRows === 'function'
-        ? window.getSkyFilteredRows()
-        : (Array.isArray(window.currentSkyRows) ? window.currentSkyRows : []);
-      if (rows.length) renderCompleteSkyTable(rows);
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 250); });
-  window.addEventListener('load', function(){ setTimeout(boot, 500); });
-  requestAnimationFrame(boot);
-})();
-
-
-/* ===== codex-sky-workbook-export-chart-fix ===== */
-
-(function(){
-  'use strict';
-
-  const WORKBOOK_URL = 'datasky.xlsx';
-  const ALLOWED_QUEUES = new Set(['Open_Cases', 'Ready For Delivery Cases']);
-  const TABLE_COLUMNS = [
-    ['Queue','Queue'],
-    ['Brand','Brand'],
-    ['Branch','Branch'],
-    ['Open_Date_Display','Open Date'],
-    ['Aging Days','Aging Days'],
-    ['Aging Days Group','Aging Days Group'],
-    ['Job_Number','Job Number'],
-    ['Status','Status'],
-    ['Stage','Stage'],
-    ['Item English Name','Item English Name'],
-    ['Price','Price']
-  ];
-  const EXPORT_COLUMNS = [
-    ['Queue','Queue'],
-    ['Brand','Brand'],
-    ['Branch','Branch'],
-    ['Job_Number','Job_Number'],
-    ['Status','Status'],
-    ['Stage','Stage'],
-    ['Final_Stausus','Final_Stausus'],
-    ['Item English Name','Item English Name'],
-    ['Price','Price'],
-    ['Discount','Discount'],
-    ['IMEI','IMEI'],
-    ['SerialNumber','SerialNumber'],
-    ['JobType','JobType'],
-    ['Warranty','Warranty'],
-    ['Recieved_By','Recieved_By'],
-    ['Assigned_To','Assigned_To'],
-    ['Defects','Defects'],
-    ['Not_Repaired_Reason','Not_Repaired_Reason'],
-    ['Open_Date','Open_Date'],
-    ['Ready For Delivery Date','Ready For Delivery Date'],
-    ['Aging Month','Aging Month'],
-    ['Aging Days','Aging Days'],
-    ['Customer_Type','Customer_Type'],
-    ['Customer_Name','Customer_Name'],
-    ['Customer_Mobile','Customer_Mobile'],
-    ['Customer_Phone','Customer_Phone'],
-    ['Aging Days Group','Aging Days Group']
-  ];
-  const DISABLED_CHART_PLUGIN_IDS = [
-    'v19Labels',
-    'v3RequestedCaseLabels',
-    'gspnFinalV4Labels',
-    'gspnRequestedValueLabels',
-    'skyBarLabelErrorPlugin',
-    'skyV43SingleLabels',
-    'skyFinalValueLabels',
-    'skyV28Labels',
-    'skyV26Labels'
-  ];
-
-  let workbookRowsLoaded = false;
-  let workbookLoadPromise = null;
-
-  function byId(id){ return document.getElementById(id); }
-  function text(value){ return String(value == null ? '' : value).trim(); }
-  function esc(value){
-    return text(value).replace(/[&<>"']/g, function(ch){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
-    });
-  }
-  function normKey(value){ return text(value).toLowerCase().replace(/[^a-z0-9]/g, ''); }
-  function rowValue(row, key) {
-    if (!row) return '';
-    if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
-    const wanted = normKey(key);
-    const found = Object.keys(row).find(function(k){ return normKey(k) === wanted; });
-    if (found) return row[found];
-    if (key === 'Aging Days') return row['Aging Days'] ?? row.Aging_Days ?? row.AgingDays ?? '';
-    if (key === 'Aging Days Group') return row['Aging Days Group'] ?? row.Aging_Days_Group ?? row.AgingDaysGroup ?? row.Aging_Group ?? row['aging Days Group'] ?? '';
-    if (key === 'Customer_Phone') return row.Customer_Phone ?? row.Customer_phone ?? row['Customer Phone'] ?? '';
-    return '';
-  }
-  function formatDateDisplay(value) {
-    if (!value) return '';
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return value.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }).replace(/ /g, '-');
-    }
-    if (typeof value === 'number' && typeof XLSX !== 'undefined' && XLSX.SSF) {
-      try {
-        const d = XLSX.SSF.parse_date_code(value);
-        if (d) return new Date(d.y, d.m - 1, d.d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }).replace(/ /g, '-');
-      } catch(e) {}
-    }
-    return text(value);
-  }
-  function dateStamp(value) {
-    if (!value) return null;
-    if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-    if (typeof value === 'number' && typeof XLSX !== 'undefined' && XLSX.SSF) {
-      try {
-        const d = XLSX.SSF.parse_date_code(value);
-        if (d) return new Date(d.y, d.m - 1, d.d).getTime();
-      } catch(e) {}
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-  }
-  function normalizeSkyWorkbookRow(row) {
-    const out = {};
-    Object.keys(row || {}).forEach(function(k){ if (text(k)) out[k] = row[k]; });
-    out.Queue = text(rowValue(out, 'Queue'));
-    out.Brand = text(rowValue(out, 'Brand'));
-    out.Branch = text(rowValue(out, 'Branch'));
-    out.Job_Number = text(rowValue(out, 'Job_Number'));
-    out.Status = text(rowValue(out, 'Status'));
-    out.Stage = text(rowValue(out, 'Stage'));
-    out.Open_Date = rowValue(out, 'Open_Date');
-    out.Open_Date_Display = formatDateDisplay(out.Open_Date);
-    out.Open_Date_Stamp = dateStamp(out.Open_Date);
-    out['Aging Days'] = rowValue(out, 'Aging Days');
-    out.Aging_Days = rowValue(out, 'Aging Days');
-    out['Aging Days Group'] = text(rowValue(out, 'Aging Days Group'));
-    out.Aging_Days_Group = out['Aging Days Group'];
-    out.Customer_Phone = rowValue(out, 'Customer_Phone');
-    out.Customer_phone = out.Customer_Phone;
-    return out;
-  }
-  function skyRowsArray(){
-    try {
-      if (Array.isArray(window.skyRows)) return window.skyRows;
-      if (typeof skyRows !== 'undefined' && Array.isArray(skyRows)) return skyRows;
-    } catch(e) {}
-    return [];
-  }
-  function setSkyRows(rows) {
-    const normalized = rows.map(normalizeSkyWorkbookRow).filter(function(row){ return ALLOWED_QUEUES.has(row.Queue); });
-    window.skyRows = normalized;
-    try { skyRows = normalized; } catch(e) {}
-    window.currentSkyRows = applySkyFilters(normalized);
-    return normalized;
-  }
-  async function loadSkyWorkbookRows(force) {
-    if (workbookRowsLoaded && !force) return skyRowsArray();
-    if (workbookLoadPromise && !force) return workbookLoadPromise;
-    if (typeof XLSX === 'undefined') return skyRowsArray();
-    workbookLoadPromise = fetch(WORKBOOK_URL + '?v=' + Date.now(), { cache:'no-store' })
-      .then(function(response){
-        if (!response.ok) throw new Error('Cannot load ' + WORKBOOK_URL + ': HTTP ' + response.status);
-        return response.arrayBuffer();
-      })
-      .then(function(buffer){
-        const workbook = XLSX.read(new Uint8Array(buffer), { type:'array', cellDates:true });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:true });
-        workbookRowsLoaded = true;
-        const rows = setSkyRows(raw);
-        
-        return rows;
-      })
-      .catch(function(error){
-        workbookRowsLoaded = true;
-        if (typeof setSkyUploadProgress === 'function')
-          setSkyUploadProgress(0, 'Auto-load failed', (error && error.message) || 'Could not load workbook.', true);
-        return setSkyRows(skyRowsArray());
-      });
-    return workbookLoadPromise;
-  }
-  function selectedMulti(id) {
-    const el = byId(id);
-    if (!el) return [];
-    return Array.from(el.selectedOptions || [])
-      .map(function(option){ return text(option.value || option.textContent); })
-      .filter(function(value){ return value && value !== '__ALL__' && value !== 'ALL' && value !== '(Select All)'; });
-  }
-  function selectedSingle(id) {
-    const el = byId(id);
-    return el ? text(el.value) : '';
-  }
-  function applySkyFilters(sourceRows) {
-    const branches = selectedMulti('skyBranchFilter');
-    const stages = selectedMulti('skyStageFilter');
-    const queue = selectedSingle('skyQueueFilter');
-    const brand = selectedSingle('skyBrandFilter');
-    const aging = selectedSingle('skyAgingDaysGroupFilter');
-    const search = selectedSingle('skySearchBox').toLowerCase();
-    const from = selectedSingle('skyFromDate') ? new Date(selectedSingle('skyFromDate') + 'T00:00:00').getTime() : null;
-    const to = selectedSingle('skyToDate') ? new Date(selectedSingle('skyToDate') + 'T00:00:00').getTime() : null;
-    return (sourceRows || []).filter(function(row){
-      if (!ALLOWED_QUEUES.has(text(row.Queue))) return false;
-      if (branches.length && !branches.includes(text(row.Branch))) return false;
-      if (stages.length && !stages.includes(text(row.Stage))) return false;
-      if (queue && text(row.Queue) !== queue) return false;
-      if (brand && text(row.Brand) !== brand) return false;
-      if (aging && text(rowValue(row, 'Aging Days Group')) !== aging) return false;
-      if (from !== null && row.Open_Date_Stamp !== null && row.Open_Date_Stamp < from) return false;
-      if (to !== null && row.Open_Date_Stamp !== null && row.Open_Date_Stamp > to) return false;
-      if (search) {
-        const hay = ['Job_Number','IMEI','SerialNumber','Customer_Mobile','Customer_Phone','Customer_phone','Queue','Stage','Status','Branch','Aging Days Group','Item English Name']
-          .map(function(key){ return text(rowValue(row, key)); }).join(' ').toLowerCase();
-        if (!hay.includes(search)) return false;
-      }
-      return true;
-    });
-  }
-  function fillSelect(id, values, allText, keepMultiple) {
-    const el = byId(id);
-    if (!el) return;
-    const selected = Array.from(el.selectedOptions || []).map(function(option){ return text(option.value || option.textContent); }).filter(Boolean);
-    const current = text(el.value);
-    const uniqueValues = Array.from(new Set(values.map(text).filter(Boolean))).sort();
-    el.innerHTML = '<option value="' + (keepMultiple ? '__ALL__' : '') + '">' + esc(allText) + '</option>' +
-      uniqueValues.map(function(value){ return '<option value="' + esc(value) + '">' + esc(value) + '</option>'; }).join('');
-    if (keepMultiple) {
-      const kept = selected.filter(function(value){ return uniqueValues.includes(value); });
-      Array.from(el.options).forEach(function(option, index){
-        option.selected = kept.length ? kept.includes(text(option.value || option.textContent)) : index === 0;
-      });
-    } else if (uniqueValues.includes(current)) {
-      el.value = current;
-    }
-  }
-  function refreshSkyFilterOptions(rows) {
-    fillSelect('skyBranchFilter', rows.map(function(row){ return row.Branch; }), 'All Branches', true);
-    fillSelect('skyStageFilter', rows.map(function(row){ return row.Stage; }), 'All Stages', true);
-    fillSelect('skyAgingDaysGroupFilter', rows.map(function(row){ return rowValue(row, 'Aging Days Group'); }), 'All Aging Days Groups', false);
-  }
-  function renderSkyTable(rows) {
-    const table = byId('skyCasesTable');
-    if (!table) return;
-    if (!rows.length) {
-      table.innerHTML = '<tr><td>No data available</td></tr>';
-      return;
-    }
-    table.innerHTML = '<thead><tr>' + TABLE_COLUMNS.map(function(col){ return '<th>' + esc(col[1]) + '</th>'; }).join('') + '</tr></thead>' +
-      '<tbody>' + rows.map(function(row){
-        return '<tr>' + TABLE_COLUMNS.map(function(col){ return '<td>' + esc(rowValue(row, col[0])) + '</td>'; }).join('') + '</tr>';
-      }).join('') + '</tbody>';
-  }
-  function setText(id, value) {
-    const el = byId(id);
-    if (el) el.textContent = String(value);
-  }
-  function percent(part, total) {
-    return total ? Math.round((Number(part || 0) * 100) / Number(total || 1)) : 0;
-  }
-  function updateSkyCards(rows) {
-    const total = rows.length;
-    const open = rows.filter(function(row){ return row.Queue === 'Open_Cases'; }).length;
-    const ready = rows.filter(function(row){ return row.Queue === 'Ready For Delivery Cases'; }).length;
-    const samsung = rows.filter(function(row){ return text(row.Brand).toLowerCase() === 'samsung'; }).length;
-    const apple = rows.filter(function(row){ return text(row.Brand).toLowerCase() === 'apple'; }).length;
-    setText('skyTotalCases', total);
-    setText('skyOpenCases', open);
-    setText('skyOpenPercent', percent(open, total) + '% of Total');
-    setText('skyReadyCases', ready);
-    setText('skyReadyPercent', percent(ready, total) + '% of Total');
-    setText('skySamsungCases', samsung);
-    setText('skySamsungPercent', percent(samsung, total) + '% of Total');
-    setText('skyAppleCases', apple);
-    setText('skyApplePercent', percent(apple, total) + '% of Total');
-  }
-  function countBy(rows, field) {
-    const map = new Map();
-    rows.forEach(function(row){
-      const key = text(rowValue(row, field)) || 'Blank';
-      map.set(key, (map.get(key) || 0) + 1);
-    });
-    return Array.from(map.entries()).sort(function(a,b){ return b[1] - a[1] || a[0].localeCompare(b[0]); });
-  }
-  function setSummary(id, items, total) {
-    const el = byId(id);
-    if (!el) return;
-    el.innerHTML = items.map(function(item){
-      return '<span class="sky-chart-chip">' + esc(item[0]) + ': ' + item[1] + ' (' + percent(item[1], total) + '%)</span>';
-    }).join('');
-  }
-  function resetCanvas(canvas) {
-    if (!canvas) return;
-    const id = canvas.id;
-    try {
-      if (window.dashboardCharts && window.dashboardCharts[id]) {
-        window.dashboardCharts[id].destroy();
-        delete window.dashboardCharts[id];
-      }
-    } catch(e) {}
-    const fresh = canvas.cloneNode(false);
-    canvas.parentNode.replaceChild(fresh, canvas);
-  }
-  function disableGlobalChartLabels() {
-    if (!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
-    DISABLED_CHART_PLUGIN_IDS.forEach(function(id){
-      try {
-        const plugin = Chart.registry.plugins.get(id);
-        if (plugin) Chart.unregister(plugin);
-      } catch(e) {}
-    });
-  }
-  function ensureCleanSkyChartDom() {
-    const grid = byId('skyChartsSection');
-    if (!grid) return;
-    grid.className = 'charts-grid sky-charts sky-requested-insights sky-codex-clean-charts';
-    grid.innerHTML =
-      '<section class="chart-card"><h2>Open Cases per Branch</h2><div class="sky-chart-summary" id="skyOpenBranchSummary"></div><div class="chart-box sky-open-branch-chart-box"><canvas id="skyOpenBranchChart"></canvas></div></section>' +
-      '<section class="chart-card"><h2>Open_Cases Status</h2><div class="sky-chart-summary" id="skyOpenStatusSummary"></div><div class="chart-box sky-open-status-chart-box"><canvas id="skyOpenStatusChart"></canvas></div></section>';
-  }
-  function renderBar(canvasId, items, label, horizontal) {
-    const canvas = byId(canvasId);
-    if (!canvas || !window.Chart) return;
-    resetCanvas(canvas);
-    disableGlobalChartLabels();
-    const fresh = byId(canvasId);
-    const labels = items.map(function(item){ return item[0] + ' (' + percent(item[1], items.reduce(function(sum,x){ return sum + x[1]; }, 0)) + '%)'; });
-    const values = items.map(function(item){ return item[1]; });
-    const total = values.reduce(function(sum,value){ return sum + Number(value || 0); }, 0);
-    const max = Math.max.apply(null, values.concat([0]));
-    const colors = (window.COLORS || ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf']);
-    window.dashboardCharts = window.dashboardCharts || {};
-    window.dashboardCharts[canvasId] = __safeNewChart(fresh, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: label,
-          data: values,
-          backgroundColor: values.map(function(_, i){ return colors[i % colors.length]; }),
-          borderColor: values.map(function(_, i){ return colors[i % colors.length]; }),
-          borderWidth: 1,
-          borderRadius: horizontal ? 6 : 5,
-          maxBarThickness: horizontal ? 24 : 52
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        indexAxis: horizontal ? 'y' : 'x',
-        layout: { padding: { top: 18, right: 22, bottom: 18, left: 8 } },
-        plugins: Object.assign({
-          legend: { display: false },
-          tooltip: { callbacks: { label: function(ctx){ return label + ': ' + ctx.raw + ' (' + percent(ctx.raw, total) + '%)'; } } }
-        }, DISABLED_CHART_PLUGIN_IDS.reduce(function(acc, id){ acc[id] = false; return acc; }, {})),
-        scales: {
-          x: {
-            beginAtZero: true,
-            suggestedMax: horizontal ? max * 1.2 + 1 : undefined,
-            ticks: { autoSkip: false, precision: 0, maxRotation: horizontal ? 0 : 25, minRotation: 0, color: '#111827', font: { weight: '700' } },
-            grid: { color: 'rgba(17,24,39,.18)' }
-          },
-          y: {
-            beginAtZero: !horizontal,
-            suggestedMax: horizontal ? undefined : max * 1.2 + 1,
-            afterFit: function(scale){ if (horizontal) scale.width = Math.min(330, Math.max(150, ...labels.map(function(item){ return String(item).length * 6.6; }))); },
-            ticks: {
-              autoSkip: false,
-              precision: 0,
-              color: '#111827',
-              font: { weight: '700' },
-              callback: function(value) {
-                const axisLabel = this.getLabelForValue ? this.getLabelForValue(value) : value;
-                return horizontal && String(axisLabel).length > 48 ? String(axisLabel).slice(0, 47) + '...' : axisLabel;
-              }
-            },
-            grid: { color: 'rgba(17,24,39,.18)' }
-          }
-        },
-        onClick: function(evt, elements) {
-          if (!elements.length) return;
-          const raw = items[elements[0].index][0];
-          if (canvasId === 'skyOpenBranchChart') {
-            const branch = byId('skyBranchFilter');
-            if (branch) Array.from(branch.options).forEach(function(option){ option.selected = text(option.value || option.textContent) === raw; });
-            const queue = byId('skyQueueFilter');
-            if (queue) queue.value = 'Open_Cases';
-            window.renderSky();
-          }
-          if (canvasId === 'skyOpenStatusChart') {
-            const search = byId('skySearchBox');
-            if (search) search.value = raw;
-            const queue = byId('skyQueueFilter');
-            if (queue) queue.value = 'Open_Cases';
-            window.renderSky();
-          }
-        }
-      }
-    });
-  }
-  function updateCleanSkyCharts(rows) {
-    ensureCleanSkyChartDom();
-    const openRows = rows.filter(function(row){ return row.Queue === 'Open_Cases'; });
-    const branch = countBy(openRows, 'Branch');
-    const status = countBy(openRows, 'Status');
-    setSummary('skyOpenBranchSummary', branch, openRows.length);
-    setSummary('skyOpenStatusSummary', status, openRows.length);
-    renderBar('skyOpenBranchChart', branch, 'Open_Cases', false);
-    renderBar('skyOpenStatusChart', status, 'Open_Cases', true);
-  }
-  function renderSkyClean() {
-    const all = setSkyRows(skyRowsArray());
-    refreshSkyFilterOptions(all);
-    const rows = applySkyFilters(all);
-    window.currentSkyRows = rows;
-    renderSkyTable(rows);
-    updateSkyCards(rows);
-    updateCleanSkyCharts(rows);
-    return rows;
-  }
-  window.getSkyFilteredRows = function(){ return applySkyFilters(setSkyRows(skyRowsArray())); };
-  window.renderSky = function(){ return renderSkyClean(); };
-  window.exportSkyExcel = async function(){
-    await loadSkyWorkbookRows(true);
-    const rows = renderSkyClean();
-    if (typeof XLSX === 'undefined') {
-      if (typeof exportRowsToExcel === 'function') exportRowsToExcel(rows, EXPORT_COLUMNS, 'SKY Tracking Cases Export.xlsx', 'SKY Filtered Cases');
-      return;
-    }
-    const outputRows = rows.map(function(row){
-      const out = {};
-      EXPORT_COLUMNS.forEach(function(col){ out[col[1]] = rowValue(row, col[0]); });
-      return out;
-    });
-    const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.json_to_sheet(outputRows, { header: EXPORT_COLUMNS.map(function(col){ return col[1]; }) });
-    XLSX.utils.book_append_sheet(workbook, sheet, 'SKY Filtered Cases');
-    XLSX.writeFile(workbook, 'SKY Tracking Cases Export.xlsx');
-  };
-
-  async function boot() {
-    await loadSkyWorkbookRows(false);
-    renderSkyClean();
-  }
-
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 600); });
-  window.addEventListener('load', function(){ setTimeout(boot, 800); });
-  requestAnimationFrame(boot);
-})();
 
 
 /* ===== codex-remove-analyses-dashboard-script ===== */
@@ -11216,17 +7189,7 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     }catch(e){}
   }
 
-  const previousRender = window.render;
-  if(typeof previousRender === 'function' && !previousRender.__gspnRedoHotfix){
-    const wrapped = function(){
-      syncExistingRedoRows();
-      const result = previousRender.apply(this, arguments);
-      syncExistingRedoRows();
-      return result;
-    };
-    wrapped.__gspnRedoHotfix = true;
-    window.render = wrapped;
-  }
+  window.syncExistingRedoRows = syncExistingRedoRows;
 
   function exportRows(rows, columns, fileName, sheetName){
     if(typeof XLSX === 'undefined') return;
@@ -12387,117 +8350,6 @@ void(boot, 2500);
 })();
 
 
-/* ===== sky-open-cases-normalize-fix ===== */
-
-(function(){
-  function txt(v){ return String(v == null ? '' : v).trim(); }
-  function normQueue(row){
-    const q = txt(row && (row.Queue ?? row.queue ?? row['Queue']));
-    const l = q.toLowerCase().replace(/\s+/g,'_');
-    if (q === 'Open_Cases' || q === 'Open_Cases' || l.includes('open')) return 'Open_Cases';
-    if (q === 'Ready For Delivery Cases' || l.includes('ready')) return 'Ready For Delivery Cases';
-    if (q === '__REMOVED_QUEUE__' || l.includes('delivered')) return '__REMOVED_QUEUE__';
-    return q;
-  }
-  function fmt(n){ return Number(n||0).toLocaleString('en-US'); }
-  function pct(part,total){ return total ? ((Number(part||0)*100)/Number(total||1)).toFixed(1) : '0.0'; }
-  function byId(id){ return document.getElementById(id); }
-  function setText(id,value){ const el=byId(id); if(el) el.textContent=value; }
-  function countBy(rows, field){
-    const m = new Map();
-    rows.forEach(r=>{ const k = txt(r && r[field]) || 'Blank'; m.set(k,(m.get(k)||0)+1); });
-    return Array.from(m.entries()).sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0])));
-  }
-  function destroyChart(id){
-    try{ if(window.dashboardCharts && window.dashboardCharts[id]){ window.dashboardCharts[id].destroy(); delete window.dashboardCharts[id]; } }catch(e){}
-    const c=byId(id);
-    try{ if(c && window.Chart && typeof Chart.getChart==='function'){ const existing=Chart.getChart(c); if(existing) existing.destroy(); } }catch(e){}
-    if(c && c.parentNode){ const n=c.cloneNode(false); c.parentNode.replaceChild(n,c); }
-  }
-  function drawBar(id, items, title, horizontal){
-    if(!window.Chart) return;
-    const c=byId(id); if(!c) return;
-    destroyChart(id);
-    const canvas=byId(id);
-    const total=items.reduce((a,x)=>a+Number(x[1]||0),0);
-    const labels=items.map(x=>x[0]+' ('+pct(x[1],total)+'%)');
-    const values=items.map(x=>x[1]);
-    const max=Math.max(0,...values);
-    const colors=window.COLORS || ['#8b5cf6','#60a5fa','#34d399','#f59e0b','#ef4444','#14b8a6','#a78bfa','#f97316'];
-    window.dashboardCharts=window.dashboardCharts||{};
-    window.dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title,data:values,backgroundColor:values.map((_,i)=>colors[i%colors.length]),borderColor:values.map((_,i)=>colors[i%colors.length]),borderWidth:1,borderRadius:horizontal?6:5,maxBarThickness:horizontal?24:52}]},options:{animation:false,responsive:true,maintainAspectRatio:false,animation:false,indexAxis:horizontal?'y':'x',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>title+': '+ctx.raw+' ('+pct(ctx.raw,total)+'%)'}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.2+1:undefined,ticks:{autoSkip:false,precision:0,color:'#111827',font:{weight:'700'}}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.2+1,ticks:{autoSkip:false,precision:0,color:'#111827',font:{weight:'700'}}}}}});
-  }
-  function setSummary(id, items, total){
-    const el=byId(id); if(!el) return;
-    el.innerHTML=items.map(x=>'<span class="sky-chart-chip">'+String(x[0]).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+': '+x[1]+' ('+pct(x[1],total)+'%)</span>').join('');
-  }
-  function fixOpenCases(){
-    const rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows : (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : []);
-    if(!Array.isArray(rows) || !rows.length) return;
-    const total=rows.length;
-    const openRows=rows.filter(r=>normQueue(r)==='Open_Cases');
-    setText('skyOpenCases', fmt(openRows.length));
-    setText('skyOpenPercent', pct(openRows.length,total)+'% of Total');
-    const branch=countBy(openRows,'Branch');
-    const status=countBy(openRows,'Status');
-    setSummary('skyOpenBranchSummary', branch, openRows.length);
-    setSummary('skyOpenStatusSummary', status, openRows.length);
-    drawBar('skyOpenBranchChart', branch, 'Open_Cases', false);
-    drawBar('skyOpenStatusChart', status, 'Open_Cases', true);
-  }
-  const oldRenderSky=window.renderSky;
-  window.renderSky=function(){
-    const res = typeof oldRenderSky==='function' ? oldRenderSky.apply(this,arguments) : undefined;
-    setTimeout(fixOpenCases,80);
-    return res;
-  };
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(fixOpenCases,1200));
-  window.addEventListener('load',()=>setTimeout(fixOpenCases,1600));
-})();
-
-
-/* ===== sky-final-queue-clean-script ===== */
-
-(function(){
-  const removedToken='__REMOVED_QUEUE__';
-  const dWord='D'+'elivered';
-  const BAD_WORDS=[dWord+'_Cases',dWord+' Cases',dWord,removedToken];
-  function txt(v){return String(v??'').trim();}
-  function bad(v){const t=txt(v).toLowerCase(); return BAD_WORDS.some(w=>t.includes(String(w).toLowerCase()));}
-  function norm(k){return String(k||'').toLowerCase().replace(/[^a-z0-9]/g,'');}
-  function val(r,k){ if(!r)return''; if(Object.prototype.hasOwnProperty.call(r,k))return r[k]; const nk=norm(k); const f=Object.keys(r).find(x=>norm(x)===nk); return f?r[f]:''; }
-  function scrubRows(){
-    try{ if(Array.isArray(window.skyRows)) window.skyRows=window.skyRows.filter(r=>!bad(val(r,'Queue'))); }catch(e){}
-    try{ if(Array.isArray(window.currentSkyRows)) window.currentSkyRows=window.currentSkyRows.filter(r=>!bad(val(r,'Queue'))); }catch(e){}
-  }
-  function removeContainer(el){
-    if(!el) return;
-    const card=el.closest&&el.closest('.card,.v54-card,.v52-card,.v53-card,.v57-card,.v58-card');
-    if(card){card.remove(); return;}
-    const section=el.closest&&el.closest('section,.chart-card');
-    if(section && bad(section.textContent)) section.remove();
-  }
-  function scrubDom(){
-    scrubRows();
-    document.querySelectorAll('#skyPage option').forEach(o=>{ if(bad(o.value)||bad(o.textContent)) o.remove(); });
-    document.querySelectorAll('#skyPage [id*="'+dWord+'"],#skyPage [data-export-key*="'+dWord.toLowerCase()+'"]').forEach(removeContainer);
-    document.querySelectorAll('#skyPage .card,#skyPage .v54-card,#skyPage .v57-card,#skyPage .v58-card').forEach(el=>{ if(bad(el.textContent)) el.remove(); });
-    document.querySelectorAll('#skyPage .sky-chart-chip,#skyPage th,#skyPage td,#skyPage h2,#skyPage label,#skyPage button').forEach(el=>{ if(bad(el.textContent)) removeContainer(el); });
-    try{
-      if(window.dashboardCharts){ Object.entries(window.dashboardCharts).forEach(([id,ch])=>{ if(id&&bad(id)){try{ch.destroy()}catch(e){} delete window.dashboardCharts[id]; return;} if(ch&&ch.data&&Array.isArray(ch.data.datasets)){ ch.data.datasets=ch.data.datasets.filter(ds=>!bad(ds.label)); if(Array.isArray(ch.data.labels)) ch.data.labels=ch.data.labels.filter(l=>!bad(l)); try{ch.update()}catch(e){} } }); }
-    }catch(e){}
-  }
-  const oldRender=window.renderSky;
-  window.renderSky=function(){ scrubRows(); const res=typeof oldRender==='function'?oldRender.apply(this,arguments):undefined; requestAnimationFrame(scrubDom); return res; };
-  const oldUpdate=window.updateSkyCharts;
-  window.updateSkyCharts=function(){ scrubRows(); const res=typeof oldUpdate==='function'?oldUpdate.apply(this,arguments):undefined; requestAnimationFrame(scrubDom); return res; };
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(scrubDom,700); });
-  window.addEventListener('load',()=>{ setTimeout(scrubDom,900); });
-  requestAnimationFrame(scrubDom);
-void(scrubDom,2000);
-})();
-
-
 /* ===== visual-polish-lightweight-script ===== */
 
 (function(){
@@ -12811,16 +8663,7 @@ window.addEventListener('beforeunload', function() {
     window.switchTab.__stGuarded = true;
   }
 
-  /* ── window.render guard ── */
-  var _rChain = window.render;
-  if (typeof _rChain === 'function' && !_rChain.__renderGuarded) {
-    var _rRafId = null;
-    window.render = function renderGuarded() {
-      cancelAnimationFrame(_rRafId);
-      _rRafId = requestAnimationFrame(function(){ try { _rChain.apply(this, arguments); } catch(e) {} });
-    };
-    window.render.__renderGuarded = true;
-  }
+  /* GSPN render is now handled by the base render() flow; no wrapper guard needed. */
 
   /* ── window.getSkyFilteredRows guard ── */
   /* Not wrapped — just freeze the final version so no later assignment can replace it */
@@ -12840,53 +8683,6 @@ window.addEventListener('beforeunload', function() {
     }
   }
 
-})();
-
-
-/* ===== perf-renderSky-guard ===== */
-
-/* Performance Fix #2: Re-entrancy guard + call debounce for the 14-layer renderSky chain.
-   Injected after all wrappers so it captures the fully-assembled chain.           */
-(function(){
-  var _chain = window.renderSky;
-  if (typeof _chain !== 'function') return;
-  var _running = false;
-  var _queued  = false;
-  var _rafId   = null;
-
-  window.renderSky = function renderSkyGuarded() {
-    if (_running) {
-      _queued = true;   // absorb extra call; will re-run once after current finishes
-      return;
-    }
-    cancelAnimationFrame(_rafId);
-    _rafId = requestAnimationFrame(function() {
-      _running = true;
-      _queued  = false;
-      try { _chain.apply(this, arguments); } catch(e) { }
-      _running = false;
-      if (_queued) {
-        _queued = false;
-        requestAnimationFrame(function(){ window.renderSky(); });
-      }
-    });
-  };
-  window.renderSky.__guarded = true;
-})();
-
-
-/* ===== perf-updateSkyCharts-guard ===== */
-
-/* Performance Fix #12: Re-entrancy guard for updateSkyCharts chain */
-(function(){
-  var _chain = window.updateSkyCharts;
-  if (typeof _chain !== 'function') return;
-  var _rafId = null;
-  window.updateSkyCharts = function(rows) {
-    cancelAnimationFrame(_rafId);
-    var _rows = rows;
-    _rafId = requestAnimationFrame(function(){ try{ _chain(_rows); }catch(e){} });
-  };
 })();
 
 
@@ -14729,299 +10525,14 @@ window.addEventListener('beforeunload', function() {
 })();
 
 
-/* ===== return-cases-visibility-and-sidebar-final-fix ===== */
 
+/* ===== unified-sidebar-controller ===== */
 (function(){
   'use strict';
+  if (window.__sscUnifiedSidebarController) return;
+  window.__sscUnifiedSidebarController = true;
 
-  var ORDER = [
-    ['dashboard','Dashboard','<span class="side-icon dashboard-side-icon">📊</span>',"switchTab('dashboard')"],
-    ['gspn','GSPN Tracking Cases','<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />',"switchTab('gspn')"],
-    ['sky','SKY Tracking Cases','<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />',"switchTab('sky')"],
-    ['preBooking','Pre_Booking','<span class="side-icon prebooking-side-icon">📋</span>',"switchTab('preBooking')"],
-    ['returnCases','Return Cases','<span class="side-icon returncases-side-icon">↩️</span>',"switchTab('returnCases')"],
-    ['profit','Profitability & commission','<span class="side-icon">💰</span>',"switchTab('profit')"],
-    ['cashTarget','Cash & Target','<span class="side-icon">🎯</span>',"openCashTargetTab()"],
-    ['userManagement','User Management','<span class="side-icon">👥</span>',"switchTab('userManagement')"]
-  ];
-  var PAGE_IDS = {
-    dashboard:'dashboardPage',
-    gspn:'gspnPage',
-    sky:'skyPage',
-    preBooking:'preBookingPage',
-    returnCases:'returnCasesPage',
-    profit:'profitPage',
-    cashTarget:'cashTargetPage',
-    userManagement:'userManagementPage'
-  };
-
-  function text(v){ return String(v == null ? '' : v).trim(); }
-  function lower(v){ return text(v).toLowerCase(); }
-  function $(id){ return document.getElementById(id); }
-
-  function keyFromTab(el){
-    if(!el) return '';
-    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || '';
-    if(k) return k;
-    var oc = el.getAttribute('onclick') || '';
-    var t = lower(el.textContent);
-    if(oc.indexOf('dashboard')>=0 || t.indexOf('dashboard')>=0) return 'dashboard';
-    if(oc.indexOf('preBooking')>=0 || t.indexOf('pre_booking')>=0 || t.indexOf('pre booking')>=0) return 'preBooking';
-    if(oc.indexOf('returnCases')>=0 || t.indexOf('return cases')>=0) return 'returnCases';
-    if(oc.indexOf('gspn')>=0 || t.indexOf('gspn')>=0) return 'gspn';
-    if(oc.indexOf('sky')>=0 || t.indexOf('sky')>=0) return 'sky';
-    if(oc.indexOf('profit')>=0 || t.indexOf('profit')>=0 || t.indexOf('commission')>=0) return 'profit';
-    if(oc.indexOf('openCashTargetTab')>=0 || oc.indexOf('cashTarget')>=0 || t.indexOf('cash')>=0 || t.indexOf('target')>=0) return 'cashTarget';
-    if(t.indexOf('user management')>=0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
-    return '';
-  }
-
-  function makeTab(def){
-    var el = document.createElement('div');
-    el.className = 'side-tab';
-    if(def[0] === 'userManagement') el.className += ' firebase-user-management-tab admin-only';
-    el.setAttribute('data-pb-tab', def[0]);
-    el.setAttribute('data-fb-tab-key', def[0]);
-    el.setAttribute('data-tip', def[1]);
-    el.setAttribute('onclick', def[3]);
-    el.innerHTML = def[2] + '<span class="side-label">' + def[1] + '</span>';
-    return el;
-  }
-
-  function canSeeTab(key){
-    var el = document.querySelector('.side-tab[data-pb-tab="'+key+'"],.side-tab[data-fb-tab-key="'+key+'"]');
-    if(!el) return true;
-    if(el.classList.contains('fb-tab-denied')) return false;
-    if(el.getAttribute('aria-hidden') === 'true') return false;
-    return true;
-  }
-
-  function normalizeSidebar(){
-    var side = $('sideMenu') || document.querySelector('.side-menu');
-    if(!side) return;
-
-    var tabs = Array.prototype.slice.call(side.querySelectorAll('.side-tab'));
-    tabs.forEach(function(el){
-      var k = keyFromTab(el);
-      if(k){
-        el.setAttribute('data-pb-tab', k);
-        el.setAttribute('data-fb-tab-key', k);
-        el.setAttribute('data-tip', (ORDER.find(function(d){return d[0]===k;}) || [,''])[1] || text(el.textContent));
-      }
-    });
-
-    var seenKeys = {};
-    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-      var k = keyFromTab(el);
-      if(!k) return;
-      if(seenKeys[k]) {
-        try { el.remove(); } catch(e) { if(el.parentNode) el.parentNode.removeChild(el); }
-      } else {
-        seenKeys[k] = el;
-      }
-    });
-
-    ORDER.forEach(function(def){
-      if(def[0] === 'userManagement'){
-        var existingUM = side.querySelector('.side-tab.firebase-user-management-tab') || Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e)==='userManagement'; });
-        if(existingUM){
-          existingUM.setAttribute('data-pb-tab','userManagement');
-          existingUM.setAttribute('data-fb-tab-key','userManagement');
-          existingUM.setAttribute('data-tip','User Management');
-        }
-        return;
-      }
-      var existing = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
-      if(!existing) side.appendChild(makeTab(def));
-    });
-
-    var workspace = Array.prototype.slice.call(side.querySelectorAll('.side-section-title')).find(function(e){ return lower(e.textContent).indexOf('workspace')>=0; });
-    if(!workspace){
-      workspace = document.createElement('div');
-      workspace.className = 'side-section-title side-label';
-      workspace.textContent = 'Workspace';
-      var head = side.querySelector('.side-head');
-      if(head && head.nextSibling) side.insertBefore(workspace, head.nextSibling);
-      else side.insertBefore(workspace, side.firstChild);
-    }
-
-    var anchor = workspace;
-    ORDER.forEach(function(def, idx){
-      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
-      if(!el) return;
-      el.style.order = String(20 + idx);
-      if(def[0] === 'returnCases'){
-        el.classList.remove('fb-tab-denied');
-        el.setAttribute('aria-hidden','false');
-        el.style.removeProperty('display');
-        el.style.removeProperty('visibility');
-        el.style.removeProperty('opacity');
-        el.style.removeProperty('height');
-        el.style.removeProperty('width');
-      }
-      if(anchor.nextSibling !== el) side.insertBefore(el, anchor.nextSibling);
-      anchor = el;
-    });
-
-    var active = '';
-    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
-    if(active){
-      Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-        el.classList.toggle('active', keyFromTab(el) === active);
-      });
-    }
-  }
-
-  function setVisiblePage(key){
-    Object.keys(PAGE_IDS).forEach(function(k){
-      var page = $(PAGE_IDS[k]);
-      if(page) page.style.display = (k === key ? 'block' : 'none');
-    });
-    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){
-      el.classList.toggle('active', keyFromTab(el) === key);
-    });
-    try { localStorage.setItem('serviceEyeActiveTab', key); } catch(e) {}
-  }
-
-  var previousSwitch = window.switchTab;
-  window.switchTab = function(tab){
-    normalizeSidebar();
-
-    if(tab === 'returnCases'){
-      if(!$('returnCasesPage') && typeof window.loadReturnCases === 'function'){
-        try { window.loadReturnCases(false); } catch(e) {}
-      }
-      setVisiblePage('returnCases');
-      if(typeof window.loadReturnCases === 'function') setTimeout(function(){ window.loadReturnCases(false); }, 60);
-      else if(typeof window.renderReturnCases === 'function') setTimeout(window.renderReturnCases, 60);
-      return;
-    }
-
-    var result;
-    if(typeof previousSwitch === 'function') result = previousSwitch.apply(this, arguments);
-    var returnPage = $('returnCasesPage');
-    if(returnPage && tab !== 'returnCases') returnPage.style.display = 'none';
-    setTimeout(normalizeSidebar, 80);
-    return result;
-  };
-
-  function patchFirebaseShowTab(){
-    if(window.__returnCasesShowTabPatched) return;
-    window.__returnCasesShowTabPatched = true;
-    document.addEventListener('click', function(ev){
-      var tab = ev.target && ev.target.closest ? ev.target.closest('.side-tab') : null;
-      if(!tab) return;
-      var k = keyFromTab(tab);
-      if(k === 'returnCases'){
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-        window.switchTab('returnCases');
-        return false;
-      }
-    }, true);
-  }
-
-  function boot(){
-    normalizeSidebar();
-    patchFirebaseShowTab();
-    var active = '';
-    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
-    if(active === 'returnCases') window.switchTab('returnCases');
-  }
-
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
-  window.addEventListener('load', function(){ setTimeout(boot, 100); setTimeout(boot, 900); });
-
-  var runs = 0;
-  var timer = setInterval(function(){
-    normalizeSidebar();
-    runs += 1;
-    if(runs > 25) clearInterval(timer);
-  }, 400);
-
-  try {
-    new MutationObserver(function(){ normalizeSidebar(); }).observe(document.getElementById('sideMenu') || document.body, {childList:true, subtree:true});
-  } catch(e) {}
-})();
-
-
-/* ===== repair-efficiency-tab-v1 ===== */
-
-(function(){
-  'use strict';
-  var $=function(id){return document.getElementById(id);}, txt=function(v){return String(v==null?'':v).trim();};
-  var reRows=[], reFiltered=[], reRawCols=[], reCols=[], reSort={col:'Rank',dir:1}, refreshTimer=null;
-  var TITLE='Repair Efficiency', KEY='repairEfficiency', PAGE='repairEfficiencyPage';
-  var FILES=['Repair Efficiency.xlsx','Repair_Efficiency.xlsx','RepairEfficiency.xlsx','repair_efficiency.xlsx','Repair efficiency.xlsx'];
-  function esc(v){return txt(v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
-  function normKey(k){return txt(k).toLowerCase().replace(/[^a-z0-9]/g,'');}
-  function num(v){if(typeof v==='number')return v; var n=Number(txt(v).replace(/,/g,'').replace('%','')); return isFinite(n)?n:0;}
-  function fmt(n){return Number(n||0).toLocaleString();}
-  function pct(v){var s=txt(v); if(!s)return '0%'; var n=num(v); if(s.indexOf('%')>=0)return (isFinite(n)?n:0).toFixed(1).replace(/\.0$/,'')+'%'; if(n<=1)n=n*100; return (isFinite(n)?n:0).toFixed(1).replace(/\.0$/,'')+'%';}
-  function get(row,names){var keys=Object.keys(row||{}); for(var i=0;i<names.length;i++){var want=normKey(names[i]); for(var j=0;j<keys.length;j++){if(normKey(keys[j])===want)return row[keys[j]];}} return '';}
-  function rankVal(r){var n=num(r._rank); return n>0?n:999999;}
-  function uniq(a){var o={}; return a.map(txt).filter(Boolean).filter(function(x){var k=x.toLowerCase(); if(o[k])return false; o[k]=1; return true;}).sort(function(a,b){return a.localeCompare(b);});}
-  function notice(status,source,rows,msg){var n=$('serviceV2Notice_repairEfficiency'); if(!n)return; n.innerHTML='<span class="source">Repair Efficiency — '+esc(status)+'</span><span>Source: <b>'+esc(source||'Auto Sync')+'</b></span><span>Rows: <b>'+fmt(rows||0)+'</b></span><span>Last Update: <b>'+esc(status==='Waiting for data'?'-':new Date().toLocaleString())+'</b></span><span>'+esc(msg||'')+'</span>'; try{localStorage.setItem('serviceV2Last_repairEfficiency',JSON.stringify({state:status,source:source||'Auto Sync',rows:rows||0,time:new Date().toLocaleString(),msg:msg||''}));}catch(e){} }
-  function restoreNotice(){try{var saved=JSON.parse(localStorage.getItem('serviceV2Last_repairEfficiency')||'null'); if(saved&&$('serviceV2Notice_repairEfficiency')){$('serviceV2Notice_repairEfficiency').innerHTML='<span class="source">Repair Efficiency — '+esc(saved.state||'Data updated')+'</span><span>Source: <b>'+esc(saved.source||'Auto Sync')+'</b></span><span>Rows: <b>'+fmt(saved.rows||0)+'</b></span><span>Last Update: <b>'+esc(saved.time||'-')+'</b></span><span>'+esc(saved.msg||'')+'</span>';}}catch(e){} }
-  function filterBox(id,title){return '<div class="re-filter-box" id="'+id+'" data-title="'+esc(title)+'"></div>';}
-  function makePage(){ if($(PAGE)) return; document.body.insertAdjacentHTML('beforeend','<div class="page-shell" id="repairEfficiencyPage"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Repair Efficiency</div></div></div><div class="header-actions"></div></header><div id="serviceV2Notice_repairEfficiency" class="service-v2-update-notice"><span class="source">Repair Efficiency — Waiting for data</span><span>Source: <b>Auto Sync</b></span><span>Rows: <b>0</b></span><span>Last Update: <b>-</b></span><span>Waiting for data</span></div><main><div class="re-filters">'+filterBox('reTechnicianFilter','Technician Name')+filterBox('reTierFilter','Performance Tier')+'<div class="re-filter-actions"><button class="re-btn light" onclick="window.reClearFilters&&window.reClearFilters()">Clear Filters</button></div></div><div class="re-cards cards"><div class="card re-card rank1"><div class="re-rank-icon">🥇</div><div class="label">Rank 1</div><div class="value" id="reTopName1">-</div><div class="percent" id="reTopInfo1">Repair Success: 0%<br>Not-Repaired: 0%<br>Tier: -</div></div><div class="card re-card rank2"><div class="re-rank-icon">🥈</div><div class="label">Rank 2</div><div class="value" id="reTopName2">-</div><div class="percent" id="reTopInfo2">Repair Success: 0%<br>Not-Repaired: 0%<br>Tier: -</div></div><div class="card re-card rank3"><div class="re-rank-icon">🥉</div><div class="label">Rank 3</div><div class="value" id="reTopName3">-</div><div class="percent" id="reTopInfo3">Repair Success: 0%<br>Not-Repaired: 0%<br>Tier: -</div></div></div><section class="re-section"><h2>Repair Efficiency Data <span><button class="re-btn" onclick="window.reDownloadTable&&window.reDownloadTable()">Download</button></span></h2><div class="re-table-wrap"><table class="re-table" id="reDataTable"></table></div></section></main></div>'); restoreNotice(); }
-  function keyOf(el){var oc=el.getAttribute('onclick')||''; var m=oc.match(/switchTab\(['"]([^'"]+)/); return el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||(m&&m[1])||'';}
-  function ensureSide(){var side=$('sideMenu')||document.querySelector('.side-menu'); if(!side)return; var existing=Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)===KEY||(x.textContent||'').toLowerCase().indexOf('repair efficiency')>=0;}); if(!existing){var html='<div class="side-tab" data-pb-tab="repairEfficiency" data-fb-tab-key="repairEfficiency" onclick="switchTab(\'repairEfficiency\')"><span class="side-icon">🛠️</span><span class="side-label">Repair Efficiency</span></div>'; var ref=Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)==='receivedDelivered';})||Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)==='returnCases';}); if(ref)ref.insertAdjacentHTML('afterend',html); else side.insertAdjacentHTML('beforeend',html);} else {existing.setAttribute('data-pb-tab',KEY); existing.setAttribute('data-fb-tab-key',KEY); existing.setAttribute('onclick',"switchTab('repairEfficiency')");} enforceRepairPermission(); }
-  function waitX(){return new Promise(function(resolve,reject){var t=0;(function chk(){if(window.XLSX)return resolve(); if((t+=100)>8000)return reject(new Error('XLSX library not loaded')); setTimeout(chk,100);})();});}
-  async function fetchWorkbookFile(fileName,manual){if(manual&&typeof serviceClearDataVersion==='function')serviceClearDataVersion(fileName); var url=typeof serviceDataUrl==='function'?await serviceDataUrl(fileName,!!manual):encodeURIComponent(fileName)+'?v='+(manual?Date.now():'stable'); var res=await fetch(url,{cache:manual?'no-store':'no-cache'}); if(!res.ok)throw new Error(fileName+' HTTP '+res.status); var buf=await res.arrayBuffer(); return XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true,raw:true});}
-  async function fetchRows(manual){await waitX(); var lastErr=null; for(var i=0;i<FILES.length;i++){try{var wb=await fetchWorkbookFile(FILES[i],manual); var sn=wb.SheetNames.indexOf('Repair Efficiency')>=0?'Repair Efficiency':(wb.SheetNames.indexOf('Sheet1')>=0?'Sheet1':wb.SheetNames[0]); var rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true}); return {rows:rows,file:FILES[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Repair Efficiency file not found');}
-  function normaliseRaw(rows){reRawCols=[]; var out=[]; (rows||[]).forEach(function(row){if(!Object.values(row).some(function(v){return txt(v)!=='';}))return; Object.keys(row).forEach(function(k){if(reRawCols.indexOf(k)<0)reRawCols.push(k);}); var tech=txt(get(row,['Technician Name','Technician','TechnicianName','Tech Name','Tech'])); var tier=txt(get(row,['Performance Tier','Tier','PerformanceTier'])); var rank=get(row,['Rank','Ranking','Technician Rank']); var success=get(row,['Repair Success %','Repair Success','RepairSuccess%','Repair Success Percent','Success %','Success']); var notRep=get(row,['Not-Repaired %','Not Repaired %','Not-Repaired','Not Repaired','NotRepaired%','Not repaired %']); var copy=Object.assign({},row); copy._technician=tech; copy._tier=tier; copy._rank=rank; copy._success=success; copy._notRepaired=notRep; out.push(copy);}); if(!reRawCols.length)reRawCols=['Rank','Technician Name','Repair Success %','Not-Repaired %','Performance Tier']; return out;}
-  function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="re-filter-label">'+esc(title)+'</div><button type="button" class="re-filter-btn">'+esc(label)+'</button><div class="re-filter-menu"><input class="re-filter-search" placeholder="Search"><div class="re-filter-list"></div><div class="re-filter-actions-menu"><button type="button" class="re-btn ok">OK</button><button type="button" class="re-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.re-filter-btn'), menu=b.querySelector('.re-filter-menu'), list=b.querySelector('.re-filter-list'), search=b.querySelector('.re-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="re-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="re-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.re-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); b.classList.remove('open'); render();}; draw();}
-  function initFilters(){buildFilter('reTechnicianFilter',reRows.map(function(r){return r._technician;})); buildFilter('reTierFilter',reRows.map(function(r){return r._tier;}));}
-  function filterRows(){var tech=selected('reTechnicianFilter'), tier=selected('reTierFilter'); return reRows.filter(function(r){if(tech.length&&tech.indexOf(r._technician)<0)return false;if(tier.length&&tier.indexOf(r._tier)<0)return false;return true;});}
-  function bestRows(rows){return rows.slice().sort(function(a,b){var ar=rankVal(a), br=rankVal(b); if(ar!==br)return ar-br; var s=num(b._success)-num(a._success); if(s)return s; return txt(a._technician).localeCompare(txt(b._technician));}).slice(0,3);}
-  function renderCards(rows){var top=bestRows(rows); for(var i=0;i<3;i++){var r=top[i]||{}; var n=$('reTopName'+(i+1)), info=$('reTopInfo'+(i+1)); if(n)n.textContent=r._technician||'-'; if(info)info.innerHTML='Repair Success: '+esc(pct(r._success))+'<br>Not-Repaired: '+esc(pct(r._notRepaired))+'<br>Tier: '+esc(r._tier||'-');}}
-  function colValue(row,col){if(col==='Technician Name'&&!row[col])return row._technician;if(col==='Performance Tier'&&!row[col])return row._tier;if(col==='Rank'&&!row[col])return row._rank;if(col==='Repair Success %'&&!row[col])return row._success;if(col==='Not-Repaired %'&&!row[col])return row._notRepaired;return row[col];}
-  function isRepairEfficiencyPercentColumn(col){
-    col = txt(col).toLowerCase();
-    return col.indexOf('%') >= 0 || col.indexOf('percent') >= 0;
-  }
-  function displayVal(row,col){
-    var v=colValue(row,col);
-    // Only columns explicitly marked as percent should be formatted as percentages.
-    // Count columns such as "Not Repaired" and "Repaired" must stay as values.
-    if(isRepairEfficiencyPercentColumn(col))return pct(v);
-    return v instanceof Date?v.toLocaleDateString():v;
-  }
-  function sortRows(rows){var col=reSort.col; return rows.slice().sort(function(a,b){var av=colValue(a,col), bv=colValue(b,col), c=0; if(/rank/i.test(col))c=rankVal(a)-rankVal(b); else if(isRepairEfficiencyPercentColumn(col)||num(av)!==0||num(bv)!==0)c=num(av)-num(bv); else c=txt(av).localeCompare(txt(bv)); return c*reSort.dir;});}
-  function renderTable(){var tbl=$('reDataTable'); if(!tbl)return; if(!reCols.length)reCols=(reRawCols.length?reRawCols:['Rank','Technician Name','Repair Success %','Not-Repaired %','Performance Tier']).slice(); var rows=sortRows(reFiltered); if(!rows.length){tbl.innerHTML='<tbody><tr><td class="re-empty">No data available</td></tr></tbody>'; return;} tbl.innerHTML='<thead><tr>'+reCols.map(function(c,i){return '<th draggable="true" data-col="'+esc(c)+'" data-idx="'+i+'">'+esc(c)+' '+(reSort.col===c?(reSort.dir>0?'▲':'▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+reCols.map(function(c){return '<td>'+esc(displayVal(r,c))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>'; tbl.querySelectorAll('th').forEach(function(th){th.onclick=function(){var c=th.dataset.col; if(reSort.col===c)reSort.dir*=-1; else reSort={col:c,dir:1}; render();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',th.dataset.idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault();var from=Number(e.dataTransfer.getData('text/plain')), to=Number(th.dataset.idx); if(isNaN(from)||isNaN(to)||from===to)return; reCols.splice(to,0,reCols.splice(from,1)[0]); render();};});}
-  function render(){reFiltered=filterRows(); renderCards(reFiltered); renderTable(); notice('Data updated','Auto Sync',reRows.length,'Fresh data loaded by Auto sync');}
-  window.renderRepairEfficiency=render;
-  function toXlsx(rows,name){ if(!window.XLSX)return; var cols=reCols.length?reCols:reRawCols; var data=rows.map(function(r){var o={}; cols.forEach(function(c){o[c]=displayVal(r,c);}); return o;}); var ws=XLSX.utils.json_to_sheet(data), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31)); XLSX.writeFile(wb,name+'.xlsx'); }
-  window.reDownloadTable=function(){toXlsx(reFiltered,'Repair Efficiency Data');};
-  window.reClearFilters=function(){['reTechnicianFilter','reTierFilter'].forEach(function(id){var b=$(id); if(b)b.__selected=[];}); initFilters(); render();};
-  window.loadRepairEfficiency=async function(manual){makePage(); ensureSide(); notice('Updating now','Auto Sync',reRows.length,'Loading data...'); try{var result=await fetchRows(!!manual); reRows=normaliseRaw(result.rows); window.repairEfficiencyRows=reRows; initFilters(); render(); notice('Data updated','GitHub: '+result.file,reRows.length,'Fresh data loaded by Auto sync'); return reRows;}catch(e){console.error(e); window.repairEfficiencyRows=reRows; initFilters(); if(reRows.length){render(); notice('Data updated','Auto Sync',reRows.length,'GitHub not reachable — existing data kept'); return reRows;} render(); notice('Waiting for data','Auto Sync',0,e&&e.message?e.message:'Load failed'); return [];} };
-  function allowedRepair(){var p=window.currentFirebaseUserProfile; if(!p)return true; var role=txt(p.role).toUpperCase(); if(role==='ADMIN')return true; var tabs=Array.isArray(p.allowedTabs)?p.allowedTabs:[]; if(role==='MANAGER'&&!tabs.length)return true; return tabs.indexOf(KEY)>=0||tabs.indexOf(TITLE)>=0;}
-  function enforceRepairPermission(){var side=$('sideMenu')||document; var tabs=Array.prototype.slice.call(side.querySelectorAll('.side-tab')).filter(function(el){return keyOf(el)===KEY||(el.textContent||'').toLowerCase().indexOf('repair efficiency')>=0;}); var ok=allowedRepair(); tabs.forEach(function(el){el.classList.toggle('fb-tab-denied',!ok); el.setAttribute('aria-hidden',ok?'false':'true'); if(!ok){el.style.setProperty('display','none','important'); el.style.setProperty('visibility','hidden','important');} else {el.style.removeProperty('display'); el.style.removeProperty('visibility'); el.style.removeProperty('opacity');}}); var p=$(PAGE); if(p&&!ok)p.style.setProperty('display','none','important'); return ok;}
-  function hideAllShow(){if(!enforceRepairPermission())return false; ['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','receivedDeliveredPage','profitPage','cashTargetPage','userManagementPage','repairEfficiencyPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$(PAGE); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)===KEY);}); try{localStorage.setItem('serviceEyeActiveTab',KEY);}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab(TITLE); }catch(e){} return true;}
-  function show(){makePage(); ensureSide(); if(!hideAllShow())return; if(!reRows.length)window.loadRepairEfficiency(false); else render();}
-  var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab===KEY){show();return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$(PAGE); if(pg)pg.style.display='none'; setTimeout(ensureSide,80); return r; };
-  document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&(keyOf(tab)===KEY||(tab.textContent||'').toLowerCase().indexOf('repair efficiency')>=0)){e.preventDefault();e.stopImmediatePropagation();show();}},true);
-  document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.re-filter-box'))document.querySelectorAll('.re-filter-box.open').forEach(function(x){x.classList.remove('open');});});
-  function patchUserManagementCheckboxes(){var addBox=$('umAllowedTabsBox'); if(addBox&&!addBox.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')) addBox.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'">'+TITLE+'</label>'); document.querySelectorAll('#umUsersTable .um-row-tabs').forEach(function(box){if(!box.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')){var edit=box.querySelector('.um-tabs-edit')||box; edit.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'" disabled>'+TITLE+'</label>');}});}
-  function installUserManagementPatch(){if(window.__repairEfficiencyUmPatchInstalled)return; window.__repairEfficiencyUmPatchInstalled=true; document.addEventListener('click',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('um-edit'))setTimeout(patchUserManagementCheckboxes,60);},true); try{new MutationObserver(function(){patchUserManagementCheckboxes(); enforceRepairPermission();}).observe(document.body,{childList:true,subtree:true});}catch(e){} setInterval(function(){patchUserManagementCheckboxes(); enforceRepairPermission();},3000);}
-  function installRefreshPatch(){if(window.__repairEfficiencyRefreshPatchInstalled)return; window.__repairEfficiencyRefreshPatchInstalled=true; document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('#sidebarRefreshDataBtn'):null; if(!btn)return; var active=''; try{active=localStorage.getItem('serviceEyeActiveTab')||'';}catch(ex){} var pg=$(PAGE); if(active===KEY||(pg&&pg.style.display!=='none')){e.preventDefault(); e.stopImmediatePropagation(); window.loadRepairEfficiency(true);}},true);}
-  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installRefreshPatch(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
-})();
-
-
-/* ===== repair-efficiency-navigation-final-fix ===== */
-
-(function(){
-  'use strict';
-  if(window.__repairEfficiencyNavigationFinalFix) return;
-  window.__repairEfficiencyNavigationFinalFix = true;
-
-  var TAB_ORDER = [
+  var TAB_DEFS = [
     {key:'dashboard', label:'Dashboard', icon:'<span class="side-icon dashboard-side-icon">📊</span>', page:'dashboardPage'},
     {key:'gspn', label:'GSPN Tracking Cases', icon:'<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />', page:'gspnPage'},
     {key:'sky', label:'SKY Tracking Cases', icon:'<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />', page:'skyPage'},
@@ -15033,340 +10544,263 @@ window.addEventListener('beforeunload', function() {
     {key:'cashTarget', label:'Cash & Target', icon:'<span class="side-icon">🎯</span>', page:'cashTargetPage'},
     {key:'userManagement', label:'User Management', icon:'<span class="side-icon">👥</span>', page:'userManagementPage', admin:true}
   ];
-  var PAGE_BY_TAB = {};
-  TAB_ORDER.forEach(function(t){ PAGE_BY_TAB[t.key] = t.page; });
+  var TAB_BY_KEY = TAB_DEFS.reduce(function(acc, def){ acc[def.key] = def; return acc; }, {});
+  var TITLE_TO_KEY = TAB_DEFS.reduce(function(acc, def){ acc[def.label] = def.key; return acc; }, {});
 
   function $(id){ return document.getElementById(id); }
-  function txt(v){ return String(v == null ? '' : v).trim(); }
-  function low(v){ return txt(v).toLowerCase(); }
-  function tabDef(key){ for(var i=0;i<TAB_ORDER.length;i++){ if(TAB_ORDER[i].key === key) return TAB_ORDER[i]; } return null; }
-  function normalTab(tab){
-    var t = txt(tab);
-    if(t === 'cash' || t === 'cash-target' || t === 'cash_target') return 'cashTarget';
-    if(t === 'pre_booking' || t === 'pre booking') return 'preBooking';
-    if(t === 'return cases') return 'returnCases';
-    if(t === 'received delivered' || t === 'received & delivered') return 'receivedDelivered';
-    if(t === 'repair efficiency') return 'repairEfficiency';
-    if(t === 'user management') return 'userManagement';
-    return tabDef(t) ? t : 'gspn';
+  function text(v){ return String(v == null ? '' : v).trim(); }
+  function lower(v){ return text(v).toLowerCase(); }
+  function normKey(key){
+    key = text(key);
+    if (TAB_BY_KEY[key]) return key;
+    var t = lower(key).replace(/[\s_-]+/g, ' ');
+    if (t === 'pre booking' || t === 'prebooking') return 'preBooking';
+    if (t === 'return cases' || t === 'returncases') return 'returnCases';
+    if (t === 'received delivered' || t === 'received & delivered' || t === 'receiveddelivered') return 'receivedDelivered';
+    if (t === 'repair efficiency' || t === 'repairefficiency') return 'repairEfficiency';
+    if (t === 'cash target' || t === 'cash') return 'cashTarget';
+    if (t === 'user management') return 'userManagement';
+    return key;
   }
   function keyFromTab(el){
-    if(!el) return '';
-    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || el.dataset.serviceTab || '';
-    k = normalTab(k);
-    if(k && tabDef(k)) return k;
-    var oc = el.getAttribute('onclick') || '';
-    var m = oc.match(/switchTab\(['\"]([^'\"]+)/) || oc.match(/openCashTargetTab/);
-    if(m && m[1]) return normalTab(m[1]);
-    if(oc.indexOf('openCashTargetTab') >= 0) return 'cashTarget';
-    var t = low(el.textContent);
-    if(t.indexOf('repair efficiency') >= 0) return 'repairEfficiency';
-    if(t.indexOf('received') >= 0 && t.indexOf('delivered') >= 0) return 'receivedDelivered';
-    if(t.indexOf('return cases') >= 0) return 'returnCases';
-    if(t.indexOf('pre_booking') >= 0 || t.indexOf('pre booking') >= 0) return 'preBooking';
-    if(t.indexOf('dashboard') >= 0) return 'dashboard';
-    if(t.indexOf('gspn') >= 0) return 'gspn';
-    if(t.indexOf('sky') >= 0) return 'sky';
-    if(t.indexOf('profit') >= 0 || t.indexOf('commission') >= 0) return 'profit';
-    if(t.indexOf('cash') >= 0 || t.indexOf('target') >= 0) return 'cashTarget';
-    if(t.indexOf('user management') >= 0) return 'userManagement';
+    if (!el) return '';
+    var direct = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || el.getAttribute('data-tab') || (el.dataset && el.dataset.serviceTab) || '';
+    if (direct) return normKey(direct);
+    var oc = lower(el.getAttribute('onclick') || '');
+    var tx = lower(el.textContent || '');
+    if (oc.indexOf('dashboard') >= 0 || tx.indexOf('dashboard') >= 0) return 'dashboard';
+    if (oc.indexOf('prebooking') >= 0 || oc.indexOf('pre_booking') >= 0 || tx.indexOf('pre_booking') >= 0 || tx.indexOf('pre booking') >= 0) return 'preBooking';
+    if (oc.indexOf('returncases') >= 0 || tx.indexOf('return cases') >= 0) return 'returnCases';
+    if (oc.indexOf('receiveddelivered') >= 0 || (tx.indexOf('received') >= 0 && tx.indexOf('delivered') >= 0)) return 'receivedDelivered';
+    if (oc.indexOf('repairefficiency') >= 0 || tx.indexOf('repair efficiency') >= 0) return 'repairEfficiency';
+    if (oc.indexOf('gspn') >= 0 || tx.indexOf('gspn') >= 0) return 'gspn';
+    if (oc.indexOf('sky') >= 0 || tx.indexOf('sky') >= 0) return 'sky';
+    if (oc.indexOf('profit') >= 0 || tx.indexOf('profit') >= 0 || tx.indexOf('commission') >= 0) return 'profit';
+    if (oc.indexOf('opencashtargettab') >= 0 || oc.indexOf('cashtarget') >= 0 || tx.indexOf('cash') >= 0 || tx.indexOf('target') >= 0) return 'cashTarget';
+    if (tx.indexOf('user management') >= 0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
     return '';
   }
-  function isDenied(key){
-    var el = document.querySelector('.side-tab[data-pb-tab="'+key+'"],.side-tab[data-fb-tab-key="'+key+'"]');
-    if(!el) return false;
-    if(el.classList.contains('fb-tab-denied')) return true;
-    if(el.getAttribute('aria-hidden') === 'true') return true;
-    var cs = window.getComputedStyle ? getComputedStyle(el) : null;
-    if(cs && (cs.display === 'none' || cs.visibility === 'hidden')) return true;
-    return false;
+  function profileAllowed(key){
+    var profile = window.currentFirebaseUserProfile || null;
+    if (!profile) return true;
+    var role = text(profile.role).toUpperCase();
+    if (role === 'ADMIN') return true;
+    var allowed = Array.isArray(profile.allowedTabs) ? profile.allowedTabs : [];
+    if (role === 'MANAGER' && !allowed.length) return key !== 'userManagement';
+    var normalized = allowed.map(function(x){ return TITLE_TO_KEY[x] || normKey(x); });
+    return normalized.indexOf(key) >= 0;
   }
-  function makeTab(def){
+  function tabDeniedByDom(key){
+    var el = document.querySelector('.side-tab[data-pb-tab="' + key + '"],.side-tab[data-fb-tab-key="' + key + '"]');
+    if (!el) return false;
+    if (el.classList.contains('fb-tab-denied')) return true;
+    if (el.getAttribute('aria-hidden') === 'true') return true;
+    var cs = window.getComputedStyle ? getComputedStyle(el) : null;
+    return !!(cs && (cs.display === 'none' || cs.visibility === 'hidden'));
+  }
+  function canOpenTab(key){
+    key = normKey(key);
+    if (!TAB_BY_KEY[key]) return false;
+    if (!profileAllowed(key)) return false;
+    if (tabDeniedByDom(key) && window.currentFirebaseUserProfile) return false;
+    return true;
+  }
+  function createTab(def){
     var el = document.createElement('div');
     el.className = 'side-tab' + (def.admin ? ' firebase-user-management-tab admin-only' : '');
-    el.setAttribute('data-pb-tab', def.key);
-    el.setAttribute('data-fb-tab-key', def.key);
-    el.setAttribute('data-tip', def.label);
-    el.setAttribute('onclick', "switchTab('"+def.key+"')");
     el.innerHTML = def.icon + '<span class="side-label">' + def.label + '</span>';
+    decorateTab(el, def.key);
     return el;
   }
-  function normalizeSidebar(){
+  function decorateTab(el, key){
+    var def = TAB_BY_KEY[key];
+    if (!el || !def) return;
+    el.setAttribute('data-pb-tab', key);
+    el.setAttribute('data-fb-tab-key', key);
+    if (el.dataset) el.dataset.serviceTab = key;
+    el.setAttribute('data-tip', def.label);
+    el.setAttribute('title', def.label);
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('onclick', "switchTab('" + key + "')");
+    if (def.admin) el.classList.add('firebase-user-management-tab', 'admin-only');
+    var label = el.querySelector('.side-label');
+    if (label) label.textContent = def.label;
+    var allowed = profileAllowed(key);
+    el.classList.toggle('fb-tab-denied', !allowed);
+    el.setAttribute('aria-hidden', allowed ? 'false' : 'true');
+    if (!allowed) {
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+    } else {
+      el.style.removeProperty('display');
+      el.style.removeProperty('visibility');
+      el.style.removeProperty('opacity');
+      el.style.removeProperty('height');
+      el.style.removeProperty('width');
+    }
+  }
+  function ensureWorkspaceTitle(side){
+    var titles = Array.prototype.slice.call(side.querySelectorAll('.side-section-title'));
+    var workspace = titles.find(function(el){ return lower(el.textContent).indexOf('workspace') >= 0; });
+    if (!workspace) {
+      workspace = document.createElement('div');
+      workspace.className = 'side-section-title side-label';
+      workspace.textContent = 'Workspace';
+      var head = side.querySelector('.side-head');
+      if (head && head.nextSibling) side.insertBefore(workspace, head.nextSibling);
+      else side.insertBefore(workspace, side.firstChild);
+    }
+    return workspace;
+  }
+  function ensureBottom(side){
+    var bottom = $('codexSidebarBottom');
+    if (!bottom) {
+      bottom = document.createElement('div');
+      bottom.id = 'codexSidebarBottom';
+      bottom.className = 'codex-sidebar-bottom';
+    }
+    if (bottom.parentNode !== side) side.appendChild(bottom);
+    bottom.style.order = '80';
+    return bottom;
+  }
+  function preserveDesignControls(side, bottom){
+    var design = side.querySelector('.design-options');
+    if (!design || !bottom) return;
+    var wrap = bottom.querySelector('.codex-sidebar-design-wrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.className = 'codex-sidebar-design-wrap';
+      bottom.appendChild(wrap);
+    }
+    var title = design.previousElementSibling;
+    if (title && title.classList && title.classList.contains('side-section-title')) wrap.appendChild(title);
+    wrap.appendChild(design);
+  }
+  function ensureSidebar(){
     var side = $('sideMenu') || document.querySelector('.side-menu');
-    if(!side) return;
-
+    if (!side) return;
+    var workspace = ensureWorkspaceTitle(side);
+    var bottom = ensureBottom(side);
+    var byKey = {};
     Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-      var k = keyFromTab(el);
-      if(!k || !tabDef(k)) return;
-      var def = tabDef(k);
-      el.setAttribute('data-pb-tab', k);
-      el.setAttribute('data-fb-tab-key', k);
-      el.dataset.serviceTab = k;
-      el.setAttribute('data-tip', def.label);
-      el.setAttribute('onclick', "switchTab('"+k+"')");
-      if(k === 'repairEfficiency'){
-        el.style.removeProperty('display');
-        el.style.removeProperty('visibility');
-        el.style.removeProperty('opacity');
-        el.style.removeProperty('height');
-        el.style.removeProperty('width');
-        el.style.removeProperty('pointer-events');
+      var key = keyFromTab(el);
+      if (!TAB_BY_KEY[key]) return;
+      if (byKey[key]) {
+        try { el.remove(); } catch(e) { if (el.parentNode) el.parentNode.removeChild(el); }
+        return;
+      }
+      byKey[key] = el;
+      decorateTab(el, key);
+    });
+    TAB_DEFS.forEach(function(def){
+      if (!byKey[def.key]) {
+        byKey[def.key] = createTab(def);
       }
     });
-
-    var seen = {};
+    var anchor = workspace;
+    TAB_DEFS.forEach(function(def, idx){
+      var el = byKey[def.key];
+      if (!el) return;
+      el.style.order = String(20 + idx);
+      if (anchor.nextSibling !== el) side.insertBefore(el, anchor.nextSibling || bottom);
+      anchor = el;
+    });
+    if (bottom.parentNode === side) side.appendChild(bottom);
+    preserveDesignControls(side, bottom);
+    var active = 'gspn';
+    try { active = normKey(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); } catch(e) {}
     Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-      var k = keyFromTab(el);
-      if(!k || !tabDef(k)) return;
-      if(seen[k]){ try{ el.remove(); }catch(e){ if(el.parentNode) el.parentNode.removeChild(el); } }
-      else seen[k] = el;
+      el.classList.toggle('active', keyFromTab(el) === active);
     });
-
-    TAB_ORDER.forEach(function(def){
-      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){ return keyFromTab(x) === def.key; });
-      if(!el){
-        el = makeTab(def);
-        side.appendChild(el);
+  }
+  function hideAllExcept(key){
+    TAB_DEFS.forEach(function(def){
+      var page = $(def.page);
+      if (page) page.style.display = (def.key === key ? 'block' : 'none');
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){
+      el.classList.toggle('active', keyFromTab(el) === key);
+    });
+    try { localStorage.setItem('serviceEyeActiveTab', key); } catch(e) {}
+    try { if (typeof window.sscUpdatePresenceTab === 'function') window.sscUpdatePresenceTab(TAB_BY_KEY[key].label); } catch(e) {}
+  }
+  function ensureTabResources(key){
+    try {
+      if ((key === 'dashboard' || key === 'preBooking') && typeof window.loadPreBooking === 'function') {
+        if (!$(TAB_BY_KEY[key].page)) window.loadPreBooking(false);
       }
-      el.style.order = String(20 + TAB_ORDER.indexOf(def));
-    });
-
-    var bottom = $('codexSidebarBottom') || $('sidebarRefreshDataBlock') || $('v25ColorOptions');
-    TAB_ORDER.forEach(function(def){
-      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){ return keyFromTab(x) === def.key; });
-      if(!el) return;
-      if(bottom && bottom.parentNode === side) side.insertBefore(el, bottom);
-      else side.appendChild(el);
-    });
+      if (key === 'returnCases' && typeof window.loadReturnCases === 'function' && !$(TAB_BY_KEY[key].page)) window.loadReturnCases(false);
+      if (key === 'receivedDelivered' && typeof window.loadReceivedDelivered === 'function' && !$(TAB_BY_KEY[key].page)) window.loadReceivedDelivered(false);
+      if (key === 'repairEfficiency' && typeof window.loadRepairEfficiency === 'function' && !$(TAB_BY_KEY[key].page)) window.loadRepairEfficiency(false);
+    } catch(e) {}
   }
-  function hideAllPages(){
-    Object.keys(PAGE_BY_TAB).forEach(function(k){ var p = $(PAGE_BY_TAB[k]); if(p) p.style.display = 'none'; });
-  }
-  function setActive(key){
-    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){ el.classList.toggle('active', keyFromTab(el) === key); });
-    try{ localStorage.setItem('serviceEyeActiveTab', key); }catch(e){}
-    try{ if(typeof window.sscUpdatePresenceTab === 'function') window.sscUpdatePresenceTab(tabDef(key).label || key); }catch(e){}
-  }
-  function runTabInit(key){
+  function renderTab(key){
     setTimeout(function(){
-      try{
-        if(key === 'gspn'){
-          if(typeof currentFilteredRows !== 'undefined' && currentFilteredRows && currentFilteredRows.length && typeof updateCharts === 'function') updateCharts(currentFilteredRows);
-        }else if(key === 'sky' && typeof window.renderSky === 'function') window.renderSky();
-        else if(key === 'profit' && typeof window.renderProfit === 'function') window.renderProfit();
-        else if(key === 'cashTarget' && typeof window.renderCashTarget === 'function') window.renderCashTarget();
-        else if(key === 'preBooking'){
-          if(typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
-          else if(typeof window.renderPB === 'function') window.renderPB();
-        }else if(key === 'dashboard'){
-          if(typeof window.loadDashboardSources === 'function') window.loadDashboardSources(false);
-          else if(typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
-        }else if(key === 'returnCases'){
-          if(typeof window.loadReturnCases === 'function') window.loadReturnCases(false);
-          else if(typeof window.renderReturnCases === 'function') window.renderReturnCases();
-        }else if(key === 'receivedDelivered'){
-          if(typeof window.loadReceivedDelivered === 'function') window.loadReceivedDelivered(false);
-          else if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
-        }else if(key === 'repairEfficiency'){
-          if(typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
-          else if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
-        }else if(key === 'userManagement'){
-          if(typeof window.renderUserManagement === 'function') window.renderUserManagement();
-          if(typeof window.loadUserManagement === 'function') window.loadUserManagement();
-        }
-      }catch(e){ console.error('Tab render error:', key, e); }
-    }, 80);
+      try {
+        if (key === 'gspn' && typeof window.render === 'function') window.render();
+        else if (key === 'sky') {
+          if (typeof window.__lazyStartSky === 'function') window.__lazyStartSky();
+          else if (typeof window.renderSky === 'function') window.renderSky();
+        } else if (key === 'profit' && typeof window.renderProfit === 'function') window.renderProfit();
+        else if (key === 'cashTarget' && typeof window.renderCashTarget === 'function') window.renderCashTarget();
+        else if (key === 'preBooking' && typeof window.renderPB === 'function') window.renderPB();
+        else if (key === 'dashboard' && typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
+        else if (key === 'returnCases') {
+          if (typeof window.renderReturnCases === 'function') window.renderReturnCases();
+          if (typeof window.loadReturnCases === 'function' && !Array.isArray(window.returnCasesRows)) window.loadReturnCases(false);
+        } else if (key === 'receivedDelivered') {
+          if (typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
+          if (typeof window.loadReceivedDelivered === 'function' && (!Array.isArray(window.receivedDeliveredRows) || !window.receivedDeliveredRows.length)) window.loadReceivedDelivered(false);
+        } else if (key === 'repairEfficiency') {
+          if (typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
+          if (typeof window.loadRepairEfficiency === 'function' && (!Array.isArray(window.repairEfficiencyRows) || !window.repairEfficiencyRows.length)) window.loadRepairEfficiency(false);
+        } else if (key === 'userManagement' && typeof window.renderUserManagement === 'function') window.renderUserManagement();
+      } catch(e) { console.error('Tab render failed', key, e); }
+    }, 90);
   }
 
   var previousSwitchTab = window.switchTab;
   window.switchTab = function(tab){
-    var key = normalTab(tab);
-    normalizeSidebar();
-    if(isDenied(key) && key !== 'repairEfficiency') return false;
-    if(key === 'repairEfficiency'){
-      var reEl = document.querySelector('.side-tab[data-pb-tab="repairEfficiency"],.side-tab[data-fb-tab-key="repairEfficiency"]');
-      if(reEl && reEl.classList.contains('fb-tab-denied')) return false;
+    var key = normKey(tab);
+    if (!TAB_BY_KEY[key]) return typeof previousSwitchTab === 'function' ? previousSwitchTab.apply(this, arguments) : false;
+    ensureSidebar();
+    if (!canOpenTab(key)) {
+      ensureSidebar();
+      return false;
     }
-    try{ if(typeof window.applyTabDesign === 'function') window.applyTabDesign(key === 'cashTarget' ? 'profit' : key, false); }catch(e){}
-    if(key === 'cashTarget' && !$('cashTargetPage') && typeof previousSwitchTab === 'function'){
-      try{ previousSwitchTab.call(this, key); }catch(e){}
+    var previousResult;
+    if (typeof previousSwitchTab === 'function') {
+      try { previousResult = previousSwitchTab.apply(this, arguments); } catch(e) { previousResult = undefined; }
+      if (previousResult === false) return false;
     }
-    hideAllPages();
-    var page = $(PAGE_BY_TAB[key]);
-    if(page) page.style.display = 'block';
-    setActive(key);
-    runTabInit(key);
-    setTimeout(normalizeSidebar, 120);
+    ensureTabResources(key);
+    hideAllExcept(key);
+    renderTab(key);
     return true;
   };
   window.openCashTargetTab = function(){ return window.switchTab('cashTarget'); };
 
   document.addEventListener('click', function(ev){
     var tab = ev.target && ev.target.closest ? ev.target.closest('.side-tab') : null;
-    if(!tab) return;
+    if (!tab) return;
     var key = keyFromTab(tab);
-    if(!key || !tabDef(key)) return;
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-    window.switchTab(key);
-    return false;
+    if (!TAB_BY_KEY[key]) return;
+    if (!canOpenTab(key)) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      ensureSidebar();
+      return false;
+    }
   }, true);
 
-  function boot(){
-    normalizeSidebar();
-    var active = 'gspn';
-    try{ active = normalTab(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); }catch(e){}
-    if(!$(PAGE_BY_TAB[active])){
-      if(active === 'repairEfficiency' && typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
-      else if(active === 'receivedDelivered' && typeof window.loadReceivedDelivered === 'function') window.loadReceivedDelivered(false);
-      else if(active === 'returnCases' && typeof window.loadReturnCases === 'function') window.loadReturnCases(false);
-    }
-    window.switchTab(active);
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  function boot(){ ensureSidebar(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
-  window.addEventListener('load', function(){ setTimeout(boot, 150); setTimeout(normalizeSidebar, 900); });
-  setTimeout(normalizeSidebar, 500);
+  window.addEventListener('load', function(){ setTimeout(boot, 120); });
+  window.sscNormalizeSidebar = ensureSidebar;
+  window.sscSidebarKeyFromElement = keyFromTab;
 })();
-
-
-/* ===== repair-efficiency-absolute-final-router ===== */
-
-(function(){
-  'use strict';
-  if(window.__repairEfficiencyAbsoluteFinalRouter) return;
-  window.__repairEfficiencyAbsoluteFinalRouter = true;
-
-  var ORDER = ['dashboard','gspn','sky','preBooking','returnCases','receivedDelivered','repairEfficiency','profit','cashTarget','userManagement'];
-  var PAGE = {
-    dashboard:'dashboardPage', gspn:'gspnPage', sky:'skyPage', preBooking:'preBookingPage',
-    returnCases:'returnCasesPage', receivedDelivered:'receivedDeliveredPage', repairEfficiency:'repairEfficiencyPage',
-    profit:'profitPage', cashTarget:'cashTargetPage', userManagement:'userManagementPage'
-  };
-  var LABEL = {
-    dashboard:'Dashboard', gspn:'GSPN Tracking Cases', sky:'SKY Tracking Cases', preBooking:'Pre_Booking',
-    returnCases:'Return Cases', receivedDelivered:'Received & Delivered', repairEfficiency:'Repair Efficiency',
-    profit:'Profitability & commission', cashTarget:'Cash & Target', userManagement:'User Management'
-  };
-  function $(id){return document.getElementById(id);}
-  function text(v){return String(v == null ? '' : v).trim();}
-  function lower(v){return text(v).toLowerCase();}
-  function norm(tab){
-    tab = text(tab);
-    if(PAGE[tab]) return tab;
-    var t = lower(tab).replace(/[\s_-]+/g,' ');
-    if(t === 'pre booking') return 'preBooking';
-    if(t === 'return cases') return 'returnCases';
-    if(t === 'received delivered' || t === 'received & delivered') return 'receivedDelivered';
-    if(t === 'repair efficiency') return 'repairEfficiency';
-    if(t === 'cash target' || t === 'cash') return 'cashTarget';
-    if(t === 'user management') return 'userManagement';
-    return 'gspn';
-  }
-  function keyOf(el){
-    if(!el) return '';
-    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || el.dataset.serviceTab || '';
-    if(k) return norm(k);
-    var oc = lower(el.getAttribute('onclick') || ''), tx = lower(el.textContent || '');
-    if(oc.indexOf('repair') >= 0 || tx.indexOf('repair efficiency') >= 0) return 'repairEfficiency';
-    if(oc.indexOf('received') >= 0 || (tx.indexOf('received') >= 0 && tx.indexOf('delivered') >= 0)) return 'receivedDelivered';
-    if(oc.indexOf('returncases') >= 0 || oc.indexOf('return cases') >= 0 || tx.indexOf('return cases') >= 0) return 'returnCases';
-    if(oc.indexOf('prebooking') >= 0 || oc.indexOf('pre_booking') >= 0 || tx.indexOf('pre_booking') >= 0 || tx.indexOf('pre booking') >= 0) return 'preBooking';
-    if(oc.indexOf('dashboard') >= 0 || tx.indexOf('dashboard') >= 0) return 'dashboard';
-    if(oc.indexOf('gspn') >= 0 || tx.indexOf('gspn') >= 0) return 'gspn';
-    if(oc.indexOf('sky') >= 0 || tx.indexOf('sky') >= 0) return 'sky';
-    if(oc.indexOf('profit') >= 0 || tx.indexOf('profit') >= 0 || tx.indexOf('commission') >= 0) return 'profit';
-    if(oc.indexOf('cash') >= 0 || oc.indexOf('opencashtargettab') >= 0 || tx.indexOf('cash') >= 0 || tx.indexOf('target') >= 0) return 'cashTarget';
-    if(tx.indexOf('user management') >= 0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
-    return '';
-  }
-  function ensureSidebar(){
-    var side = $('sideMenu') || document.querySelector('.side-menu');
-    if(!side) return;
-    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-      var k = keyOf(el); if(!PAGE[k]) return;
-      el.setAttribute('data-pb-tab', k);
-      el.setAttribute('data-fb-tab-key', k);
-      el.dataset.serviceTab = k;
-      el.setAttribute('onclick', "switchTab('" + k + "')");
-      el.style.order = String(20 + ORDER.indexOf(k));
-      if(k === 'repairEfficiency' || k === 'returnCases' || k === 'receivedDelivered'){
-        el.style.display = 'flex'; el.style.visibility = 'visible'; el.style.opacity = '1'; el.style.pointerEvents = 'auto';
-      }
-    });
-  }
-  function ensurePageFor(key){
-    try{
-      if((key === 'preBooking' || key === 'dashboard') && (!$('preBookingPage') || !$('dashboardPage')) && typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
-      if(key === 'returnCases' && !$('returnCasesPage') && typeof window.loadReturnCases === 'function') window.loadReturnCases(false);
-      if(key === 'receivedDelivered' && !$('receivedDeliveredPage') && typeof window.loadReceivedDelivered === 'function') window.loadReceivedDelivered(false);
-      if(key === 'repairEfficiency' && !$('repairEfficiencyPage') && typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
-    }catch(e){}
-  }
-  function applyOnly(key){
-    key = norm(key);
-    ensureSidebar();
-    ensurePageFor(key);
-    Object.keys(PAGE).forEach(function(k){ var p = $(PAGE[k]); if(p) p.style.display = (k === key ? 'block' : 'none'); });
-    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){ el.classList.toggle('active', keyOf(el) === key); });
-    try{ localStorage.setItem('serviceEyeActiveTab', key); }catch(e){}
-    try{ if(typeof window.sscUpdatePresenceTab === 'function') window.sscUpdatePresenceTab(LABEL[key] || key); }catch(e){}
-    setTimeout(function(){
-      Object.keys(PAGE).forEach(function(k){ var p = $(PAGE[k]); if(p) p.style.display = (k === key ? 'block' : 'none'); });
-      try{
-        if(key === 'preBooking'){
-          if(typeof window.renderPB === 'function') window.renderPB();
-          if(typeof window.loadPreBooking === 'function' && (!Array.isArray(window.preBookingRows) || !window.preBookingRows.length)) window.loadPreBooking(false);
-        } else if(key === 'dashboard'){
-          if(typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
-        } else if(key === 'returnCases'){
-          if(typeof window.renderReturnCases === 'function') window.renderReturnCases();
-          if(typeof window.loadReturnCases === 'function' && (!Array.isArray(window.returnCasesRows) || !window.returnCasesRows.length)) window.loadReturnCases(false);
-        } else if(key === 'receivedDelivered'){
-          if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
-          if(typeof window.loadReceivedDelivered === 'function' && (!Array.isArray(window.receivedDeliveredRows) || !window.receivedDeliveredRows.length)) window.loadReceivedDelivered(false);
-        } else if(key === 'repairEfficiency'){
-          if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
-          if(typeof window.loadRepairEfficiency === 'function' && (!Array.isArray(window.repairEfficiencyRows) || !window.repairEfficiencyRows.length)) window.loadRepairEfficiency(false);
-        }
-      }catch(e){ console.error('Final tab apply error', key, e); }
-    }, 120);
-  }
-
-  var previousSwitchTab = window.switchTab;
-  window.switchTab = function(tab){
-    var key = norm(tab);
-    if(PAGE[key]){
-      if(['gspn','sky','profit','cashTarget','userManagement'].indexOf(key) >= 0 && typeof previousSwitchTab === 'function'){
-        try{ previousSwitchTab.apply(this, arguments); }catch(e){}
-      }
-      applyOnly(key);
-      return true;
-    }
-    return typeof previousSwitchTab === 'function' ? previousSwitchTab.apply(this, arguments) : false;
-  };
-  window.openCashTargetTab = function(){ return window.switchTab('cashTarget'); };
-
-  document.addEventListener('click', function(e){
-    var tab = e.target && e.target.closest ? e.target.closest('.side-tab') : null;
-    if(!tab) return;
-    var key = keyOf(tab);
-    if(!PAGE[key]) return;
-    /* This listener is intentionally not capture; older capture handlers may call window.switchTab, which now routes here. */
-    setTimeout(function(){ applyOnly(key); }, 0);
-    setTimeout(function(){ applyOnly(key); }, 180);
-  }, false);
-
-  function boot(){
-    ensureSidebar();
-    var active = 'gspn';
-    try{ active = norm(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); }catch(e){}
-    if(PAGE[active]) applyOnly(active);
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  window.addEventListener('load', function(){ setTimeout(boot, 250); setTimeout(ensureSidebar, 1000); });
-})();
-
 
 /* ===== accessibility-keyboard-sidebar ===== */
 
