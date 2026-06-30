@@ -99,6 +99,9 @@ window.debounce = window.debounce || function(fn, delay) {
       if (document.body.classList.contains("menu-collapsed") !== collapsed) {
         document.body.classList.toggle("menu-collapsed", collapsed);
       }
+      try {
+        document.documentElement.classList.remove("prepaint-menu-collapsed", "prepaint-ready", "prepaint-theme-pro", "prepaint-theme-glass", "prepaint-theme-fresh", "prepaint-theme-volta");
+      } catch(e) {}
       applyTabDesign(activeTab, false);
       setTimeout(() => switchTab(activeTab), 0);
       requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
@@ -1106,6 +1109,7 @@ function switchTab(tab) {
 
     function toggleSideMenu() {
       document.body.classList.toggle("menu-collapsed");
+      try { document.documentElement.classList.remove("prepaint-menu-collapsed"); } catch(e) {}
       localStorage.setItem("serviceEyeMenuCollapsed", document.body.classList.contains("menu-collapsed") ? "1" : "0");
     }
 

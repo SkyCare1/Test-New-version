@@ -11,3 +11,14 @@ html.prepaint-menu-collapsed body .page-shell{margin-left:var(--sidebar-collapse
 html.prepaint-menu-collapsed body .side-label{opacity:0!important;width:0!important;max-width:0!important;overflow:hidden!important;pointer-events:none!important;white-space:nowrap!important}
 .side-menu{contain:layout paint style}
 .side-label{white-space:nowrap}
+
+/* ===== sidebar-state-final-fix-clean3 =====
+   Fixes stale prepaint/collapsed label state without affecting permissions. */
+body:not(.menu-collapsed) #sideMenu{width:var(--sidebar-width,280px)!important;min-width:var(--sidebar-width,280px)!important;max-width:var(--sidebar-width,280px)!important}
+body:not(.menu-collapsed) .page-shell{margin-left:var(--sidebar-width,280px)!important}
+body:not(.menu-collapsed) #sideMenu .side-label{display:inline-block!important;opacity:1!important;width:auto!important;max-width:none!important;overflow:visible!important;pointer-events:auto!important;white-space:nowrap!important;transform:none!important}
+body:not(.menu-collapsed) #sideMenu .side-title.side-label{display:block!important}
+body:not(.menu-collapsed) #sideMenu .design-options.side-label{display:grid!important}
+body:not(.menu-collapsed) #sideMenu .side-tab{justify-content:flex-start!important}
+body.menu-collapsed #sideMenu{width:var(--sidebar-collapsed,78px)!important;min-width:var(--sidebar-collapsed,78px)!important;max-width:var(--sidebar-collapsed,78px)!important}
+body.menu-collapsed .page-shell{margin-left:var(--sidebar-collapsed,78px)!important}
