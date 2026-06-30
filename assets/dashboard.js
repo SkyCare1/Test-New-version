@@ -97,14 +97,8 @@ window.v57_getPresenceCounts = function(){return{gspn:0,sky:0,analysis:0};};
     /* ================= SKY v18 requested updates ================= */
     const SKY_V18_QUEUE_VALUES = ["Open_Cases", "Ready For Delivery Cases"];
     const SKY_CHART_FILTER_IDS = ["skyQueueChartBrandFilter", "skyBrandChartQueueFilter", "skyStageChartBranchFilter", "skyBranchChartStageFilter", "skyReadyAgingBrandFilter", "skyStageAllQueueFilter"];
+/* Removed duplicate earlier loadLayoutPreferences definition; canonical implementation retained later in the file. */
 
-    function loadLayoutPreferences() {
-      const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
-      const activeTab = localStorage.getItem("serviceEyeActiveTab") || "gspn";
-      document.body.classList.toggle("menu-collapsed", collapsed);
-      applyTabDesign(activeTab, false);
-      setTimeout(() => switchTab(activeTab), 0);
-    }
     function getTabDesign(tab) { return localStorage.getItem(`serviceEyeDesign_${tab}`) || localStorage.getItem("serviceEyeDesign") || "volta"; }
     function applyTabDesign(tab, save = false) {
       const safeDesign = ["pro", "glass", "fresh", "volta"].includes(getTabDesign(tab)) ? getTabDesign(tab) : "volta";
@@ -113,33 +107,12 @@ window.v57_getPresenceCounts = function(){return{gspn:0,sky:0,analysis:0};};
       if (save) localStorage.setItem(`serviceEyeDesign_${tab}`, safeDesign);
     }
     function getActiveServiceTab() { const profitPage = document.getElementById("profitPage"); const skyPage = document.getElementById("skyPage"); if (profitPage && profitPage.style.display !== "none") return "profit"; return skyPage && skyPage.style.display !== "none" ? "sky" : "gspn"; }
-    function setDesign(design, save = true) {
-      const tab = getActiveServiceTab();
-      const safeDesign = ["pro", "glass", "fresh", "volta"].includes(design) ? design : "volta";
-      localStorage.setItem(`serviceEyeDesign_${tab}`, safeDesign);
-      if (save) localStorage.setItem("serviceEyeDesign", safeDesign);
-      applyTabDesign(tab, false);
-      setTimeout(() => { if (tab === "gspn" && currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows); if (tab === "sky") renderSky(); }, 50);
-    }
+/* Removed duplicate earlier setDesign definition; canonical implementation retained later in the file. */
+
     
 function requestProtectedTabAccess(tabKey, tabLabel) { return true; }
+/* Removed duplicate earlier switchTab definition; canonical implementation retained later in the file. */
 
-function switchTab(tab) {
-      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases", "receivedDelivered"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement + dashboard + preBooking;
-
-      localStorage.setItem("serviceEyeActiveTab", safeTab);
-      document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; el.classList.toggle("active", oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
-      const gspnPage = document.getElementById("gspnPage"); const skyPage = document.getElementById("skyPage"); const profitPage = document.getElementById("profitPage");
-      if (gspnPage) gspnPage.style.display = safeTab === "gspn" ? "block" : "none";
-      if (skyPage) skyPage.style.display = safeTab === "sky" ? "block" : "none";
-      if (profitPage) profitPage.style.display = safeTab === "profit" ? "block" : "none";
-      applyTabDesign(safeTab, false);
-      (window.requestIdleCallback || function(cb){ return setTimeout(cb, 120); })(() => {
-        if (safeTab === "gspn" && typeof currentFilteredRows !== "undefined" && currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows);
-        if (safeTab === "sky") { if (typeof window.__lazyStartSky === "function") window.__lazyStartSky(); else if (typeof renderSky === "function") renderSky(); }
-        if (safeTab === "profit") renderProfit();
-      }, { timeout: 1200 });
-    }
     function clearSkyChartFilter(id) { const el = document.getElementById(id); if (el) el.value = ""; renderSky(); }
     function fillChartSelect(id, values, allText) {
       const el = document.getElementById(id); if (!el) return;
@@ -156,13 +129,8 @@ function switchTab(tab) {
       fillChartSelect("skyReadyAgingBrandFilter", ["Samsung", "Apple"], "All Brands");
       fillChartSelect("skyStageAllQueueFilter", SKY_V18_QUEUE_VALUES, "All Queues");
     }
-    function resetSkyFiltersToAll() {
-      ["skyBranchFilter", "skyStageFilter", "skyJobTypeFilter"].forEach(id => { const el = document.getElementById(id); if (el) [...el.options].forEach(opt => opt.selected = opt.value === ALL_VALUE); });
-      ["skyQueueFilter", "skyBrandFilter"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
-      SKY_CHART_FILTER_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
-      const search = document.getElementById("skySearchBox"); if (search) search.value = "";
-      requestAnimationFrame(refreshSkyExcelFilterWidgets);
-    }
+/* Removed duplicate earlier resetSkyFiltersToAll definition; canonical implementation retained later in the file. */
+
     function chartRowsByField(rows, field, value) { return value ? rows.filter(r => clean(r[field]) === value) : rows; }
     function topCountsAllKeep(rows, field, orderedValues = null) {
       const counts = {}; rows.forEach(r => { const key = clean(r[field]) || "Blank"; counts[key] = (counts[key] || 0) + 1; });
@@ -175,41 +143,12 @@ function switchTab(tab) {
       return { labels: Object.keys(buckets), values: Object.values(buckets) };
     }
     const skyBarLabelErrorPlugin = { id: 'skyBarLabelErrorPlugin' };
-    function updateSkyCharts(rows) {
-      if (typeof Chart === "undefined") return;
-      const queueRows = chartRowsByField(rows, "Brand", document.getElementById("skyQueueChartBrandFilter")?.value || "");
-      const brandRows = chartRowsByField(rows, "Queue", document.getElementById("skyBrandChartQueueFilter")?.value || "");
-      const openRows = rows.filter(isSkyOpenRow);
-      const openStageBase = chartRowsByField(openRows, "Branch", document.getElementById("skyStageChartBranchFilter")?.value || "").filter(r => !isDeliveredOrReadyStage(r.Stage));
-      const openBranchBase = chartRowsByField(openRows, "Stage", document.getElementById("skyBranchChartStageFilter")?.value || "");
-      const readyRows = chartRowsByField(rows.filter(r => r.Queue === "Ready For Delivery Cases"), "Brand", document.getElementById("skyReadyAgingBrandFilter")?.value || "");
-      const stageAllRows = chartRowsByField(rows, "Queue", document.getElementById("skyStageAllQueueFilter")?.value || "");
-      const queue = topCountsAllKeep(queueRows, "Queue", SKY_V18_QUEUE_VALUES), brand = topCountsAllKeep(brandRows, "Brand", ["Samsung", "Apple"]), stage = topCountsAllKeep(openStageBase, "Stage"), branch = topCountsAllKeep(openBranchBase, "Branch"), readyAging = readyAgingMonthBuckets(readyRows), stageAll = topCountsAllKeep(stageAllRows, "Stage");
-      setSkyChartSummary("skyQueueSummary", queue.labels, queue.values, queueRows.length); setSkyChartSummary("skyBrandSummary", brand.labels, brand.values, brandRows.length); setSkyChartSummary("skyStageSummary", stage.labels, stage.values, openStageBase.length); setSkyChartSummary("skyBranchSummary", branch.labels, branch.values, openBranchBase.length); setSkyChartSummary("skyReadyAgingSummary", readyAging.labels, readyAging.values, readyRows.length); setSkyChartSummary("skyStageAllSummary", stageAll.labels, stageAll.values, stageAllRows.length);
-      createSkyColumnChart("skyQueueChart", displayLabelsWithPct(queue.labels, queue.values, queueRows.length), queue.values, "Cases", label => setSkyQueue(label.split(" (")[0]), false);
-      createSkyColumnChart("skyBrandChart", displayLabelsWithPct(brand.labels, brand.values, brandRows.length), brand.values, "Cases", label => setSkyBrand(label.split(" (")[0]), false);
-      createSkyColumnChart("skyStageChart", displayLabelsWithPct(stage.labels, stage.values, openStageBase.length), stage.values, "Open Cases", label => filterSkyMulti("skyStageFilter", label.split(" (")[0]), false);
-      createSkyColumnChart("skyBranchChart", displayLabelsWithPct(branch.labels, branch.values, openBranchBase.length), branch.values, "Open Cases", label => filterSkyMulti("skyBranchFilter", label.split(" (")[0]), false);
-      createSkyColumnChart("skyReadyAgingChart", readyAging.labels, readyAging.values, "Ready Cases", null, true);
-      createSkyColumnChart("skyStageAllChart", displayLabelsWithPct(stageAll.labels, stageAll.values, stageAllRows.length), stageAll.values, "Cases", label => filterSkyMulti("skyStageFilter", label.split(" (")[0]), true);
-    }
-    function refreshSkyExcelFilterWidgets() { [{ id: "skyBranchFilter", multiple: true }, { id: "skyQueueFilter", multiple: false }, { id: "skyBrandFilter", multiple: false }, { id: "skyStageFilter", multiple: true }, { id: "skyJobTypeFilter", multiple: true }].forEach(createOrUpdateExcelFilter); }
-    function createOrUpdateExcelFilter(config) {
-      const select = document.getElementById(config.id); if (!select) return; select.style.display = "none"; let wrap = document.getElementById(config.id + "_excel"); if (!wrap) { wrap = document.createElement("div"); wrap.className = "excel-filter-container"; wrap.id = config.id + "_excel"; select.insertAdjacentElement("afterend", wrap); }
-      const options = [...select.options].map(o => ({ value: o.value, text: o.textContent, selected: o.selected }));
-      const selectedTexts = options.filter(o => o.selected && o.value !== "" && o.value !== ALL_VALUE).map(o => o.text);
-      const allSelected = config.multiple ? options.some(o => o.value === ALL_VALUE && o.selected) || !selectedTexts.length : !select.value;
-      const summary = allSelected ? "(Select All)" : selectedTexts.length > 2 ? `${selectedTexts.length} selected` : selectedTexts.join(", ");
-      wrap.innerHTML = `<button type="button" class="excel-filter-button" title="${escapeHtml(summary || "(Select All)")}">${escapeHtml(summary || "(Select All)")}</button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search" /><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div>`;
-      const btn = wrap.querySelector(".excel-filter-button"), panel = wrap.querySelector(".excel-filter-panel"), list = wrap.querySelector(".excel-filter-list"), search = wrap.querySelector(".excel-filter-search");
-      let tempSelected = new Set(config.multiple ? options.filter(o => o.selected).map(o => o.value) : [select.value || ""]); if (config.multiple && (!tempSelected.size || tempSelected.has(ALL_VALUE))) tempSelected = new Set([ALL_VALUE]);
-      function positionPanel() { const rect = btn.getBoundingClientRect(); const width = Math.min(310, window.innerWidth - 24); let left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12); let top = rect.bottom + 6; const height = Math.min(330, window.innerHeight - 30); if (top + height > window.innerHeight) top = Math.max(12, rect.top - height - 6); panel.style.left = `${left}px`; panel.style.top = `${top}px`; panel.style.width = `${width}px`; panel.style.maxHeight = `${height}px`; list.style.maxHeight = `${Math.max(90, height - 122)}px`; }
-      const close = () => wrap.classList.remove("open");
-      btn.onclick = event => { event.stopPropagation(); document.querySelectorAll(".excel-filter-container.open").forEach(x => { if (x !== wrap) x.classList.remove("open"); }); wrap.classList.toggle("open"); if (wrap.classList.contains("open")) { positionPanel(); setTimeout(() => search.focus(), 0); } };
-      panel.onclick = event => event.stopPropagation(); wrap.querySelector(".cancel").onclick = close; wrap.querySelector(".ok").onclick = () => { if (config.multiple) { [...select.options].forEach(opt => opt.selected = tempSelected.has(opt.value)); const selectedReal = [...select.options].filter(o => o.selected && o.value !== ALL_VALUE); const allOpt = [...select.options].find(o => o.value === ALL_VALUE); if (!selectedReal.length && allOpt) { [...select.options].forEach(o => o.selected = false); allOpt.selected = true; } } else { select.value = [...tempSelected][0] || ""; } close(); renderSky(); };
-      function drawList(filter = "") { const term = filter.toLowerCase(); const visibleOptions = options.filter(o => !term || o.text.toLowerCase().includes(term)); list.innerHTML = visibleOptions.map(o => `<label class="excel-filter-option"><input type="checkbox" data-value="${escapeHtml(o.value)}" ${tempSelected.has(o.value) ? "checked" : ""}> <span>${escapeHtml(o.text)}</span></label>`).join(""); list.querySelectorAll("input[type=checkbox]").forEach(cb => { cb.onchange = () => { const val = cb.getAttribute("data-value"); if (config.multiple) { if (val === ALL_VALUE) { tempSelected = cb.checked ? new Set([ALL_VALUE]) : new Set(); } else { tempSelected.delete(ALL_VALUE); if (cb.checked) tempSelected.add(val); else tempSelected.delete(val); if (!tempSelected.size) tempSelected.add(ALL_VALUE); } drawList(search.value); } else { tempSelected = new Set([cb.checked ? val : ""]); list.querySelectorAll("input[type=checkbox]").forEach(x => { if (x !== cb) x.checked = false; }); } }; }); }
-      search.oninput = () => drawList(search.value); window.addEventListener("resize", () => { if (wrap.classList.contains("open")) positionPanel(); }, { passive: true }); window.addEventListener("scroll", () => { if (wrap.classList.contains("open")) positionPanel(); }, { passive: true }); drawList();
-    }
+/* Removed duplicate earlier updateSkyCharts definition; canonical implementation retained later in the file. */
+
+/* Removed duplicate earlier refreshSkyExcelFilterWidgets definition; canonical implementation retained later in the file. */
+
+/* Removed duplicate earlier createOrUpdateExcelFilter definition; canonical implementation retained later in the file. */
+
 
   
 
@@ -357,6 +296,7 @@ function switchTab(tab) {
     let dashboardCharts = {};
 
     document.addEventListener("DOMContentLoaded", () => {
+      requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
       loadLayoutPreferences();
       initDatePickers();
       wireEvents();
@@ -1098,8 +1038,11 @@ function switchTab(tab) {
     function loadLayoutPreferences() {
       const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
       const design = localStorage.getItem("serviceEyeDesign") || "volta";
-      document.body.classList.toggle("menu-collapsed", collapsed);
+      if (document.body.classList.contains("menu-collapsed") !== collapsed) {
+        document.body.classList.toggle("menu-collapsed", collapsed);
+      }
       setDesign(design, false);
+      requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
     }
 
     function toggleSideMenu() {
@@ -1112,9 +1055,11 @@ function switchTab(tab) {
       document.body.classList.remove("theme-pro", "theme-glass", "theme-fresh", "theme-volta");
       document.body.classList.add(`theme-${safeDesign}`);
       if (save) localStorage.setItem("serviceEyeDesign", safeDesign);
-      setTimeout(() => {
-        if (currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows);
-      }, 50);
+      if (save) {
+        setTimeout(() => {
+          if (currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows);
+        }, 50);
+      }
     }
 
     function switchTab(tab) {
@@ -1352,61 +1297,15 @@ function switchTab(tab) {
         el.addEventListener("input", debounce(renderSky, 120));
       });
     }
+/* Removed duplicate earlier handleSkyFile definition; canonical implementation retained later in the file. */
 
-    function handleSkyFile(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      setUploadProgress(0, "Reading SKY file...", "The SKY file upload has started.", true);
-      const reader = new FileReader();
-      reader.onprogress = evt => {
-        const percent = evt.lengthComputable ? Math.round((evt.loaded / evt.total) * 70) : 35;
-        setUploadProgress(percent, `Uploading SKY file: ${percent}%`, "Reading and preparing SKY source data.", true);
-      };
-      reader.onload = async evt => {
-        try {
-          setUploadProgress(80, "Processing SKY data...", "Rows are being converted and filters are being refreshed.", true);
-          const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: "array", cellDates: true });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
-          skyRows = raw.map(normalizeSkyRow).filter(r => r.Job_Number || r.IMEI || r.SerialNumber || r.Customer_Mobile || r.Customer_phone);
-          await saveSkyRowsToBrowser(raw);
-          resetSkyFiltersToAll();
-          refreshSkyFilters();
-          renderSky();
-          setUploadProgress(100, "SKY upload completed: 100%", `${skyRows.length} SKY rows loaded. Data was saved using browser database storage to avoid size-limit errors.`, true);
-        } catch (err) {
-
-          setUploadProgress(0, "SKY upload failed", `Could not process the SKY file. ${err && err.message ? err.message : ""}`, true);
-        } finally {
-          e.target.value = "";
-        }
-      };
-      reader.onerror = () => setUploadProgress(0, "SKY upload failed", "The SKY file could not be read.", true);
-      reader.readAsArrayBuffer(file);
-    }
 
     function formatSkyDate(value) {
       const d = parseExcelDate(value);
       return d ? formatDate(d) : clean(value);
     }
+/* Removed duplicate earlier saveSkyRowsToBrowser definition; canonical implementation retained later in the file. */
 
-    async function saveSkyRowsToBrowser(rawRows) {
-      try {
-        const db = await openDashboardDb();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(DB_STORE, "readwrite");
-          tx.objectStore(DB_STORE).put({ id: SKY_STORAGE_KEY, rows: rawRows, savedAt: new Date().toISOString() });
-          tx.oncomplete = resolve;
-          tx.onerror = event => reject(event.target.error || new Error("Could not save SKY data in browser database"));
-        });
-        db.close();
-      } catch (err) {
-
-        // Do not use localStorage for SKY data because large files can exceed browser quota.
-        setUploadProgress(100, "SKY data loaded", `${skyRows.length} SKY rows loaded, but browser database storage could not save them for refresh.`, true);
-      }
-    }
 
     async function loadSkyRowsFromBrowser() {
       try {
@@ -1424,36 +1323,12 @@ function switchTab(tab) {
       }
       return null;
     }
+/* Removed duplicate earlier loadSkySavedRows definition; canonical implementation retained later in the file. */
 
-    async function loadSkySavedRows() {
-      try {
-        const raw = await loadSkyRowsFromBrowser();
-        if (raw && Array.isArray(raw)) {
-          skyRows = raw.map(normalizeSkyRow).filter(r => r.Job_Number || r.IMEI || r.SerialNumber || r.Customer_Mobile || r.Customer_phone);
-        }
-      } catch (err) {
+/* Removed duplicate earlier resetSkyFiltersToAll definition; canonical implementation retained later in the file. */
 
-        skyRows = [];
-      }
-    }
+/* Removed duplicate earlier refreshSkyFilters definition; canonical implementation retained later in the file. */
 
-    function resetSkyFiltersToAll() {
-      ["skyBranchFilter", "skyStageFilter", "skyJobTypeFilter"].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) [...el.options].forEach(opt => opt.selected = opt.value === ALL_VALUE);
-      });
-      ["skyQueueFilter", "skyBrandFilter"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
-      const search = document.getElementById("skySearchBox");
-      if (search) search.value = "";
-    }
-
-    function refreshSkyFilters() {
-      fillSkyMultiSelect("skyBranchFilter", unique(skyRows.map(r => r.Branch)), "All Branches");
-      fillSkyMultiSelect("skyStageFilter", unique(skyRows.map(r => r.Stage)), "All Stages");
-      fillSkyMultiSelect("skyJobTypeFilter", unique(skyRows.map(r => r.JobType)), "All Job Types");
-      fillSimpleOptions("skyQueueFilter", unique(skyRows.map(r => r.Queue)), "All Queue", ["Open_Cases", "Closed_Cases"]);
-      fillSimpleOptions("skyBrandFilter", unique(skyRows.map(r => r.Brand)), "All Brands", ["Samsung", "Apple"]);
-    }
 
     function fillSkyMultiSelect(id, values, allLabel) {
       const select = document.getElementById(id);
@@ -1472,43 +1347,16 @@ function switchTab(tab) {
       select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` + merged.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
       if ([...select.options].some(o => o.value === previous)) select.value = previous;
     }
+/* Removed duplicate earlier getSkyFilteredRows definition; canonical implementation retained later in the file. */
 
-    function getSkyFilteredRows() {
-      const branches = getSelectedValues("skyBranchFilter");
-      const stages = getSelectedValues("skyStageFilter");
-      const jobTypes = getSelectedValues("skyJobTypeFilter");
-      const queue = document.getElementById("skyQueueFilter")?.value || "";
-      const brand = document.getElementById("skyBrandFilter")?.value || "";
-      const q = (document.getElementById("skySearchBox")?.value || "").toLowerCase().trim();
-      return skyRows.filter(r => {
-        if (branches.length && !branches.includes(ALL_VALUE) && !branches.includes(r.Branch)) return false;
-        if (stages.length && !stages.includes(ALL_VALUE) && !stages.includes(r.Stage)) return false;
-        if (jobTypes.length && !jobTypes.includes(ALL_VALUE) && !jobTypes.includes(r.JobType)) return false;
-        if (queue && r.Queue !== queue) return false;
-        if (brand && r.Brand !== brand) return false;
-        if (q) {
-          const haystack = [r.Job_Number, r.IMEI, r.SerialNumber, r.Customer_Mobile, r.Customer_phone].join(" ").toLowerCase();
-          if (!haystack.includes(q)) return false;
-        }
-        return true;
-      });
-    }
+/* Removed duplicate earlier updateSkyCharts definition; canonical implementation retained later in the file. */
 
-    function updateSkyCharts(rows) {
-      if (typeof Chart === "undefined") return;
-      const queue = topCounts(rows, "Queue", 8);
-      const brand = topCounts(rows, "Brand", 8);
-      const stage = topCounts(rows, "Stage", 10);
-      const branch = topCounts(rows, "Branch", 10);
-      createOrUpdateChart("skyQueueChart", "doughnut", queue.labels, queue.values, "Cases", false, label => setSkyQueue(label));
-      createOrUpdateChart("skyBrandChart", "doughnut", brand.labels, brand.values, "Cases", false, label => setSkyBrand(label));
-      createOrUpdateChart("skyStageChart", "bar", stage.labels, stage.values, "Cases", true, label => filterSkyMulti("skyStageFilter", label));
-      createOrUpdateChart("skyBranchChart", "bar", branch.labels, branch.values, "Cases", true, label => filterSkyMulti("skyBranchFilter", label));
-    }
 
     function setTextSafe(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
-    function setSkyQueue(value) { const el = document.getElementById("skyQueueFilter"); if (el) el.value = value; renderSky(); scrollToElement("skyCasesTable"); }
-    function setSkyBrand(value) { const el = document.getElementById("skyBrandFilter"); if (el) el.value = value; renderSky(); scrollToElement("skyCasesTable"); }
+/* Removed duplicate earlier setSkyQueue definition; canonical implementation retained later in the file. */
+
+/* Removed duplicate earlier setSkyBrand definition; canonical implementation retained later in the file. */
+
     function filterSkyMulti(id, value) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1517,7 +1365,8 @@ function switchTab(tab) {
       scrollToElement("skyCasesTable");
     }
     function clearSkyFilters(scroll = false) { resetSkyFiltersToAll(); renderSky(); if (scroll) scrollToElement("skyCasesTable"); }
-    function exportSkyExcel() { exportRowsToExcel(currentSkyRows, SKY_COLUMNS, "SKY Tracking Cases Export.xlsx", "SKY Filtered Cases"); }
+/* Removed duplicate earlier exportSkyExcel definition; canonical implementation retained later in the file. */
+
 
     /* ================= SKY v17 updates ================= */
     const SKY_QUEUE_VALUES = ["Open_Cases", "Ready For Delivery Cases"];
@@ -1748,7 +1597,8 @@ function switchTab(tab) {
 
     function setSkyQueue(value) { const el = document.getElementById("skyQueueFilter"); if (el) el.value = value; renderSky(); scrollToElement("skyCasesTable"); }
     function setSkyBrand(value) { const el = document.getElementById("skyBrandFilter"); if (el) el.value = value; renderSky(); scrollToElement("skyCasesTable"); }
-    function exportSkyExcel() { exportRowsToExcel(currentSkyRows, SKY_COLUMNS, "SKY Tracking Cases Export.xlsx", "SKY Filtered Cases"); }
+/* Removed duplicate earlier exportSkyExcel definition; canonical implementation retained later in the file. */
+
 
     function refreshSkyExcelFilterWidgets() {
       const configs = [
