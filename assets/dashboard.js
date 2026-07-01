@@ -10466,6 +10466,10 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     const tableRows = isOpen4PlusModeActive() ? rows.filter(isOpen4Plus) : rows;
     window.currentSkyRows = tableRows;
     renderTable(tableRows);
+    // Cards must always be calculated from the currently selected normal filters.
+    // The Open Cases 4+ card itself is a shortcut filter, so its count is calculated
+    // before applying the shortcut-only table restriction. This prevents the card
+    // from showing 0 on first load or after delayed render passes.
     updateCards(rows);
     renderCharts(rows);
     return tableRows;
@@ -12837,86 +12841,6 @@ void(boot, 2500);
   ['gspn','sky','profit','cashTarget','analysis','analyses'].forEach(function(t){
     try { } catch(e) {}
   });
-})();
-
-
-/* ===== sky-open-cases-normalize-fix ===== */
-
-(function(){
-  function txt(v){ return String(v == null ? '' : v).trim(); }
-  function normQueue(row){
-    const q = txt(row && (row.Queue ?? row.queue ?? row['Queue']));
-    const l = q.toLowerCase().replace(/\s+/g,'_');
-    if (q === 'Open_Cases' || q === 'Open_Cases' || l.includes('open')) return 'Open_Cases';
-    if (q === 'Ready For Delivery Cases' || l.includes('ready')) return 'Ready For Delivery Cases';
-    if (q === '__REMOVED_QUEUE__' || l.includes('delivered')) return '__REMOVED_QUEUE__';
-    return q;
-  }
-  function fmt(n){ return Number(n||0).toLocaleString('en-US'); }
-  function pct(part,total){ return total ? ((Number(part||0)*100)/Number(total||1)).toFixed(1) : '0.0'; }
-  function byId(id){ return document.getElementById(id); }
-  function setText(id,value){ const el=byId(id); if(el) el.textContent=value; }
-  function countBy(rows, field){
-    const m = new Map();
-    rows.forEach(r=>{ const k = txt(r && r[field]) || 'Blank'; m.set(k,(m.get(k)||0)+1); });
-    return Array.from(m.entries()).sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0])));
-  }
-  function destroyChart(id){
-    try{ if(window.dashboardCharts && window.dashboardCharts[id]){ window.dashboardCharts[id].destroy(); delete window.dashboardCharts[id]; } }catch(e){}
-    const c=byId(id);
-    try{ if(c && window.Chart && typeof Chart.getChart==='function'){ const existing=Chart.getChart(c); if(existing) existing.destroy(); } }catch(e){}
-    if(c && c.parentNode){ const n=c.cloneNode(false); c.parentNode.replaceChild(n,c); }
-  }
-  function drawBar(id, items, title, horizontal){
-    if(!window.Chart) return;
-    const c=byId(id); if(!c) return;
-    destroyChart(id);
-    const canvas=byId(id);
-    const total=items.reduce((a,x)=>a+Number(x[1]||0),0);
-    const labels=items.map(x=>x[0]+' ('+pct(x[1],total)+'%)');
-    const values=items.map(x=>x[1]);
-    const max=Math.max(0,...values);
-    const colors=window.COLORS || ['#8b5cf6','#60a5fa','#34d399','#f59e0b','#ef4444','#14b8a6','#a78bfa','#f97316'];
-    window.dashboardCharts=window.dashboardCharts||{};
-    window.dashboardCharts[id]=__safeNewChart(canvas,{type:'bar',data:{labels,datasets:[{label:title,data:values,backgroundColor:values.map((_,i)=>colors[i%colors.length]),borderColor:values.map((_,i)=>colors[i%colors.length]),borderWidth:1,borderRadius:horizontal?6:5,maxBarThickness:horizontal?24:52}]},options:{animation:false,responsive:true,maintainAspectRatio:false,animation:false,indexAxis:horizontal?'y':'x',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>title+': '+ctx.raw+' ('+pct(ctx.raw,total)+'%)'}}},scales:{x:{beginAtZero:true,suggestedMax:horizontal?max*1.2+1:undefined,ticks:{autoSkip:false,precision:0,color:'#111827',font:{weight:'700'}}},y:{beginAtZero:!horizontal,suggestedMax:horizontal?undefined:max*1.2+1,ticks:{autoSkip:false,precision:0,color:'#111827',font:{weight:'700'}}}}}});
-  }
-  function setSummary(id, items, total){
-    const el=byId(id); if(!el) return;
-    el.innerHTML=items.map(x=>'<span class="sky-chart-chip">'+String(x[0]).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+': '+x[1]+' ('+pct(x[1],total)+'%)</span>').join('');
-  }
-  function agingDaysStrict(row){
-    const vals=[val(row,'Aging Days'),val(row,'Aging_Days'),val(row,'AgingDays'),val(row,'Aging')];
-    for(const raw of vals){ const n=Number(String(raw??'').replace(/[^0-9.-]/g,'')); if(Number.isFinite(n)) return n; }
-    return null;
-  }
-  function isOpen4PlusStrict(row){ const d=agingDaysStrict(row); return normQueue(row)==='Open_Cases' && d!==null && d>=4; }
-  function fixOpenCases(){
-    const rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows : (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : []);
-    const sourceRows = (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : rows);
-    if(!Array.isArray(rows) || !rows.length) return;
-    const total=rows.length;
-    const openRows=rows.filter(r=>normQueue(r)==='Open_Cases');
-    const allOpenRows=Array.isArray(sourceRows) ? sourceRows.filter(r=>normQueue(r)==='Open_Cases') : openRows;
-    const open4Plus=allOpenRows.filter(isOpen4PlusStrict).length;
-    setText('skyOpenCases', fmt(openRows.length));
-    setText('skyOpenPercent', pct(openRows.length,total)+'% of Total');
-    setText('skyOpen4PlusCases', fmt(open4Plus));
-    setText('skyOpen4PlusPercent', pct(open4Plus,allOpenRows.length)+'% of Open');
-    const branch=countBy(openRows,'Branch');
-    const status=countBy(openRows,'Status');
-    setSummary('skyOpenBranchSummary', branch, openRows.length);
-    setSummary('skyOpenStatusSummary', status, openRows.length);
-    drawBar('skyOpenBranchChart', branch, 'Open_Cases', false);
-    drawBar('skyOpenStatusChart', status, 'Open_Cases', true);
-  }
-  const oldRenderSky=window.renderSky;
-  window.renderSky=function(){
-    const res = typeof oldRenderSky==='function' ? oldRenderSky.apply(this,arguments) : undefined;
-    setTimeout(fixOpenCases,80);
-    return res;
-  };
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(fixOpenCases,1200));
-  window.addEventListener('load',()=>setTimeout(fixOpenCases,1600));
 })();
 
 
