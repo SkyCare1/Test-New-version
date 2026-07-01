@@ -13574,13 +13574,204 @@ window.addEventListener('beforeunload', function() {
     }catch(e){}
   };
 
+
+  function secStatusPill(value, type){ return '<span class="sec-pill '+(type||'ok')+'">'+esc(value)+'</span>'; }
+  function currentUserLabel(){ return (currentProfile && (currentProfile.username || currentProfile.email)) || 'User'; }
+  function currentUserKey(){ return String((currentProfile && (currentProfile.id || currentProfile.email || currentProfile.username)) || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'user'; }
+  function writeSecurityEvent(path, payload){
+    try{
+      if(!rtdb) return;
+      rtdb.ref(path).push(Object.assign({
+        ts: firebase.database.ServerValue.TIMESTAMP,
+        userId: currentProfile && currentProfile.id || '',
+        username: currentProfile && (currentProfile.username || currentProfile.email) || 'Unknown',
+        email: currentProfile && currentProfile.email || '',
+        role: currentProfile && currentProfile.role || '',
+        tab: window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || ''
+      }, payload || {}));
+    }catch(e){}
+  }
+  function logSecurityAlert(action, details){ writeSecurityEvent('security/securityAlerts', {action:action||'Alert', details:details||'', severity:'warning'}); }
+
+  window.refreshSystemHealth = async function(){
+    if(!isAdmin()) return;
+    const tbl=$('securitySystemHealthTable'), status=$('secSystemStatus'), note=$('secSystemNote');
+    const checks=[];
+    function add(name,state,detail){ checks.push({name,state,detail}); }
+    add('Firebase Auth', !!auth ? 'OK' : 'Error', auth ? 'Auth object initialized' : 'Auth is not available');
+    add('Firestore Users', !!db ? 'OK' : 'Error', db ? 'Firestore available for users/permissions' : 'Firestore is not available');
+    add('Realtime Database', !!rtdb ? 'OK' : 'Error', rtdb ? 'Realtime Database available for security logs' : 'Realtime Database is not available');
+    add('Current Admin Session', isAdmin() ? 'OK' : 'Error', currentProfile ? ((currentProfile.email||currentProfile.username||'')+' / '+(currentProfile.role||'')) : 'No profile loaded');
+    add('Maintenance Mode', currentMaintenanceState && currentMaintenanceState.enabled ? 'Warning' : 'OK', currentMaintenanceState && currentMaintenanceState.enabled ? 'Maintenance is currently ON' : 'Maintenance is OFF');
+    try{ const r=await fetch('data/gspn.json?v='+Date.now(),{cache:'no-store'}); add('JSON Fetch Test', r.ok?'OK':'Warning', 'data/gspn.json HTTP '+r.status); }catch(e){ add('JSON Fetch Test','Error',String(e&&e.message||e)); }
+    const bad=checks.filter(x=>x.state==='Error').length, warn=checks.filter(x=>x.state==='Warning').length;
+    if(status) status.textContent = bad ? 'Error' : (warn ? 'Warning' : 'OK');
+    if(note) note.textContent = bad ? bad+' critical issue(s)' : (warn ? warn+' warning(s)' : 'All core services ready');
+    if(tbl) tbl.innerHTML='<thead><tr><th>Service</th><th>Status</th><th>Details</th></tr></thead><tbody>'+checks.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+secStatusPill(x.state,x.state==='OK'?'ok':(x.state==='Warning'?'warn':'bad'))+'</td><td>'+esc(x.detail)+'</td></tr>').join('')+'</tbody>';
+  };
+
+  window.refreshPermissionAudit = async function(){
+    if(!isAdmin() || !db) return;
+    const tbl=$('securityPermissionAuditTable'), kpi=$('secPermissionStatus'), note=$('secPermissionNote');
+    if(tbl) tbl.innerHTML='<tbody><tr><td>Reading users...</td></tr></tbody>';
+    try{
+      const snap=await db.collection('users').get();
+      const users=[]; snap.forEach(doc=>users.push(Object.assign({id:doc.id},doc.data()||{})));
+      const risky=[];
+      users.forEach(u=>{
+        const role=String(u.role||'').toUpperCase(); const tabs=Array.isArray(u.allowedTabs)?u.allowedTabs:[];
+        if(u.active===false) risky.push({user:u, issue:'Inactive account', level:'warn'});
+        if(role!=='ADMIN' && tabs.some(t=>String(t).toLowerCase().includes('user management') || String(t)==='userManagement')) risky.push({user:u, issue:'Non-admin has User Management access', level:'bad'});
+        if(role!=='ADMIN' && tabs.some(t=>String(t).toLowerCase().includes('security') || String(t)==='security')) risky.push({user:u, issue:'Non-admin has Security access', level:'bad'});
+        if(role!=='ADMIN' && (!tabs.length)) risky.push({user:u, issue:'No allowed tabs configured', level:'warn'});
+        if(!role) risky.push({user:u, issue:'Missing role', level:'bad'});
+      });
+      if(kpi) kpi.textContent=users.length;
+      if(note) note.textContent=risky.length+' permission finding(s)';
+      if(tbl) tbl.innerHTML='<thead><tr><th>User</th><th>Email</th><th>Role</th><th>Allowed Tabs</th><th>Audit Result</th></tr></thead><tbody>'+users.map(u=>{
+        const findings=risky.filter(r=>r.user.id===u.id); const issue=findings.map(f=>f.issue).join(' | ')||'OK'; const type=findings.some(f=>f.level==='bad')?'bad':(findings.length?'warn':'ok');
+        return '<tr><td>'+esc(u.username||'')+'</td><td>'+esc(u.email||'')+'</td><td>'+esc(u.role||'')+'</td><td>'+esc((u.allowedTabs||[]).join(', '))+'</td><td>'+secStatusPill(issue,type)+'</td></tr>';
+      }).join('')+'</tbody>';
+    }catch(e){ if(tbl) tbl.innerHTML='<tbody><tr><td>Permission audit failed: '+esc(e&&e.message||e)+'</td></tr></tbody>'; }
+  };
+
+  const VALIDATION_RULES = {
+    'GSPN': ['GSPN_Branch','SO NO#','GSPN_Status'],
+    'SKY': ['Queue','Branch','Aging Days'],
+    'Pre_Booking': ['Branch'],
+    'Profitability & commission': ['Branch'],
+    'Received & Delivered': ['Branch','Employee'],
+    'Return Cases': ['Branch'],
+    'Repair Efficiency': ['Branch']
+  };
+  function rowsFromJsonPayload(data){
+    if(Array.isArray(data)) return data;
+    if(data && Array.isArray(data.rows)) return data.rows;
+    if(data && data.sheets){ const first=Object.values(data.sheets).find(Array.isArray); return first || []; }
+    return [];
+  }
+  function hasAnyKey(row, wanted){
+    const keys=Object.keys(row||{}).map(k=>String(k).toLowerCase().replace(/[^a-z0-9]/g,''));
+    return wanted.some(w=>keys.includes(String(w).toLowerCase().replace(/[^a-z0-9]/g,'')));
+  }
+  window.refreshDataValidation = async function(){
+    if(!isAdmin()) return;
+    const tbl=$('securityDataValidationTable'); if(tbl) tbl.innerHTML='<tbody><tr><td>Validating JSON files...</td></tr></tbody>';
+    const output=[];
+    for(const src of SECURITY_DATA_SOURCES){
+      try{
+        const r=await fetch(src.json+'?v='+Date.now(),{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status);
+        const data=await r.json(); const rows=rowsFromJsonPayload(data); const req=VALIDATION_RULES[src.name]||[];
+        let missingCols=[]; req.forEach(col=>{ if(rows.length && !hasAnyKey(rows[0], [col])) missingCols.push(col); });
+        let blankCritical=0;
+        rows.slice(0,5000).forEach(row=>{ if(req.some(col=>!hasAnyKey(row,[col]) || Object.keys(row).some(k=>String(k).toLowerCase().replace(/[^a-z0-9]/g,'')===String(col).toLowerCase().replace(/[^a-z0-9]/g,'') && (row[k]===''||row[k]==null)))) blankCritical++; });
+        output.push({name:src.name, rows:rows.length, status:missingCols.length?'Warning':'OK', details:missingCols.length?'Missing columns: '+missingCols.join(', '):(blankCritical?blankCritical+' rows may have blank critical values':'Structure looks valid')});
+      }catch(e){ output.push({name:src.name, rows:0, status:'Error', details:e&&e.message||String(e)}); }
+    }
+    if(tbl) tbl.innerHTML='<thead><tr><th>Dataset</th><th>Status</th><th>Rows</th><th>Validation Details</th></tr></thead><tbody>'+output.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+secStatusPill(x.status,x.status==='OK'?'ok':(x.status==='Warning'?'warn':'bad'))+'</td><td>'+esc(x.rows)+'</td><td>'+esc(x.details)+'</td></tr>').join('')+'</tbody>';
+  };
+
+  let securityBroadcastUnsub=null, securityBroadcastState={enabled:false,requireAck:false,title:'',body:''};
+  function broadcastAckKey(state){ return String((state&&state.id) || (state&&state.updatedAt) || 'current'); }
+  function applyBroadcastState(state){
+    securityBroadcastState=state||{enabled:false,requireAck:false,title:'',body:''};
+    const t=$('securityBroadcastTitle'), b=$('securityBroadcastBody'), en=$('securityBroadcastEnabled'), req=$('securityBroadcastRequireAck');
+    if(isAdmin()){
+      if(t) t.value=securityBroadcastState.title||''; if(b) b.value=securityBroadcastState.body||''; if(en) en.checked=!!securityBroadcastState.enabled; if(req) req.checked=!!securityBroadcastState.requireAck;
+    }
+    renderBroadcastOverlay();
+    if(isAdmin()) window.refreshAcknowledgements && window.refreshAcknowledgements();
+  }
+  function listenBroadcast(){
+    try{ if(!rtdb || securityBroadcastUnsub) return; securityBroadcastUnsub=rtdb.ref('security/broadcast').on('value', snap=>applyBroadcastState(snap.val()||{})); }catch(e){}
+  }
+  function renderBroadcastOverlay(){
+    let ov=document.getElementById('securityBroadcastOverlay');
+    if(!ov){ ov=document.createElement('div'); ov.id='securityBroadcastOverlay'; ov.innerHTML='<div class="security-broadcast-card"><h2 id="securityBroadcastOverlayTitle"></h2><p id="securityBroadcastOverlayBody"></p><button id="securityBroadcastAckBtn" type="button">Acknowledge</button></div>'; document.body.appendChild(ov); }
+    const st=securityBroadcastState||{}; const key=broadcastAckKey(st); const ack=localStorage.getItem('sscBroadcastAck_'+key)==='1';
+    const show=!!(st.enabled && st.requireAck && !isAdmin() && !ack);
+    const tt=document.getElementById('securityBroadcastOverlayTitle'), bb=document.getElementById('securityBroadcastOverlayBody'), btn=document.getElementById('securityBroadcastAckBtn');
+    if(tt) tt.textContent=st.title||'Required Action'; if(bb) bb.textContent=st.body||'Please acknowledge this message.';
+    if(btn) btn.onclick=async function(){
+      try{ localStorage.setItem('sscBroadcastAck_'+key,'1'); if(rtdb && currentProfile) await rtdb.ref('security/acknowledgements/'+key+'/'+currentUserKey()).set({ts:firebase.database.ServerValue.TIMESTAMP,username:currentUserLabel(),email:currentProfile.email||'',role:currentProfile.role||''}); logSecurityActivity('Broadcast acknowledged', st.title||'Required Action'); }catch(e){}
+      renderBroadcastOverlay();
+    };
+    ov.style.display=show?'flex':'none';
+  }
+  window.saveBroadcastMessage=async function(){
+    if(!isAdmin() || !rtdb) return;
+    const payload={enabled:!!($('securityBroadcastEnabled')&&$('securityBroadcastEnabled').checked), requireAck:!!($('securityBroadcastRequireAck')&&$('securityBroadcastRequireAck').checked), title:($('securityBroadcastTitle')&&$('securityBroadcastTitle').value.trim())||'Required Action', body:($('securityBroadcastBody')&&$('securityBroadcastBody').value.trim())||'Please review the dashboard message.', updatedAt:firebase.database.ServerValue.TIMESTAMP, updatedBy:currentProfile.email||currentProfile.username||'ADMIN'};
+    await rtdb.ref('security/broadcast').set(payload); logSecurityActivity('Broadcast saved', payload.title);
+  };
+  window.clearBroadcastMessage=async function(){ if(!isAdmin() || !rtdb) return; await rtdb.ref('security/broadcast').set({enabled:false,requireAck:false,title:'',body:'',updatedAt:firebase.database.ServerValue.TIMESTAMP,updatedBy:currentProfile.email||currentProfile.username||'ADMIN'}); logSecurityActivity('Broadcast cleared',''); };
+  window.refreshAcknowledgements=async function(){
+    if(!isAdmin() || !rtdb || !db) return;
+    const tbl=$('securityAcknowledgementTable'), kpi=$('secAckPending');
+    try{
+      const userSnap=await db.collection('users').get(); const users=[]; userSnap.forEach(doc=>users.push(Object.assign({id:doc.id},doc.data()||{})));
+      const key=broadcastAckKey(securityBroadcastState); const ackSnap=await rtdb.ref('security/acknowledgements/'+key).once('value'); const ack=ackSnap.val()||{};
+      const active=users.filter(u=>u.active!==false && String(u.role||'').toUpperCase()!=='ADMIN'); const pending=active.filter(u=>!ack[String((u.id||u.email||u.username||'')).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')]);
+      if(kpi) kpi.textContent=pending.length;
+      if(tbl) tbl.innerHTML='<thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Time</th></tr></thead><tbody>'+active.map(u=>{ const id=String((u.id||u.email||u.username||'')).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); const a=ack[id]; return '<tr><td>'+esc(u.username||'')+'</td><td>'+esc(u.email||'')+'</td><td>'+esc(u.role||'')+'</td><td>'+secStatusPill(a?'Acknowledged':'Pending',a?'ok':'warn')+'</td><td>'+esc(a?securityTime(a.ts):'')+'</td></tr>'; }).join('')+'</tbody>';
+    }catch(e){ if(tbl) tbl.innerHTML='<tbody><tr><td>Acknowledgement refresh failed: '+esc(e&&e.message||e)+'</td></tr></tbody>'; }
+  };
+
+  function installBrowserErrorLogger(){
+    if(window.__sscErrorLoggerInstalled) return; window.__sscErrorLoggerInstalled=true;
+    window.addEventListener('error', function(ev){ writeSecurityEvent('security/errorLog',{message:ev.message||'Script error', source:ev.filename||'', line:ev.lineno||'', column:ev.colno||'', stack:ev.error&&ev.error.stack||''}); });
+    window.addEventListener('unhandledrejection', function(ev){ const reason=ev.reason; writeSecurityEvent('security/errorLog',{message:'Unhandled promise rejection', source:'promise', stack:(reason&&reason.stack)||String(reason||'')}); });
+  }
+  window.refreshErrorLog=function(){
+    if(!isAdmin() || !rtdb) return; const tbl=$('securityErrorLogTable');
+    rtdb.ref('security/errorLog').limitToLast(80).once('value').then(snap=>{ const raw=snap.val()||{}; const items=Object.keys(raw).map(k=>Object.assign({id:k},raw[k])).sort((a,b)=>Number(b.ts||0)-Number(a.ts||0)); if(tbl) tbl.innerHTML=items.length?'<thead><tr><th>Time</th><th>User</th><th>Role</th><th>Message</th><th>Source</th><th>Line</th></tr></thead><tbody>'+items.map(x=>'<tr><td>'+esc(securityTime(x.ts))+'</td><td>'+esc(x.username||x.email||'')+'</td><td>'+esc(x.role||'')+'</td><td>'+esc(x.message||'')+'</td><td>'+esc(x.source||'')+'</td><td>'+esc(x.line||'')+'</td></tr>').join('')+'</tbody>':'<tbody><tr><td>No browser errors recorded yet.</td></tr></tbody>'; });
+  };
+
+  function recordAccessRequest(tabKey, reason){ writeSecurityEvent('security/accessRequests',{requestedTab:tabKey||'', reason:reason||'Restricted tab access', status:'pending'}); }
+  window.refreshAccessRequests=function(){
+    if(!isAdmin() || !rtdb) return; const tbl=$('securityAccessRequestsTable');
+    rtdb.ref('security/accessRequests').limitToLast(80).once('value').then(snap=>{ const raw=snap.val()||{}; const items=Object.keys(raw).map(k=>Object.assign({id:k},raw[k])).sort((a,b)=>Number(b.ts||0)-Number(a.ts||0)); if(tbl) tbl.innerHTML=items.length?'<thead><tr><th>Time</th><th>User</th><th>Role</th><th>Requested Tab</th><th>Reason</th><th>Status</th></tr></thead><tbody>'+items.map(x=>'<tr><td>'+esc(securityTime(x.ts))+'</td><td>'+esc(x.username||x.email||'')+'</td><td>'+esc(x.role||'')+'</td><td>'+esc(x.requestedTab||'')+'</td><td>'+esc(x.reason||'')+'</td><td>'+secStatusPill(x.status||'pending',x.status==='approved'?'ok':'warn')+'</td></tr>').join('')+'</tbody>':'<tbody><tr><td>No access requests recorded yet.</td></tr></tbody>'; });
+  };
+  window.sscRecordAccessRequest=recordAccessRequest;
+
+  function installSecurityAlertLogger(){
+    if(window.__sscSecurityAlertLoggerInstalled) return; window.__sscSecurityAlertLoggerInstalled=true;
+    document.addEventListener('contextmenu', function(e){ if(currentProfile && !isAdmin()) logSecurityAlert('Blocked right click','User attempted context menu'); }, true);
+    document.addEventListener('keydown', function(e){
+      if(!currentProfile || isAdmin()) return;
+      const k=String(e.key||'').toLowerCase();
+      if(e.key==='F12' || (e.ctrlKey && k==='u') || (e.ctrlKey && e.shiftKey && ['i','j','c','k'].includes(k))) logSecurityAlert('Blocked browser shortcut', (e.ctrlKey?'Ctrl+':'')+(e.shiftKey?'Shift+':'')+(e.key||''));
+    }, true);
+  }
+  window.refreshSecurityAlerts=function(){
+    if(!isAdmin() || !rtdb) return; const tbl=$('securityAlertsTable'), kpi=$('secSecurityAlertCount');
+    rtdb.ref('security/securityAlerts').limitToLast(80).once('value').then(snap=>{ const raw=snap.val()||{}; const items=Object.keys(raw).map(k=>Object.assign({id:k},raw[k])).sort((a,b)=>Number(b.ts||0)-Number(a.ts||0)); if(kpi) kpi.textContent=items.length; if(tbl) tbl.innerHTML=items.length?'<thead><tr><th>Time</th><th>User</th><th>Role</th><th>Tab</th><th>Alert</th><th>Details</th></tr></thead><tbody>'+items.map(x=>'<tr><td>'+esc(securityTime(x.ts))+'</td><td>'+esc(x.username||x.email||'')+'</td><td>'+esc(x.role||'')+'</td><td>'+esc(x.tab||'')+'</td><td>'+esc(x.action||'')+'</td><td>'+esc(x.details||'')+'</td></tr>').join('')+'</tbody>':'<tbody><tr><td>No security alerts recorded yet.</td></tr></tbody>'; });
+  };
+
+  const oldCanOpenSecurityBase = canOpen;
+  canOpen = function(key){
+    const allowed = oldCanOpenSecurityBase(key);
+    if(!allowed && currentProfile && key){
+      try{ recordAccessRequest(key,'Attempted restricted tab access'); logSecurityAlert('Restricted tab attempt', key); }catch(e){}
+    }
+    return allowed;
+  };
   window.renderSecurityPage = function(){
     if(!isAdmin()) return false;
     renderSecurityMaintenanceCard();
-    window.refreshSecurityActivity();
+    window.refreshSystemHealth();
     window.refreshSecurityHealth();
+    window.refreshPermissionAudit();
+    window.refreshDataValidation();
+    window.refreshSecurityActivity();
+    window.refreshAcknowledgements();
+    window.refreshErrorLog();
+    window.refreshAccessRequests();
+    window.refreshSecurityAlerts();
     return true;
   };
+  listenBroadcast();
+  installBrowserErrorLogger();
+  installSecurityAlertLogger();
 
 
   /* ── Realtime online users ── */
