@@ -13286,6 +13286,7 @@ window.addEventListener('beforeunload', function() {
   ];
   const TAB_KEY_BY_TITLE = Object.fromEntries(TABS.map(t=>[t.title,t.key]));
   const ADMIN_TAB = {key:'userManagement', title:'User Management', pageId:'userManagementPage'};
+  const SECURITY_TAB = {key:'security', title:'Security', pageId:'securityPage'};
 
   /* ── State ── */
   let app, auth, db, rtdb, currentProfile = null, unsubscribeUsers = null;
@@ -13379,7 +13380,7 @@ window.addEventListener('beforeunload', function() {
   function allowedKeys(profile){
     if(!profile) return [];
     const role = String(profile.role).toUpperCase();
-    if(role==='ADMIN') return TABS.map(t=>t.key).concat([ADMIN_TAB.key]);
+    if(role==='ADMIN') return TABS.map(t=>t.key).concat([ADMIN_TAB.key, SECURITY_TAB.key]);
     if(role==='MANAGER'){
       const list = Array.isArray(profile.allowedTabs) && profile.allowedTabs.length ? profile.allowedTabs : null;
       if(!list) return TABS.map(t=>t.key);
@@ -13422,10 +13423,169 @@ window.addEventListener('beforeunload', function() {
     }catch(e){}
   }
 
+  /* ── Security Center: data health, maintenance mode, and activity log ── */
+  const SECURITY_DATA_SOURCES = [
+    {name:'GSPN', json:'data/gspn.json', excel:'datagspn.xlsx'},
+    {name:'SKY', json:'data/sky.json', excel:'datasky.xlsx'},
+    {name:'Pre_Booking', json:'data/pre_booking.json', excel:'Pre_Booking.xlsx'},
+    {name:'Profitability & commission', json:'data/profitability_commission.json', excel:'Profitability & commission.xlsx'},
+    {name:'Received & Delivered', json:'data/received_delivered.json', excel:'Received_Delivered.xlsx'},
+    {name:'Return Cases', json:'data/return_cases.json', excel:'Return Cases.xlsx'},
+    {name:'Repair Efficiency', json:'data/repair_efficiency.json', excel:'Repair Efficiency.xlsx'}
+  ];
+  let securityActivityUnsub = null;
+  let securityMaintenanceUnsub = null;
+  let currentMaintenanceState = {enabled:false,message:''};
+
+  function securityTime(v){
+    try{
+      if(!v) return '';
+      const d = v.toDate ? v.toDate() : new Date(Number(v) || v);
+      return isNaN(d) ? '' : d.toLocaleString();
+    }catch(e){ return ''; }
+  }
+  function securityJsonRowCount(data){
+    try{
+      if(Array.isArray(data)) return data.length;
+      if(data && data.sheets){
+        return Object.values(data.sheets).reduce((a,v)=>a+(Array.isArray(v)?v.length:0),0);
+      }
+      if(data && Array.isArray(data.rows)) return data.rows.length;
+    }catch(e){}
+    return 0;
+  }
+  function logSecurityActivity(action, details){
+    try{
+      if(!rtdb || !currentProfile) return;
+      rtdb.ref('security/activityLog').push({
+        ts: firebase.database.ServerValue.TIMESTAMP,
+        userId: currentProfile.id || '',
+        username: currentProfile.username || currentProfile.email || 'User',
+        email: currentProfile.email || '',
+        role: currentProfile.role || '',
+        tab: window.__fbActiveTabKey || localStorage.getItem('serviceEyeActiveTab') || '',
+        action: action || 'Activity',
+        details: details || ''
+      });
+    }catch(e){}
+  }
+  window.sscLogActivity = logSecurityActivity;
+
+  function renderSecurityMaintenanceCard(){
+    const on = !!(currentMaintenanceState && currentMaintenanceState.enabled);
+    const msg = (currentMaintenanceState && currentMaintenanceState.message) || 'Dashboard is under maintenance. Please try again later.';
+    const status = $('secMaintenanceStatus'), note = $('secMaintenanceNote'), title = $('securityMaintenanceTitle'), desc = $('securityMaintenanceDesc'), input = $('securityMaintenanceMessage'), btn = $('securityMaintenanceToggle');
+    if(status) status.textContent = on ? 'On' : 'Off';
+    if(note) note.textContent = on ? 'Users are blocked by maintenance overlay' : 'Normal user access enabled';
+    if(title) title.textContent = on ? 'Maintenance is ON' : 'Maintenance is OFF';
+    if(desc) desc.textContent = on ? msg : 'Users can access the dashboard normally.';
+    if(input && !input.value) input.value = msg;
+    if(btn){ btn.textContent = on ? 'Disable Maintenance' : 'Enable Maintenance'; btn.classList.toggle('danger', !on); }
+  }
+
+  function applyMaintenanceState(state){
+    currentMaintenanceState = state || {enabled:false,message:''};
+    let overlay = document.getElementById('securityMaintenanceOverlay');
+    if(!overlay){
+      overlay = document.createElement('div');
+      overlay.id = 'securityMaintenanceOverlay';
+      overlay.innerHTML = '<div class="security-maintenance-card"><h2>Maintenance Mode</h2><p id="securityMaintenanceOverlayMsg"></p></div>';
+      document.body.appendChild(overlay);
+    }
+    const enabled = !!currentMaintenanceState.enabled;
+    const msg = currentMaintenanceState.message || 'Dashboard is under maintenance. Please try again later.';
+    const m = document.getElementById('securityMaintenanceOverlayMsg'); if(m) m.textContent = msg;
+    overlay.style.display = enabled && !isAdmin() ? 'flex' : 'none';
+    renderSecurityMaintenanceCard();
+  }
+
+  function listenMaintenance(){
+    try{
+      if(!rtdb || securityMaintenanceUnsub) return;
+      const ref = rtdb.ref('security/maintenance');
+      securityMaintenanceUnsub = ref.on('value', snap=>applyMaintenanceState(snap.val() || {enabled:false,message:''}));
+    }catch(e){}
+  }
+
+  window.toggleMaintenanceMode = async function(){
+    try{
+      if(!isAdmin() || !rtdb) return;
+      const msgEl = $('securityMaintenanceMessage');
+      const next = !currentMaintenanceState.enabled;
+      const message = (msgEl && msgEl.value.trim()) || 'Dashboard is under maintenance. Please try again later.';
+      await rtdb.ref('security/maintenance').set({enabled:next,message:message,updatedAt:firebase.database.ServerValue.TIMESTAMP,updatedBy:currentProfile.email||currentProfile.username||'ADMIN'});
+      logSecurityActivity(next ? 'Maintenance enabled' : 'Maintenance disabled', message);
+    }catch(e){ alert('Maintenance update failed: ' + (e && e.message ? e.message : e)); }
+  };
+
+  window.refreshSecurityHealth = async function(){
+    if(!isAdmin()) return;
+    const tbl = $('securityHealthTable');
+    const status = $('secHealthStatus'), note = $('secHealthNote');
+    if(tbl) tbl.innerHTML = '<tbody><tr><td>Checking files...</td></tr></tbody>';
+    let okCount = 0;
+    const rows = [];
+    for(const src of SECURITY_DATA_SOURCES){
+      let jsonStatus='Missing', excelStatus='Not checked', rowCount=0, generated='', source='';
+      try{
+        const r = await fetch(src.json + '?v=' + Date.now(), {cache:'no-store'});
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        jsonStatus='OK'; okCount++;
+        rowCount = securityJsonRowCount(data);
+        generated = data && data.generated_at ? data.generated_at : '';
+        source = data && data.source_file ? data.source_file : src.excel;
+      }catch(e){ jsonStatus = 'Error'; }
+      try{
+        const ex = await fetch(src.excel + '?v=' + Date.now(), {method:'HEAD', cache:'no-store'});
+        excelStatus = ex.ok ? 'OK' : ('HTTP ' + ex.status);
+      }catch(e){ excelStatus = 'Error'; }
+      rows.push({src,jsonStatus,excelStatus,rowCount,generated,source});
+    }
+    const allOk = okCount === SECURITY_DATA_SOURCES.length;
+    if(status) status.textContent = allOk ? 'OK' : 'Warning';
+    if(note) note.textContent = okCount + ' / ' + SECURITY_DATA_SOURCES.length + ' JSON files available';
+    if(tbl){
+      tbl.innerHTML = '<thead><tr><th>Source</th><th>JSON</th><th>Excel fallback</th><th>Rows</th><th>Generated at</th><th>Source file</th></tr></thead><tbody>' + rows.map(r=>{
+        const cls = r.jsonStatus === 'OK' ? 'ok' : 'bad';
+        const exCls = r.excelStatus === 'OK' ? 'ok' : 'warn';
+        return '<tr><td>'+esc(r.src.name)+'</td><td><span class="sec-pill '+cls+'">'+esc(r.jsonStatus)+'</span></td><td><span class="sec-pill '+exCls+'">'+esc(r.excelStatus)+'</span></td><td>'+esc(r.rowCount)+'</td><td>'+esc(r.generated)+'</td><td>'+esc(r.source)+'</td></tr>';
+      }).join('') + '</tbody>';
+    }
+    logSecurityActivity('Security health checked', okCount + '/' + SECURITY_DATA_SOURCES.length + ' JSON files OK');
+  };
+
+  function renderActivityRows(snap){
+    if(!isAdmin()) return;
+    const tbl = $('securityActivityTable');
+    const count = $('secActivityCount');
+    const raw = snap && snap.val ? snap.val() : {};
+    const items = Object.keys(raw || {}).map(k=>Object.assign({id:k}, raw[k])).sort((a,b)=>(Number(b.ts||0)-Number(a.ts||0))).slice(0,80);
+    if(count) count.textContent = items.length;
+    if(tbl){
+      tbl.innerHTML = items.length ? '<thead><tr><th>Time</th><th>User</th><th>Role</th><th>Tab</th><th>Action</th><th>Details</th></tr></thead><tbody>' + items.map(x=>'<tr><td>'+esc(securityTime(x.ts))+'</td><td>'+esc(x.username||x.email||'')+'</td><td>'+esc(x.role||'')+'</td><td>'+esc(x.tab||'')+'</td><td>'+esc(x.action||'')+'</td><td>'+esc(x.details||'')+'</td></tr>').join('') + '</tbody>' : '<tbody><tr><td>No activity recorded yet.</td></tr></tbody>';
+    }
+  }
+  window.refreshSecurityActivity = function(){
+    try{
+      if(!isAdmin() || !rtdb) return;
+      if(securityActivityUnsub) rtdb.ref('security/activityLog').off('value', securityActivityUnsub);
+      securityActivityUnsub = rtdb.ref('security/activityLog').limitToLast(80).on('value', renderActivityRows);
+    }catch(e){}
+  };
+
+  window.renderSecurityPage = function(){
+    if(!isAdmin()) return false;
+    renderSecurityMaintenanceCard();
+    window.refreshSecurityActivity();
+    window.refreshSecurityHealth();
+    return true;
+  };
+
 
   /* ── Realtime online users ── */
   function currentTabTitle(key){
-    const all = TABS.concat([ADMIN_TAB]);
+    const all = TABS.concat([ADMIN_TAB, SECURITY_TAB]);
     const found = all.find(t=>t.key===key);
     return found ? found.title : (key || 'Dashboard');
   }
@@ -13546,6 +13706,8 @@ window.addEventListener('beforeunload', function() {
     ensureUserWidget(); ensureAdminTab(); markKnownTabs(); ensureLiveUsersPanel();
     applyPermissions(true);
     startPresence();
+    listenMaintenance();
+    logSecurityActivity('Login', 'User signed in');
     const savedKey = window.__fbActiveTabKey || (function(){ try{ return localStorage.getItem('serviceEyeActiveTab'); }catch(e){ return null; } })();
     const targetKey = (savedKey && allowedKeys(profile).includes(savedKey)) ? savedKey : (firstAllowed()||'gspn');
     setTimeout(()=>showTab(targetKey), 50);
@@ -13564,7 +13726,7 @@ window.addEventListener('beforeunload', function() {
   function sideTabs(){ return Array.from(document.querySelectorAll('.side-tab')); }
   function markKnownTabs(){
     sideTabs().forEach(el=>{ const k=tabKeyFromSideTab(el); if(k) el.setAttribute('data-fb-tab-key',k); });
-    TABS.concat([ADMIN_TAB]).forEach(t=>{ const p=$(t.pageId); if(p) p.setAttribute('data-fb-page-key',t.key); });
+    TABS.concat([ADMIN_TAB, SECURITY_TAB]).forEach(t=>{ const p=$(t.pageId); if(p) p.setAttribute('data-fb-page-key',t.key); });
   }
   function tabKeyFromSideTab(el){
     const oc=el.getAttribute('onclick')||''; const txt=lower(el.textContent);
@@ -13577,6 +13739,7 @@ window.addEventListener('beforeunload', function() {
     if(oc.includes("'sky'")||oc.includes('"sky"')||txt.includes('sky')) return 'sky';
     if(oc.includes("'profit'")||oc.includes('"profit"')||txt.includes('profitability')) return 'profit';
     if(oc.includes('openCashTargetTab')||oc.includes('cashTarget')||txt.includes('cash')) return 'cashTarget';
+    if(txt.includes('security') || oc.includes("'security'") || oc.includes('"security"')) return 'security';
     if(el.classList.contains('firebase-user-management-tab')||txt.includes('user management')) return 'userManagement';
     return '';
   }
@@ -13585,10 +13748,20 @@ window.addEventListener('beforeunload', function() {
     let tab=document.querySelector('.side-tab.firebase-user-management-tab');
     if(!tab){
       tab=document.createElement('div'); tab.className='side-tab firebase-user-management-tab admin-only'; tab.setAttribute('data-tip','User Management');
+      tab.setAttribute('data-fb-tab-key','userManagement'); tab.setAttribute('data-pb-tab','userManagement');
       tab.innerHTML='<span class="side-icon">👥</span><span class="side-label">User Management</span>';
       tab.onclick=()=>showTab('userManagement');
       const cash=sideTabs().find(el=>tabKeyFromSideTab(el)==='cashTarget');
       if(cash&&cash.parentNode) cash.parentNode.insertBefore(tab,cash.nextSibling); else side.appendChild(tab);
+    }
+    let sec=document.querySelector('.side-tab[data-fb-tab-key="security"],.side-tab[data-pb-tab="security"]');
+    if(!sec){
+      sec=document.createElement('div'); sec.className='side-tab admin-only'; sec.setAttribute('data-tip','Security');
+      sec.setAttribute('data-fb-tab-key','security'); sec.setAttribute('data-pb-tab','security');
+      sec.innerHTML='<span class="side-icon">🔐</span><span class="side-label">Security</span>';
+      sec.onclick=()=>showTab('security');
+      const um=document.querySelector('.side-tab.firebase-user-management-tab');
+      if(um&&um.parentNode) um.parentNode.insertBefore(sec,um.nextSibling); else side.appendChild(sec);
     }
   }
   function ensureUserWidget(){
@@ -13599,16 +13772,17 @@ window.addEventListener('beforeunload', function() {
     const btn=$('firebaseLogoutBtn'); if(btn) btn.onclick=()=>auth.signOut();
   }
   function setPageVisible(key){
-    TABS.concat([ADMIN_TAB]).forEach(t=>{ const p=$(t.pageId); if(p&&!p.classList.contains('fb-page-denied')) p.style.display=(t.key===key?'block':'none'); });
+    TABS.concat([ADMIN_TAB, SECURITY_TAB]).forEach(t=>{ const p=$(t.pageId); if(p&&!p.classList.contains('fb-page-denied')) p.style.display=(t.key===key?'block':'none'); });
     sideTabs().forEach(el=>el.classList.toggle('active',tabKeyFromSideTab(el)===key));
     try{ localStorage.setItem('serviceEyeActiveTab',key); }catch(e){}
     window.__fbActiveTabKey = key;
   }
-  function firstAllowed(){ return allowedKeys(currentProfile).find(k=>k!=='userManagement')||(isAdmin()?'gspn':null); }
+  function firstAllowed(){ return allowedKeys(currentProfile).find(k=>k!=='userManagement'&&k!=='security')||(isAdmin()?'gspn':null); }
   function showTab(key){
     if(!canOpen(key)){ key=firstAllowed(); applyPermissions(true); if(!key) return false; }
     window.__fbActiveTabKey = key;
     try{ localStorage.setItem('serviceEyeActiveTab',key); }catch(e){}
+    logSecurityActivity('Open tab', key);
     setPageVisible(key);
     setTimeout(()=>{ try{
       if(key==='gspn'&&typeof window.render==='function') window.render();
@@ -13621,6 +13795,7 @@ window.addEventListener('beforeunload', function() {
       if(key==='repairEfficiency'&&typeof window.loadRepairEfficiency==='function') window.loadRepairEfficiency(false);
       if(key==='repairEfficiency'&&typeof window.renderRepairEfficiency==='function') window.renderRepairEfficiency();
       if(key==='userManagement') renderUserManagement();
+      if(key==='security'&&typeof window.renderSecurityPage==='function') window.renderSecurityPage();
     }catch(e){} },80);
     updatePresenceTab(key);
     return true;
@@ -13636,7 +13811,7 @@ window.addEventListener('beforeunload', function() {
       if(!ok){ el.classList.remove('active'); try{ el.style.setProperty('display','none','important'); el.style.setProperty('visibility','hidden','important'); }catch(e){} }
       else{ try{ el.style.removeProperty('display'); el.style.removeProperty('visibility'); el.style.removeProperty('opacity'); el.style.removeProperty('height'); el.style.removeProperty('width'); }catch(e){} }
     });
-    TABS.concat([ADMIN_TAB]).forEach(t=>{
+    TABS.concat([ADMIN_TAB, SECURITY_TAB]).forEach(t=>{
       const p=$(t.pageId); if(!p) return;
       const ok=allowed.has(t.key);
       p.classList.toggle('fb-page-denied',!ok);
@@ -13655,7 +13830,7 @@ window.addEventListener('beforeunload', function() {
     const oldSwitch=window.switchTab;
     window.switchTab=function(tab){
       if(tab==='cash') tab='cashTarget';
-      if(['gspn','sky','profit','cashTarget','preBooking','returnCases','receivedDelivered','repairEfficiency','dashboard','userManagement'].includes(tab)) return showTab(tab);
+      if(['gspn','sky','profit','cashTarget','preBooking','returnCases','receivedDelivered','repairEfficiency','dashboard','userManagement','security'].includes(tab)) return showTab(tab);
       if(typeof oldSwitch==='function') return oldSwitch.apply(this,arguments);
     };
     window.openCashTargetTab=function(){ return showTab('cashTarget'); };
@@ -15428,7 +15603,8 @@ window.addEventListener('beforeunload', function() {
     {key:'repairEfficiency', label:'Repair Efficiency', icon:'<span class="side-icon">🛠️</span>', page:'repairEfficiencyPage'},
     {key:'profit', label:'Profitability & commission', icon:'<span class="side-icon">💰</span>', page:'profitPage'},
     {key:'cashTarget', label:'Cash & Target', icon:'<span class="side-icon">🎯</span>', page:'cashTargetPage'},
-    {key:'userManagement', label:'User Management', icon:'<span class="side-icon">👥</span>', page:'userManagementPage', admin:true}
+    {key:'userManagement', label:'User Management', icon:'<span class="side-icon">👥</span>', page:'userManagementPage', admin:true},
+    {key:'security', label:'Security', icon:'<span class="side-icon">🔐</span>', page:'securityPage', admin:true}
   ];
   var PAGE_BY_TAB = {};
   TAB_ORDER.forEach(function(t){ PAGE_BY_TAB[t.key] = t.page; });
@@ -15445,6 +15621,7 @@ window.addEventListener('beforeunload', function() {
     if(t === 'received delivered' || t === 'received & delivered') return 'receivedDelivered';
     if(t === 'repair efficiency') return 'repairEfficiency';
     if(t === 'user management') return 'userManagement';
+    if(t === 'security') return 'security';
     return tabDef(t) ? t : 'gspn';
   }
   function keyFromTab(el){
@@ -15466,6 +15643,7 @@ window.addEventListener('beforeunload', function() {
     if(t.indexOf('sky') >= 0) return 'sky';
     if(t.indexOf('profit') >= 0 || t.indexOf('commission') >= 0) return 'profit';
     if(t.indexOf('cash') >= 0 || t.indexOf('target') >= 0) return 'cashTarget';
+    if(t.indexOf('security') >= 0) return 'security';
     if(t.indexOf('user management') >= 0) return 'userManagement';
     return '';
   }
@@ -15570,6 +15748,8 @@ window.addEventListener('beforeunload', function() {
         }else if(key === 'userManagement'){
           if(typeof window.renderUserManagement === 'function') window.renderUserManagement();
           if(typeof window.loadUserManagement === 'function') window.loadUserManagement();
+        }else if(key === 'security'){
+          if(typeof window.renderSecurityPage === 'function') window.renderSecurityPage();
         }
       }catch(e){ console.error('Tab render error:', key, e); }
     }, 80);
@@ -15578,6 +15758,7 @@ window.addEventListener('beforeunload', function() {
   var previousSwitchTab = window.switchTab;
   window.switchTab = function(tab){
     var key = normalTab(tab);
+    if(key === 'security' && !(typeof window.isAdmin === 'function' && window.isAdmin())) return false;
     normalizeSidebar();
     if(isDenied(key) && key !== 'repairEfficiency') return false;
     if(key === 'repairEfficiency'){
@@ -15634,16 +15815,16 @@ window.addEventListener('beforeunload', function() {
   if(window.__repairEfficiencyAbsoluteFinalRouter) return;
   window.__repairEfficiencyAbsoluteFinalRouter = true;
 
-  var ORDER = ['dashboard','gspn','sky','preBooking','returnCases','receivedDelivered','repairEfficiency','profit','cashTarget','userManagement'];
+  var ORDER = ['dashboard','gspn','sky','preBooking','returnCases','receivedDelivered','repairEfficiency','profit','cashTarget','userManagement','security'];
   var PAGE = {
     dashboard:'dashboardPage', gspn:'gspnPage', sky:'skyPage', preBooking:'preBookingPage',
     returnCases:'returnCasesPage', receivedDelivered:'receivedDeliveredPage', repairEfficiency:'repairEfficiencyPage',
-    profit:'profitPage', cashTarget:'cashTargetPage', userManagement:'userManagementPage'
+    profit:'profitPage', cashTarget:'cashTargetPage', userManagement:'userManagementPage', security:'securityPage'
   };
   var LABEL = {
     dashboard:'Dashboard', gspn:'GSPN Tracking Cases', sky:'SKY Tracking Cases', preBooking:'Pre_Booking',
     returnCases:'Return Cases', receivedDelivered:'Received & Delivered', repairEfficiency:'Repair Efficiency',
-    profit:'Profitability & commission', cashTarget:'Cash & Target', userManagement:'User Management'
+    profit:'Profitability & commission', cashTarget:'Cash & Target', userManagement:'User Management', security:'Security'
   };
   function $(id){return document.getElementById(id);}
   function text(v){return String(v == null ? '' : v).trim();}
@@ -15658,6 +15839,7 @@ window.addEventListener('beforeunload', function() {
     if(t === 'repair efficiency') return 'repairEfficiency';
     if(t === 'cash target' || t === 'cash') return 'cashTarget';
     if(t === 'user management') return 'userManagement';
+    if(t === 'security') return 'security';
     return 'gspn';
   }
   function keyOf(el){
@@ -15674,6 +15856,7 @@ window.addEventListener('beforeunload', function() {
     if(oc.indexOf('sky') >= 0 || tx.indexOf('sky') >= 0) return 'sky';
     if(oc.indexOf('profit') >= 0 || tx.indexOf('profit') >= 0 || tx.indexOf('commission') >= 0) return 'profit';
     if(oc.indexOf('cash') >= 0 || oc.indexOf('opencashtargettab') >= 0 || tx.indexOf('cash') >= 0 || tx.indexOf('target') >= 0) return 'cashTarget';
+    if(tx.indexOf('security') >= 0) return 'security';
     if(tx.indexOf('user management') >= 0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
     return '';
   }
@@ -15725,6 +15908,8 @@ window.addEventListener('beforeunload', function() {
         } else if(key === 'repairEfficiency'){
           if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
           if(typeof window.loadRepairEfficiency === 'function' && (!Array.isArray(window.repairEfficiencyRows) || !window.repairEfficiencyRows.length)) window.loadRepairEfficiency(false);
+        } else if(key === 'security'){
+          if(typeof window.renderSecurityPage === 'function') window.renderSecurityPage();
         }
       }catch(e){ console.error('Final tab apply error', key, e); }
     }, 120);
@@ -15733,6 +15918,7 @@ window.addEventListener('beforeunload', function() {
   var previousSwitchTab = window.switchTab;
   window.switchTab = function(tab){
     var key = norm(tab);
+    if(key === 'security' && !(typeof window.isAdmin === 'function' && window.isAdmin())) return false;
     if(PAGE[key]){
       if(['gspn','sky','profit','cashTarget','userManagement'].indexOf(key) >= 0 && typeof previousSwitchTab === 'function'){
         try{ previousSwitchTab.apply(this, arguments); }catch(e){}
