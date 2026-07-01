@@ -9450,11 +9450,18 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
 
   function rowValue(row, key){
     if (!row) return '';
+    if (key === 'Aging Days') {
+      const keys = ['Aging Days','Aging_Days','AgingDays','aging_days','Aging'];
+      for (const k of keys) {
+        const v = row[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+      }
+      return '';
+    }
     if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
     const lower = key.toLowerCase();
     const found = Object.keys(row).find(function(k){ return k.toLowerCase() === lower; });
     if (found) return row[found];
-    if (key === 'Aging Days') return row['Aging Days'] ?? row.Aging_Days ?? row.AgingDays ?? '';
     if (key === 'Aging Days Group') return row['Aging Days Group'] ?? row.Aging_Days_Group ?? row.AgingDaysGroup ?? row.Aging_Group ?? row['aging Days Group'] ?? '';
     return '';
   }
@@ -9591,11 +9598,18 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   function normKey(value){ return text(value).toLowerCase().replace(/[^a-z0-9]/g, ''); }
   function rowValue(row, key) {
     if (!row) return '';
+    if (key === 'Aging Days') {
+      const keys = ['Aging Days','Aging_Days','AgingDays','aging_days','Aging'];
+      for (const k of keys) {
+        const v = row[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+      }
+      return '';
+    }
     if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
     const wanted = normKey(key);
     const found = Object.keys(row).find(function(k){ return normKey(k) === wanted; });
     if (found) return row[found];
-    if (key === 'Aging Days') return row['Aging Days'] ?? row.Aging_Days ?? row.AgingDays ?? '';
     if (key === 'Aging Days Group') return row['Aging Days Group'] ?? row.Aging_Days_Group ?? row.AgingDaysGroup ?? row.Aging_Group ?? row['aging Days Group'] ?? '';
     if (key === 'Customer_Phone') return row.Customer_Phone ?? row.Customer_phone ?? row['Customer Phone'] ?? '';
     return '';
@@ -10122,7 +10136,14 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   }
   function val(row, wanted) {
     if (!row) return '';
-    if (wanted === 'Aging Days') return row['Aging Days'] ?? row.Aging_Days ?? row.AgingDays ?? row.Aging ?? '';
+    if (wanted === 'Aging Days') {
+      const keys = ['Aging Days','Aging_Days','AgingDays','aging_days','Aging'];
+      for (const k of keys) {
+        const v = row[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+      }
+      return '';
+    }
     if (wanted === 'Aging Month') return row['Aging Month'] ?? row.Aging_Month ?? row.Aging_Months ?? '';
     if (wanted === 'Aging Days Group') {
       return clean(row['Aging Days Group']) ||
