@@ -10143,8 +10143,22 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     const match = clean(value).replace(',', '.').match(/-?\d+(\.\d+)?/);
     return match ? Number(match[0]) : null;
   }
+  function skyAgingDaysNumber(row) {
+    let days = numberFrom(val(row, 'Aging Days'));
+    if (days == null) days = numberFrom(val(row, 'Aging_Days'));
+    if (days == null) days = numberFrom(val(row, 'AgingDays'));
+    if (days == null) {
+      const groupText = clean(val(row, 'Aging Days Group')).toLowerCase();
+      if (groupText.includes('4') || groupText.includes('more than 10') || groupText.includes('>')) days = 4;
+    }
+    if (days == null) {
+      const stamp = Number(row && row.Open_Date_Stamp);
+      if (Number.isFinite(stamp)) days = Math.max(0, Math.floor((Date.now() - stamp) / 86400000));
+    }
+    return Number.isFinite(days) ? days : null;
+  }
   function isOpen4Plus(row) {
-    return row && row.Queue === 'Open_Cases' && (numberFrom(val(row, 'Aging Days')) || 0) >= 4;
+    return row && clean(row.Queue) === 'Open_Cases' && skyAgingDaysNumber(row) !== null && skyAgingDaysNumber(row) >= 4;
   }
   function toDateObject(value) {
     if (!value) return null;
@@ -10229,6 +10243,8 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     out.Open_Date_Display = clean(out.Open_Date_Display) || formatDate(out.Open_Date);
     out.Open_Date_Stamp = out.Open_Date_Stamp ?? dateStamp(out.Open_Date);
     out['Aging Days'] = val(out, 'Aging Days');
+    const normalizedAgingDays = skyAgingDaysNumber(out);
+    if (normalizedAgingDays !== null) out['Aging Days'] = normalizedAgingDays;
     out.Aging_Days = out['Aging Days'];
     let group = clean(val(out, 'Aging Days Group'));
     if (!group) group = out.Queue === 'Ready For Delivery Cases' ? readyGroupFromMonth(out) : openGroupFromDays(out['Aging Days']);
@@ -10441,11 +10457,12 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     const all = setRows(currentRowsRaw());
     refreshFilters(all);
     const rows = filteredRows(all);
-    window.currentSkyRows = rows;
-    renderTable(rows);
+    const tableRows = window.__skyOpen4PlusOnly ? rows.filter(isOpen4Plus) : rows;
+    window.currentSkyRows = tableRows;
+    renderTable(tableRows);
     updateCards(rows);
     renderCharts(rows);
-    return rows;
+    return tableRows;
   }
   window.getSkyFilteredRows = function(){ return filteredRows(setRows(currentRowsRaw())); };
   window.renderSky = function(){ return renderSkyFinal(); };
@@ -10453,7 +10470,9 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     window.__skyOpen4PlusOnly = true;
     const queueEl = byId('skyQueueFilter');
     if (queueEl) queueEl.value = 'Open_Cases';
-    renderSkyFinal();
+    const rows = renderSkyFinal();
+    window.currentSkyRows = rows.filter(isOpen4Plus);
+    renderTable(window.currentSkyRows);
     if (typeof scrollToElement === 'function') scrollToElement('skyCasesTable');
   };
   window.setSkyQueue = function(value){
@@ -10747,13 +10766,55 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
       notify('Export failed', 'XLSX library is not loaded yet. Please refresh the page and try again.', 100);
       return;
     }
+    function toDateObjectForSkyExport(value){
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+      if (typeof value === 'number' && window.XLSX && XLSX.SSF) {
+        try { const d = XLSX.SSF.parse_date_code(value); if (d) return new Date(d.y, d.m - 1, d.d); } catch(e) {}
+      }
+      const raw = clean(value);
+      let m = raw.match(/^(\d{1,2})[-\/\s]([A-Za-z]{3,9})[-\/\s](\d{2,4})$/);
+      if (m) {
+        const months={jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11};
+        const mon=months[m[2].toLowerCase()]; let y=Number(m[3]); if(y<100)y+=2000; if(mon!==undefined) return new Date(y,mon,Number(m[1]));
+      }
+      m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+      m = raw.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+      if (m) { let y=Number(m[3]); if(y<100)y+=2000; return new Date(y,Number(m[2])-1,Number(m[1])); }
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+    function excelSerialForSkyExport(date){ return (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1899, 11, 30)) / 86400000; }
     const output = rows.map(row => {
       const out = {};
-      cols.forEach(c => out[c[1]] = val(row, c[0]));
+      cols.forEach(c => {
+        if (c[1] === 'Open Date') out[c[1]] = val(row, 'Open_Date') || val(row, 'Open Date') || val(row, 'Open_Date_Display');
+        else out[c[1]] = val(row, c[0]);
+      });
       return out;
     });
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(output, { header: cols.map(c => c[1]) });
+    if (ws['!ref']) {
+      const dateHeaders = new Set(['Open Date','Open_Date','Ready For Delivery Date']);
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const headerCell = ws[XLSX.utils.encode_cell({r:0,c})];
+        const header = headerCell ? clean(headerCell.v) : '';
+        if (!dateHeaders.has(header)) continue;
+        for (let r = 1; r <= range.e.r; r++) {
+          const ref = XLSX.utils.encode_cell({r,c});
+          const cell = ws[ref];
+          if (!cell || cell.v === '') continue;
+          const d = toDateObjectForSkyExport(cell.v);
+          if (!d) continue;
+          cell.t = 'n';
+          cell.v = excelSerialForSkyExport(d);
+          cell.z = 'dd-mmm-yyyy';
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, ws, 'SKY Filtered Cases');
     XLSX.writeFile(wb, 'SKY Tracking Cases Export.xlsx');
     notify('SKY export completed', rows.length + ' rows exported from the current filtered view.', 100);

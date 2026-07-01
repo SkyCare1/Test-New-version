@@ -28,3 +28,24 @@ body:not(.menu-collapsed) .side-brand,body:not(.menu-collapsed) .side-head{justi
 #skyPage .sky-cards .card{min-width:0!important}
 @media (max-width:1200px){#skyPage .sky-cards{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
 @media (max-width:700px){#skyPage .sky-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+
+/* SKY cards core alignment: keep summary cards in one desktop row */
+@media (min-width:901px){
+  #skyPage .cards.sky-cards{
+    display:grid!important;
+    grid-template-columns:repeat(6,minmax(0,1fr))!important;
+    gap:14px!important;
+    align-items:stretch!important;
+  }
+  #skyPage .cards.sky-cards .card{
+    min-width:0!important;
+    width:auto!important;
+    min-height:88px!important;
+    padding:12px!important;
+  }
+  #skyPage .cards.sky-cards .card .label{font-size:12px!important;line-height:1.25!important;white-space:normal!important;}
+  #skyPage .cards.sky-cards .card .value{font-size:24px!important;line-height:1.1!important;}
+  #skyPage .cards.sky-cards .card .percent{font-size:11px!important;line-height:1.25!important;}
+}
+@media (max-width:900px){#skyPage .cards.sky-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media (max-width:560px){#skyPage .cards.sky-cards{grid-template-columns:1fr!important}}
