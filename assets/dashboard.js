@@ -10296,6 +10296,14 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     const el = byId(id);
     return el ? clean(el.value) : '';
   }
+  function isOpen4PlusModeActive() {
+    const queueValue = selectedSingle('skyQueueFilter');
+    if (window.__skyOpen4PlusOnly && queueValue !== 'Open_Cases') {
+      window.__skyOpen4PlusOnly = false;
+      return false;
+    }
+    return window.__skyOpen4PlusOnly === true && queueValue === 'Open_Cases';
+  }
   function fillSelect(id, values, label, multi) {
     const el = byId(id);
     if (!el) return;
@@ -10330,7 +10338,7 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
       if (branches.length && !branches.includes(row.Branch)) return false;
       if (stages.length && !stages.includes(row.Stage)) return false;
       if (queue && row.Queue !== queue) return false;
-      if (window.__skyOpen4PlusOnly && !isOpen4Plus(row)) return false;
+      if (isOpen4PlusModeActive() && !isOpen4Plus(row)) return false;
       if (brand && row.Brand !== brand) return false;
       if (aging && val(row, 'Aging Days Group') !== aging) return false;
       if (from !== null && row.Open_Date_Stamp !== null && row.Open_Date_Stamp < from) return false;
@@ -10455,7 +10463,7 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     const all = setRows(currentRowsRaw());
     refreshFilters(all);
     const rows = filteredRows(all);
-    const tableRows = window.__skyOpen4PlusOnly ? rows.filter(isOpen4Plus) : rows;
+    const tableRows = isOpen4PlusModeActive() ? rows.filter(isOpen4Plus) : rows;
     window.currentSkyRows = tableRows;
     renderTable(tableRows);
     updateCards(rows);
@@ -10495,8 +10503,8 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   };
   window.exportSkyExcel = function(){
     let rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows.slice() : [];
-    if (!rows.length) rows = window.__skyOpen4PlusOnly ? filteredRows(setRows(currentRowsRaw())).filter(isOpen4Plus) : filteredRows(setRows(currentRowsRaw()));
-    if (window.__skyOpen4PlusOnly) rows = rows.filter(isOpen4Plus);
+    if (!rows.length) rows = isOpen4PlusModeActive() ? filteredRows(setRows(currentRowsRaw())).filter(isOpen4Plus) : filteredRows(setRows(currentRowsRaw()));
+    if (isOpen4PlusModeActive()) rows = rows.filter(isOpen4Plus);
     if (!rows.length) {
       alert('No SKY rows match the current filters.');
       return;
@@ -10686,6 +10694,15 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   function now(){ return Date.now(); }
   function clean(v){ return v == null ? '' : String(v).trim(); }
   function byId(id){ return document.getElementById(id); }
+  function isOpen4PlusModeActive(){
+    const queue = byId('skyQueueFilter');
+    const queueValue = queue ? clean(queue.value) : '';
+    if (window.__skyOpen4PlusOnly && queueValue !== 'Open_Cases') {
+      window.__skyOpen4PlusOnly = false;
+      return false;
+    }
+    return window.__skyOpen4PlusOnly === true && queueValue === 'Open_Cases';
+  }
   function skyExportAgingDays(row){
     const candidates = [val(row, 'Aging Days'), val(row, 'Aging_Days'), val(row, 'AgingDays'), val(row, 'Aging')];
     for (const raw of candidates) {
@@ -10700,18 +10717,18 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   function getRows(){
     try {
       if (Array.isArray(window.currentSkyRows) && window.currentSkyRows.length) {
-        return window.__skyOpen4PlusOnly ? window.currentSkyRows.filter(isExportOpen4Plus) : window.currentSkyRows;
+        return isOpen4PlusModeActive() ? window.currentSkyRows.filter(isExportOpen4Plus) : window.currentSkyRows;
       }
     } catch(e) {}
     try {
       if (typeof window.getSkyFilteredRows === 'function') {
         const r = window.getSkyFilteredRows();
-        if (Array.isArray(r)) return window.__skyOpen4PlusOnly ? r.filter(isExportOpen4Plus) : r;
+        if (Array.isArray(r)) return isOpen4PlusModeActive() ? r.filter(isExportOpen4Plus) : r;
       }
     } catch(e) {}
     try {
       if (Array.isArray(window.skyRows) && window.skyRows.length) {
-        return window.__skyOpen4PlusOnly ? window.skyRows.filter(isExportOpen4Plus) : window.skyRows;
+        return isOpen4PlusModeActive() ? window.skyRows.filter(isExportOpen4Plus) : window.skyRows;
       }
     } catch(e) {}
     return [];
