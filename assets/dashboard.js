@@ -7694,6 +7694,7 @@ void(removeExportButtons, 10000);
       if(stages.length && !stages.includes(r.Stage)) return false;
       if(jobTypes.length && !jobTypes.includes(r.JobType)) return false;
       if(queue && r.Queue!==queue) return false;
+      if(window.__skyOpen4PlusOnly && !isSkyOpen4Plus(r)) return false;
       if(brand && r.Brand!==brand) return false;
       if(aging && getSkyAging(r)!==aging) return false;
       if(search){ const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r.Customer_Mobile,r.Customer_phone,r.Customer_Phone,r.Queue,r.Stage].join(' ').toLowerCase(); if(!hay.includes(search)) return false; }
@@ -8054,11 +8055,12 @@ void(removeExportButtons, 10000);
   function skySourceRows(){ return getRows('skyRows').map(normalizeSkyRow).filter(r=>SKY_ALLOWED_QUEUES.includes(txt(r.Queue))); }
   function skyAging(r){ return txt(val(r,'Aging Days Group')); }
   function skyAgingDaysValue(r){
+    // Strict source: use the actual Aging Days value only. Do not infer from Aging Days Group or Open Date.
     const raw = val(r,'Aging Days') || val(r,'Aging_Days') || val(r,'AgingDays') || val(r,'Aging');
     const n = Number(String(raw ?? '').replace(/[^0-9.-]/g,''));
-    return Number.isFinite(n) ? n : 0;
+    return Number.isFinite(n) ? n : null;
   }
-  function isSkyOpen4Plus(r){ return txt(r.Queue)==='Open_Cases' && skyAgingDaysValue(r) >= 4; }
+  function isSkyOpen4Plus(r){ return txt(r.Queue)==='Open_Cases' && skyAgingDaysValue(r) !== null && skyAgingDaysValue(r) >= 4; }
   function refreshSkyFilters(){
     const rows=skySourceRows();
     const qf=q('skyQueueFilter'); if(qf){ const keep=SKY_ALLOWED_QUEUES.includes(qf.value)?qf.value:''; qf.innerHTML='<option value="">All Queue</option>'+SKY_ALLOWED_QUEUES.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(''); qf.value=keep; }
@@ -10144,21 +10146,17 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     return match ? Number(match[0]) : null;
   }
   function skyAgingDaysNumber(row) {
+    // Strict source: use only the real Aging Days column. This prevents 0-3 day rows from being counted
+    // just because their text group contains a value like "4 to 10 Days" from a stale/derived field.
     let days = numberFrom(val(row, 'Aging Days'));
     if (days == null) days = numberFrom(val(row, 'Aging_Days'));
     if (days == null) days = numberFrom(val(row, 'AgingDays'));
-    if (days == null) {
-      const groupText = clean(val(row, 'Aging Days Group')).toLowerCase();
-      if (groupText.includes('4') || groupText.includes('more than 10') || groupText.includes('>')) days = 4;
-    }
-    if (days == null) {
-      const stamp = Number(row && row.Open_Date_Stamp);
-      if (Number.isFinite(stamp)) days = Math.max(0, Math.floor((Date.now() - stamp) / 86400000));
-    }
+    if (days == null) days = numberFrom(val(row, 'Aging'));
     return Number.isFinite(days) ? days : null;
   }
   function isOpen4Plus(row) {
-    return row && clean(row.Queue) === 'Open_Cases' && skyAgingDaysNumber(row) !== null && skyAgingDaysNumber(row) >= 4;
+    const days = skyAgingDaysNumber(row);
+    return row && clean(row.Queue) === 'Open_Cases' && days !== null && days >= 4;
   }
   function toDateObject(value) {
     if (!value) return null;
@@ -10496,7 +10494,9 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     return renderSkyFinal();
   };
   window.exportSkyExcel = function(){
-    const rows = renderSkyFinal();
+    let rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows.slice() : [];
+    if (!rows.length) rows = window.__skyOpen4PlusOnly ? filteredRows(setRows(currentRowsRaw())).filter(isOpen4Plus) : filteredRows(setRows(currentRowsRaw()));
+    if (window.__skyOpen4PlusOnly) rows = rows.filter(isOpen4Plus);
     if (!rows.length) {
       alert('No SKY rows match the current filters.');
       return;
@@ -10686,18 +10686,33 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   function now(){ return Date.now(); }
   function clean(v){ return v == null ? '' : String(v).trim(); }
   function byId(id){ return document.getElementById(id); }
+  function skyExportAgingDays(row){
+    const candidates = [val(row, 'Aging Days'), val(row, 'Aging_Days'), val(row, 'AgingDays'), val(row, 'Aging')];
+    for (const raw of candidates) {
+      const n = Number(String(raw ?? '').replace(/[^0-9.-]/g,''));
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }
+  function isExportOpen4Plus(row){
+    return clean(val(row, 'Queue')) === 'Open_Cases' && skyExportAgingDays(row) !== null && skyExportAgingDays(row) >= 4;
+  }
   function getRows(){
     try {
-      if (typeof window.getSkyFilteredRows === 'function') {
-        const r = window.getSkyFilteredRows();
-        if (Array.isArray(r)) return r;
+      if (Array.isArray(window.currentSkyRows) && window.currentSkyRows.length) {
+        return window.__skyOpen4PlusOnly ? window.currentSkyRows.filter(isExportOpen4Plus) : window.currentSkyRows;
       }
     } catch(e) {}
     try {
-      if (Array.isArray(window.currentSkyRows) && window.currentSkyRows.length) return window.currentSkyRows;
+      if (typeof window.getSkyFilteredRows === 'function') {
+        const r = window.getSkyFilteredRows();
+        if (Array.isArray(r)) return window.__skyOpen4PlusOnly ? r.filter(isExportOpen4Plus) : r;
+      }
     } catch(e) {}
     try {
-      if (Array.isArray(window.skyRows) && window.skyRows.length) return window.skyRows;
+      if (Array.isArray(window.skyRows) && window.skyRows.length) {
+        return window.__skyOpen4PlusOnly ? window.skyRows.filter(isExportOpen4Plus) : window.skyRows;
+      }
     } catch(e) {}
     return [];
   }
@@ -12852,13 +12867,24 @@ void(boot, 2500);
     const el=byId(id); if(!el) return;
     el.innerHTML=items.map(x=>'<span class="sky-chart-chip">'+String(x[0]).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+': '+x[1]+' ('+pct(x[1],total)+'%)</span>').join('');
   }
+  function agingDaysStrict(row){
+    const vals=[val(row,'Aging Days'),val(row,'Aging_Days'),val(row,'AgingDays'),val(row,'Aging')];
+    for(const raw of vals){ const n=Number(String(raw??'').replace(/[^0-9.-]/g,'')); if(Number.isFinite(n)) return n; }
+    return null;
+  }
+  function isOpen4PlusStrict(row){ const d=agingDaysStrict(row); return normQueue(row)==='Open_Cases' && d!==null && d>=4; }
   function fixOpenCases(){
     const rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows : (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : []);
+    const sourceRows = (typeof window.getSkyFilteredRows==='function' ? window.getSkyFilteredRows() : rows);
     if(!Array.isArray(rows) || !rows.length) return;
     const total=rows.length;
     const openRows=rows.filter(r=>normQueue(r)==='Open_Cases');
+    const allOpenRows=Array.isArray(sourceRows) ? sourceRows.filter(r=>normQueue(r)==='Open_Cases') : openRows;
+    const open4Plus=allOpenRows.filter(isOpen4PlusStrict).length;
     setText('skyOpenCases', fmt(openRows.length));
     setText('skyOpenPercent', pct(openRows.length,total)+'% of Total');
+    setText('skyOpen4PlusCases', fmt(open4Plus));
+    setText('skyOpen4PlusPercent', pct(open4Plus,allOpenRows.length)+'% of Open');
     const branch=countBy(openRows,'Branch');
     const status=countBy(openRows,'Status');
     setSummary('skyOpenBranchSummary', branch, openRows.length);
