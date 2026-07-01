@@ -21,3 +21,10 @@ body:not(.menu-collapsed) .side-brand,body:not(.menu-collapsed) .side-head{justi
 .side-section-title:has(+ .design-options), .design-options{display:none!important;}
 #cashTargetPage header .header-actions label.upload{display:inline-flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;}
 #sidebarRefreshDataBlock,#sidebarRefreshDataBtn{display:none!important;}
+
+
+/* SKY cards: keep all summary cards in one desktop row */
+#skyPage .sky-cards{grid-template-columns:repeat(6,minmax(0,1fr))!important;align-items:stretch!important}
+#skyPage .sky-cards .card{min-width:0!important}
+@media (max-width:1200px){#skyPage .sky-cards{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media (max-width:700px){#skyPage .sky-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
