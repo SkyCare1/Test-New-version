@@ -9,6 +9,84 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 
+/* ===== json-data-loader-v1 ===== */
+/* Reads data/*.json first, then lets the existing Excel loaders continue as fallback. */
+(function(){
+  'use strict';
+  var JSON_BY_EXCEL = {
+    'datagspn.xlsx': 'data/gspn.json',
+    'datasky.xlsx': 'data/sky.json',
+    'pre_booking.xlsx': 'data/pre_booking.json',
+    'profitability & commission.xlsx': 'data/profitability_commission.json',
+    'received_delivered.xlsx': 'data/received_delivered.json',
+    'received & delivered.xlsx': 'data/received_delivered.json',
+    'received and delivered.xlsx': 'data/received_delivered.json',
+    'received delivered.xlsx': 'data/received_delivered.json',
+    'received_and_delivered.xlsx': 'data/received_delivered.json',
+    'return cases.xlsx': 'data/return_cases.json',
+    'repair efficiency.xlsx': 'data/repair_efficiency.json',
+    'repair_efficiency.xlsx': 'data/repair_efficiency.json',
+    'repairefficiency.xlsx': 'data/repair_efficiency.json',
+    'repair efficiency.xlsm': 'data/repair_efficiency.json',
+    'repair efficiency.xls': 'data/repair_efficiency.json'
+  };
+
+  function cleanName(file){
+    return String(file || '').split('?')[0].split('#')[0].split('/').pop().toLowerCase();
+  }
+
+  window.__sscJsonFileForExcel = function(file){
+    return JSON_BY_EXCEL[cleanName(file)] || '';
+  };
+
+  window.__sscExtractJsonRows = function(payload, preferredSheetName){
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return [];
+    if (Array.isArray(payload.rows)) return payload.rows;
+    if (Array.isArray(payload.data)) return payload.data;
+    if (payload.sheets && typeof payload.sheets === 'object') {
+      if (preferredSheetName && Array.isArray(payload.sheets[preferredSheetName])) {
+        return payload.sheets[preferredSheetName];
+      }
+      var firstSheet = Object.keys(payload.sheets).find(function(name){
+        return Array.isArray(payload.sheets[name]);
+      });
+      return firstSheet ? payload.sheets[firstSheet] : [];
+    }
+    return [];
+  };
+
+  window.__sscFetchJsonRowsForExcel = async function(fileName, preferredSheetName, forceRefresh){
+    var jsonFile = window.__sscJsonFileForExcel(fileName);
+    if (!jsonFile) throw new Error('No JSON mapping for ' + fileName);
+
+    var candidates = [];
+    try {
+      if (typeof window.serviceDataUrl === 'function') {
+        candidates.push(await window.serviceDataUrl(jsonFile, !!forceRefresh));
+      }
+    } catch(_e) {}
+    candidates.push(jsonFile + (forceRefresh ? '?v=' + Date.now() : ''));
+
+    var lastErr;
+    for (var i = 0; i < candidates.length; i++) {
+      try {
+        var res = await fetch(candidates[i], { cache: forceRefresh ? 'no-store' : 'no-cache' });
+        if (!res.ok) throw new Error(jsonFile + ' HTTP ' + res.status);
+        var payload = await res.json();
+        var rows = window.__sscExtractJsonRows(payload, preferredSheetName);
+        if (!Array.isArray(rows) || !rows.length) throw new Error(jsonFile + ' contains 0 rows');
+        return { file: jsonFile, rows: rows, source: 'json' };
+      } catch(e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error(jsonFile + ' not found');
+  };
+})();
+
+
+
 /* ===== global-render-debounce-guard ===== */
 
 /* Global Performance Guard: prevents duplicate rapid re-renders */
@@ -89,6 +167,11 @@ window.debounce = window.debounce || function(fn, delay) {
 
 /* ===== inline-script-6 ===== */
 
+/* === CLEANUP STUBS: presence/visitors removed === */
+window.v57_updatePresenceBadges = function(){};
+window.v57_heartbeat = function(){};
+window.v57_getPresenceCounts = function(){return{gspn:0,sky:0,analysis:0};};
+
     /* ================= SKY v18 requested updates ================= */
     const SKY_V18_QUEUE_VALUES = ["Open_Cases", "Ready For Delivery Cases"];
     const SKY_CHART_FILTER_IDS = ["skyQueueChartBrandFilter", "skyBrandChartQueueFilter", "skyStageChartBranchFilter", "skyBranchChartStageFilter", "skyReadyAgingBrandFilter", "skyStageAllQueueFilter"];
@@ -96,12 +179,8 @@ window.debounce = window.debounce || function(fn, delay) {
     function loadLayoutPreferences() {
       const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
       const activeTab = localStorage.getItem("serviceEyeActiveTab") || "gspn";
-      if (document.body.classList.contains("menu-collapsed") !== collapsed) {
-        document.body.classList.toggle("menu-collapsed", collapsed);
-      }
-      try {
-        document.documentElement.classList.remove("prepaint-menu-collapsed", "prepaint-ready", "prepaint-theme-pro", "prepaint-theme-glass", "prepaint-theme-fresh", "prepaint-theme-volta");
-      } catch(e) {}
+      document.documentElement.classList.remove("prepaint-menu-collapsed");
+      document.body.classList.toggle("menu-collapsed", collapsed);
       applyTabDesign(activeTab, false);
       setTimeout(() => switchTab(activeTab), 0);
       requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
@@ -1100,17 +1179,17 @@ function switchTab(tab) {
     function loadLayoutPreferences() {
       const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
       const design = localStorage.getItem("serviceEyeDesign") || "volta";
-      if (document.body.classList.contains("menu-collapsed") !== collapsed) {
-        document.body.classList.toggle("menu-collapsed", collapsed);
-      }
+      document.documentElement.classList.remove("prepaint-menu-collapsed");
+      document.body.classList.toggle("menu-collapsed", collapsed);
       setDesign(design, false);
       requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
     }
 
     function toggleSideMenu() {
-      document.body.classList.toggle("menu-collapsed");
-      try { document.documentElement.classList.remove("prepaint-menu-collapsed"); } catch(e) {}
-      localStorage.setItem("serviceEyeMenuCollapsed", document.body.classList.contains("menu-collapsed") ? "1" : "0");
+      const collapsed = !document.body.classList.contains("menu-collapsed");
+      document.documentElement.classList.remove("prepaint-menu-collapsed");
+      document.body.classList.toggle("menu-collapsed", collapsed);
+      localStorage.setItem("serviceEyeMenuCollapsed", collapsed ? "1" : "0");
     }
 
     function setDesign(design, save = true) {
@@ -7785,6 +7864,7 @@ void(removeExportButtons, 10000);
       if(branches.length && !branches.includes(r.Branch)) return false;
       if(stages.length && !stages.includes(r.Stage)) return false;
       if(queue && r.Queue!==queue) return false;
+      if(window.__skyOpen4PlusOnly && !isSkyOpen4Plus(r)) return false;
       if(brand && r.Brand!==brand) return false;
       if(aging && skyAging(r)!==aging) return false;
       if(search){ const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r.Customer_Mobile,r.Customer_phone,r.Customer_Phone,r.Queue,r.Stage,r.Status].join(' ').toLowerCase(); if(!hay.includes(search)) return false; }
@@ -7973,6 +8053,12 @@ void(removeExportButtons, 10000);
   function normalizeSkyRow(r){ if(!r) return r; r['Aging Days'] = val(r,'Aging Days'); r['Aging Days Group'] = val(r,'Aging Days Group'); return r; }
   function skySourceRows(){ return getRows('skyRows').map(normalizeSkyRow).filter(r=>SKY_ALLOWED_QUEUES.includes(txt(r.Queue))); }
   function skyAging(r){ return txt(val(r,'Aging Days Group')); }
+  function skyAgingDaysValue(r){
+    const raw = val(r,'Aging Days') || val(r,'Aging_Days') || val(r,'AgingDays') || val(r,'Aging');
+    const n = Number(String(raw ?? '').replace(/[^0-9.-]/g,''));
+    return Number.isFinite(n) ? n : 0;
+  }
+  function isSkyOpen4Plus(r){ return txt(r.Queue)==='Open_Cases' && skyAgingDaysValue(r) >= 4; }
   function refreshSkyFilters(){
     const rows=skySourceRows();
     const qf=q('skyQueueFilter'); if(qf){ const keep=SKY_ALLOWED_QUEUES.includes(qf.value)?qf.value:''; qf.innerHTML='<option value="">All Queue</option>'+SKY_ALLOWED_QUEUES.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(''); qf.value=keep; }
@@ -8023,11 +8109,37 @@ void(removeExportButtons, 10000);
   window.renderSky = function(){
     ensureSkyChartsDom();
     const rows=window.getSkyFilteredRows(); window.currentSkyRows=rows;
-    const total=rows.length, open=rows.filter(r=>r.Queue==='Open_Cases').length, ready=rows.filter(r=>r.Queue==='Ready For Delivery Cases').length, samsung=rows.filter(r=>txt(r.Brand).toLowerCase()==='samsung').length, apple=rows.filter(r=>txt(r.Brand).toLowerCase()==='apple').length;
-    setText('skyTotalCases',total); setText('skyOpenCases',open); setText('skyOpenPercent',`${pct(open,total)}% of Total`); setText('skyReadyCases',ready); setText('skyReadyPercent',`${pct(ready,total)}% of Total`); setText('skySamsungCases',samsung); setText('skySamsungPercent',`${pct(samsung,total)}% of Total`); setText('skyAppleCases',apple); setText('skyApplePercent',`${pct(apple,total)}% of Total`);
+    const total=rows.length, openRows=rows.filter(r=>r.Queue==='Open_Cases'), open=openRows.length, open4Plus=openRows.filter(isSkyOpen4Plus).length, ready=rows.filter(r=>r.Queue==='Ready For Delivery Cases').length, samsung=rows.filter(r=>txt(r.Brand).toLowerCase()==='samsung').length, apple=rows.filter(r=>txt(r.Brand).toLowerCase()==='apple').length;
+    setText('skyTotalCases',total); setText('skyOpenCases',open); setText('skyOpenPercent',`${pct(open,total)}% of Total`); setText('skyOpen4PlusCases',open4Plus); setText('skyOpen4PlusPercent',`${pct(open4Plus,open)}% of Open`); setText('skyReadyCases',ready); setText('skyReadyPercent',`${pct(ready,total)}% of Total`); setText('skySamsungCases',samsung); setText('skySamsungPercent',`${pct(samsung,total)}% of Total`); setText('skyAppleCases',apple); setText('skyApplePercent',`${pct(apple,total)}% of Total`);
     const cols=[['Queue','Queue'],['Brand','Brand'],['Branch','Branch'],['Open_Date_Display','Open Date'],['Aging Days','Aging Days'],['Aging Days Group','Aging Days Group'],['Job_Number','Job Number'],['Status','Status'],['Stage','Stage'],['Item English Name','Item English Name'],['Price','Price']];
     if(typeof renderTable==='function') renderTable('skyCasesTable', rows.slice(0,1000), cols, false);
     updateSkyCharts(rows);
+  };
+  window.setSkyOpen4PlusCases = function(){
+    window.__skyOpen4PlusOnly = true;
+    const queueEl=q('skyQueueFilter'); if(queueEl) queueEl.value='Open_Cases';
+    renderSky();
+    if(typeof scrollToElement==='function') scrollToElement('skyCasesTable');
+  };
+  window.setSkyQueue = function(value){
+    window.__skyOpen4PlusOnly = false;
+    const el=q('skyQueueFilter'); if(el) el.value=value||'';
+    renderSky();
+    if(typeof scrollToElement==='function') scrollToElement('skyCasesTable');
+  };
+  window.setSkyBrand = function(value){
+    window.__skyOpen4PlusOnly = false;
+    const el=q('skyBrandFilter'); if(el) el.value=value||'';
+    renderSky();
+    if(typeof scrollToElement==='function') scrollToElement('skyCasesTable');
+  };
+
+  const previousClearSkyFilters = window.clearSkyFilters;
+  window.clearSkyFilters = function(scroll){
+    window.__skyOpen4PlusOnly = false;
+    if(typeof previousClearSkyFilters === 'function') return previousClearSkyFilters(scroll);
+    if(typeof renderSky === 'function') renderSky();
+    if(scroll && typeof scrollToElement === 'function') scrollToElement('skyCasesTable');
   };
 
   function boot(){
@@ -9105,6 +9217,15 @@ function serviceClearDataVersion(file) {
    This forces a fresh copy every time to reduce old cached data.
 ===================================================================== */
 async function loadExcelRowsFromUrl(url, preferredSheetName, forceRefresh) {
+  if (typeof window.__sscFetchJsonRowsForExcel === 'function') {
+    try {
+      const jsonResult = await window.__sscFetchJsonRowsForExcel(url, preferredSheetName, !!forceRefresh);
+      return jsonResult.rows;
+    } catch (jsonErr) {
+      console.warn('JSON load failed, falling back to Excel:', url, jsonErr && jsonErr.message ? jsonErr.message : jsonErr);
+    }
+  }
+
   const finalUrl = await serviceDataUrl(url, !!forceRefresh);
   const response = await fetch(finalUrl, { cache: forceRefresh ? 'no-store' : 'default' });
   if (!response.ok) throw new Error(url + ' not found or cannot be loaded. HTTP ' + response.status);
@@ -12795,7 +12916,7 @@ void(scrubDom,2000);
   }
 
   function removeRequestedUploadButtons(){
-    ['gspnPage','skyPage','profitPage','cashTargetPage'].forEach(function(pageId){
+    ['gspnPage','skyPage','profitPage'].forEach(function(pageId){
       const page = document.getElementById(pageId);
       if(!page) return;
       page.querySelectorAll('header .header-actions label.upload').forEach(function(label){
@@ -12818,10 +12939,27 @@ void(scrubDom,2000);
     });
   }
 
+  function ensureSidebarRefreshButton(){
+    // Legacy top refresh button removed. The single supported button is codexGithubRefreshBtn in the sidebar bottom area.
+    const legacyBlock = document.getElementById('sidebarRefreshDataBlock');
+    if (legacyBlock) legacyBlock.remove();
+    const legacyBtn = document.getElementById('sidebarRefreshDataBtn');
+    if (legacyBtn) legacyBtn.remove();
+  }
+
   function applyPatch(){
     removeRequestedUploadButtons();
     hideHeaderRefreshButtons();
+    ensureSidebarRefreshButton();
   }
+
+  window.serviceEyeEnableRefreshDataButton = function(){
+    applyPatch();
+  };
+  window.serviceEyeDisableRefreshDataButton = function(){
+    const block = document.getElementById('sidebarRefreshDataBlock');
+    if(block) block.style.display = 'none';
+  };
 
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyPatch);
   else applyPatch();
@@ -12856,7 +12994,6 @@ void(scrubDom,2000);
   };
   (window._ivals=window._ivals||[]).push(setInterval(window.serviceV2RenderSavedNoticesWithoutStamp, 10000));
 })();
-
 
 
 /* ===== inline-script-83 ===== */
@@ -13063,6 +13200,51 @@ window.addEventListener('beforeunload', function() {
   function isAdmin()   { return currentProfile && String(currentProfile.role).toUpperCase()==='ADMIN'; }
   function isManager() { return currentProfile && String(currentProfile.role).toUpperCase()==='MANAGER'; }
   function isViewer()  { return currentProfile && String(currentProfile.role).toUpperCase()==='VIEWER'; }
+
+  /* ── Admin-only browser actions guard ──
+     Blocks common source/devtools actions for non-admin users only.
+     Admin users keep right click, F12 and Ctrl+U enabled after authentication. */
+  function installAdminOnlyBrowserActionGuard(){
+    if(window.__sscAdminOnlyBrowserActionGuardInstalled) return;
+    window.__sscAdminOnlyBrowserActionGuardInstalled = true;
+
+    function adminAllowed(){
+      try { return isAdmin() === true; } catch(e) { return false; }
+    }
+
+    function blockEvent(event){
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+        if(typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      } catch(e) {}
+      return false;
+    }
+
+    document.addEventListener("contextmenu", function(event){
+      if(adminAllowed()) return true;
+      return blockEvent(event);
+    }, true);
+
+    document.addEventListener("keydown", function(event){
+      if(adminAllowed()) return true;
+
+      const key = String(event.key || "").toLowerCase();
+      const code = event.keyCode || event.which;
+
+      const blocked =
+        code === 123 ||                                      // F12
+        (event.ctrlKey && key === "u") ||                    // Ctrl+U
+        (event.ctrlKey && event.shiftKey && key === "i") ||  // Ctrl+Shift+I
+        (event.ctrlKey && event.shiftKey && key === "j") ||  // Ctrl+Shift+J
+        (event.ctrlKey && event.shiftKey && key === "c") ||  // Ctrl+Shift+C
+        (event.ctrlKey && event.shiftKey && key === "k");    // Ctrl+Shift+K / Firefox console
+
+      if(blocked) return blockEvent(event);
+      return true;
+    }, true);
+  }
+  installAdminOnlyBrowserActionGuard();
 
   function allowedKeys(profile){
     if(!profile) return [];
@@ -13332,12 +13514,6 @@ window.addEventListener('beforeunload', function() {
       else{ try{ if(p.style.display==='none') p.style.removeProperty('display'); }catch(e){} }
     });
   }
-  /* Expose the authenticated navigation layer so the final router can call it directly
-     instead of wrapping old switchTab chains. This preserves the existing user permissions. */
-  window.__sscFirebaseShowTab = showTab;
-  window.__sscFirebaseCanOpen = canOpen;
-  window.__sscFirebaseApplyPermissions = applyPermissions;
-
   function hookNavigation(){
     document.addEventListener('click',function(ev){
       const el=ev.target&&ev.target.closest?ev.target.closest('.side-tab'):null;
@@ -13379,7 +13555,6 @@ window.addEventListener('beforeunload', function() {
     if(cnt) cnt.textContent = s ? vis+' / '+_umAllRows.length+' users' : _umAllRows.length+' users';
   };
 
-  window.renderUserManagement = renderUserManagement;
   function renderUserManagement(forceRefresh){
     if(!isAdmin()) return;
     setupTabsCheckboxes('umAllowedTabsBox',[]);
@@ -13737,6 +13912,19 @@ window.addEventListener('beforeunload', function() {
     if(bottom && bottom.parentNode===side) side.appendChild(bottom);
     var colorBlock=$('v25ColorOptions');
     if(colorBlock && colorBlock.parentElement && bottom && colorBlock.parentElement.parentNode===side) bottom.appendChild(colorBlock.parentElement);
+    var design=side.querySelector('.design-options');
+    if(design && bottom){
+      Array.from(bottom.querySelectorAll('.codex-sidebar-design-wrap')).forEach(function(w){
+        if(!w.querySelector('.design-options') && !(w.textContent||'').trim()) w.remove();
+      });
+      var wrap=bottom.querySelector('.codex-sidebar-design-wrap');
+      if(!wrap){ wrap=document.createElement('div'); wrap.className='codex-sidebar-design-wrap'; bottom.appendChild(wrap); }
+      var title=design.previousElementSibling;
+      if(title && title.classList && title.classList.contains('side-section-title') && title.parentNode!==wrap) wrap.insertBefore(title, wrap.firstChild);
+      if(design.parentNode!==wrap) wrap.appendChild(design);
+      bottom.appendChild(wrap);
+    }
+    var refresh=$('codexGithubRefreshBtn'); if(refresh && bottom && refresh.parentNode!==bottom) bottom.insertBefore(refresh,bottom.firstChild);
     if(document.body.classList.contains('firebase-admin') || document.documentElement.classList.contains('admin')){
       side.querySelectorAll('[data-pb-tab="dashboard"],[data-pb-tab="preBooking"]').forEach(function(el){ el.classList.remove('fb-tab-denied'); el.style.display=''; el.style.visibility=''; });
     }
@@ -14646,21 +14834,11 @@ window.addEventListener('beforeunload', function() {
     finally{refreshInFlight=false;window.__githubRefreshInProgress=false;if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.oldText||'<b>⟳</b><span>Refresh Data</span>';}}
   }
   function ensureRefreshButton(){
+    var legacyBlock=$('sidebarRefreshDataBlock'); if(legacyBlock) legacyBlock.remove();
+    var legacyBtn=$('sidebarRefreshDataBtn'); if(legacyBtn) legacyBtn.remove();
     var bottom=getBottom(); if(!bottom) return;
-    var oldLegacy=document.getElementById('sidebarRefreshDataBtn');
-    if(oldLegacy && oldLegacy.parentNode) oldLegacy.parentNode.removeChild(oldLegacy);
-    var buttons=Array.from(document.querySelectorAll('#codexGithubRefreshBtn'));
-    var btn=buttons.shift();
-    buttons.forEach(function(x){ if(x && x.parentNode) x.parentNode.removeChild(x); });
-    if(!btn){
-      btn=document.createElement('button');
-      btn.id='codexGithubRefreshBtn';
-      btn.type='button';
-      btn.className='codex-refresh-btn';
-      btn.innerHTML='<b>⟳</b><span>Refresh Data</span>';
-      btn.title='Refresh current data tab';
-    }
-    if(btn.parentNode!==bottom) bottom.insertBefore(btn,bottom.firstChild);
+    var btn=$('codexGithubRefreshBtn');
+    if(!btn){btn=document.createElement('button');btn.id='codexGithubRefreshBtn';btn.type='button';btn.className='codex-refresh-btn';btn.innerHTML='<b>⟳</b><span>Refresh Data</span>';btn.title='Refresh current data tab';bottom.appendChild(btn);}
     btn.onclick=function(){runGithubRefresh(visibleTab(),true);};
     btn.style.display='flex';
   }
@@ -14679,7 +14857,7 @@ window.addEventListener('beforeunload', function() {
   function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
   window.addEventListener('load',function(){setTimeout(boot,500);});
-  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
+  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
 })();
 
 
@@ -14818,6 +14996,222 @@ window.addEventListener('beforeunload', function() {
 })();
 
 
+/* ===== return-cases-visibility-and-sidebar-final-fix ===== */
+
+(function(){
+  'use strict';
+
+  var ORDER = [
+    ['dashboard','Dashboard','<span class="side-icon dashboard-side-icon">📊</span>',"switchTab('dashboard')"],
+    ['gspn','GSPN Tracking Cases','<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />',"switchTab('gspn')"],
+    ['sky','SKY Tracking Cases','<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />',"switchTab('sky')"],
+    ['preBooking','Pre_Booking','<span class="side-icon prebooking-side-icon">📋</span>',"switchTab('preBooking')"],
+    ['returnCases','Return Cases','<span class="side-icon returncases-side-icon">↩️</span>',"switchTab('returnCases')"],
+    ['profit','Profitability & commission','<span class="side-icon">💰</span>',"switchTab('profit')"],
+    ['cashTarget','Cash & Target','<span class="side-icon">🎯</span>',"openCashTargetTab()"],
+    ['userManagement','User Management','<span class="side-icon">👥</span>',"switchTab('userManagement')"]
+  ];
+  var PAGE_IDS = {
+    dashboard:'dashboardPage',
+    gspn:'gspnPage',
+    sky:'skyPage',
+    preBooking:'preBookingPage',
+    returnCases:'returnCasesPage',
+    profit:'profitPage',
+    cashTarget:'cashTargetPage',
+    userManagement:'userManagementPage'
+  };
+
+  function text(v){ return String(v == null ? '' : v).trim(); }
+  function lower(v){ return text(v).toLowerCase(); }
+  function $(id){ return document.getElementById(id); }
+
+  function keyFromTab(el){
+    if(!el) return '';
+    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || '';
+    if(k) return k;
+    var oc = el.getAttribute('onclick') || '';
+    var t = lower(el.textContent);
+    if(oc.indexOf('dashboard')>=0 || t.indexOf('dashboard')>=0) return 'dashboard';
+    if(oc.indexOf('preBooking')>=0 || t.indexOf('pre_booking')>=0 || t.indexOf('pre booking')>=0) return 'preBooking';
+    if(oc.indexOf('returnCases')>=0 || t.indexOf('return cases')>=0) return 'returnCases';
+    if(oc.indexOf('gspn')>=0 || t.indexOf('gspn')>=0) return 'gspn';
+    if(oc.indexOf('sky')>=0 || t.indexOf('sky')>=0) return 'sky';
+    if(oc.indexOf('profit')>=0 || t.indexOf('profit')>=0 || t.indexOf('commission')>=0) return 'profit';
+    if(oc.indexOf('openCashTargetTab')>=0 || oc.indexOf('cashTarget')>=0 || t.indexOf('cash')>=0 || t.indexOf('target')>=0) return 'cashTarget';
+    if(t.indexOf('user management')>=0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
+    return '';
+  }
+
+  function makeTab(def){
+    var el = document.createElement('div');
+    el.className = 'side-tab';
+    if(def[0] === 'userManagement') el.className += ' firebase-user-management-tab admin-only';
+    el.setAttribute('data-pb-tab', def[0]);
+    el.setAttribute('data-fb-tab-key', def[0]);
+    el.setAttribute('data-tip', def[1]);
+    el.setAttribute('onclick', def[3]);
+    el.innerHTML = def[2] + '<span class="side-label">' + def[1] + '</span>';
+    return el;
+  }
+
+  function canSeeTab(key){
+    var el = document.querySelector('.side-tab[data-pb-tab="'+key+'"],.side-tab[data-fb-tab-key="'+key+'"]');
+    if(!el) return true;
+    if(el.classList.contains('fb-tab-denied')) return false;
+    if(el.getAttribute('aria-hidden') === 'true') return false;
+    return true;
+  }
+
+  function normalizeSidebar(){
+    var side = $('sideMenu') || document.querySelector('.side-menu');
+    if(!side) return;
+
+    var tabs = Array.prototype.slice.call(side.querySelectorAll('.side-tab'));
+    tabs.forEach(function(el){
+      var k = keyFromTab(el);
+      if(k){
+        el.setAttribute('data-pb-tab', k);
+        el.setAttribute('data-fb-tab-key', k);
+        el.setAttribute('data-tip', (ORDER.find(function(d){return d[0]===k;}) || [,''])[1] || text(el.textContent));
+      }
+    });
+
+    var seenKeys = {};
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k = keyFromTab(el);
+      if(!k) return;
+      if(seenKeys[k]) {
+        try { el.remove(); } catch(e) { if(el.parentNode) el.parentNode.removeChild(el); }
+      } else {
+        seenKeys[k] = el;
+      }
+    });
+
+    ORDER.forEach(function(def){
+      if(def[0] === 'userManagement'){
+        var existingUM = side.querySelector('.side-tab.firebase-user-management-tab') || Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e)==='userManagement'; });
+        if(existingUM){
+          existingUM.setAttribute('data-pb-tab','userManagement');
+          existingUM.setAttribute('data-fb-tab-key','userManagement');
+          existingUM.setAttribute('data-tip','User Management');
+        }
+        return;
+      }
+      var existing = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
+      if(!existing) side.appendChild(makeTab(def));
+    });
+
+    var workspace = Array.prototype.slice.call(side.querySelectorAll('.side-section-title')).find(function(e){ return lower(e.textContent).indexOf('workspace')>=0; });
+    if(!workspace){
+      workspace = document.createElement('div');
+      workspace.className = 'side-section-title side-label';
+      workspace.textContent = 'Workspace';
+      var head = side.querySelector('.side-head');
+      if(head && head.nextSibling) side.insertBefore(workspace, head.nextSibling);
+      else side.insertBefore(workspace, side.firstChild);
+    }
+
+    var anchor = workspace;
+    ORDER.forEach(function(def, idx){
+      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(e){ return keyFromTab(e) === def[0]; });
+      if(!el) return;
+      el.style.order = String(20 + idx);
+      if(def[0] === 'returnCases'){
+        el.classList.remove('fb-tab-denied');
+        el.setAttribute('aria-hidden','false');
+        el.style.removeProperty('display');
+        el.style.removeProperty('visibility');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('height');
+        el.style.removeProperty('width');
+      }
+      if(anchor.nextSibling !== el) side.insertBefore(el, anchor.nextSibling);
+      anchor = el;
+    });
+
+    var active = '';
+    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
+    if(active){
+      Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+        el.classList.toggle('active', keyFromTab(el) === active);
+      });
+    }
+  }
+
+  function setVisiblePage(key){
+    Object.keys(PAGE_IDS).forEach(function(k){
+      var page = $(PAGE_IDS[k]);
+      if(page) page.style.display = (k === key ? 'block' : 'none');
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){
+      el.classList.toggle('active', keyFromTab(el) === key);
+    });
+    try { localStorage.setItem('serviceEyeActiveTab', key); } catch(e) {}
+  }
+
+  var previousSwitch = window.switchTab;
+  window.switchTab = function(tab){
+    normalizeSidebar();
+
+    if(tab === 'returnCases'){
+      if(!$('returnCasesPage') && typeof window.loadReturnCases === 'function'){
+        try { window.loadReturnCases(false); } catch(e) {}
+      }
+      setVisiblePage('returnCases');
+      if(typeof window.loadReturnCases === 'function') setTimeout(function(){ window.loadReturnCases(false); }, 60);
+      else if(typeof window.renderReturnCases === 'function') setTimeout(window.renderReturnCases, 60);
+      return;
+    }
+
+    var result;
+    if(typeof previousSwitch === 'function') result = previousSwitch.apply(this, arguments);
+    var returnPage = $('returnCasesPage');
+    if(returnPage && tab !== 'returnCases') returnPage.style.display = 'none';
+    setTimeout(normalizeSidebar, 80);
+    return result;
+  };
+
+  function patchFirebaseShowTab(){
+    if(window.__returnCasesShowTabPatched) return;
+    window.__returnCasesShowTabPatched = true;
+    document.addEventListener('click', function(ev){
+      var tab = ev.target && ev.target.closest ? ev.target.closest('.side-tab') : null;
+      if(!tab) return;
+      var k = keyFromTab(tab);
+      if(k === 'returnCases'){
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        window.switchTab('returnCases');
+        return false;
+      }
+    }, true);
+  }
+
+  function boot(){
+    normalizeSidebar();
+    patchFirebaseShowTab();
+    var active = '';
+    try { active = localStorage.getItem('serviceEyeActiveTab') || ''; } catch(e) {}
+    if(active === 'returnCases') window.switchTab('returnCases');
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+  window.addEventListener('load', function(){ setTimeout(boot, 100); setTimeout(boot, 900); });
+
+  var runs = 0;
+  var timer = setInterval(function(){
+    normalizeSidebar();
+    runs += 1;
+    if(runs > 25) clearInterval(timer);
+  }, 400);
+
+  try {
+    new MutationObserver(function(){ normalizeSidebar(); }).observe(document.getElementById('sideMenu') || document.body, {childList:true, subtree:true});
+  } catch(e) {}
+})();
+
 
 /* ===== repair-efficiency-tab-v1 ===== */
 
@@ -14881,18 +15275,234 @@ window.addEventListener('beforeunload', function() {
   document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.re-filter-box'))document.querySelectorAll('.re-filter-box.open').forEach(function(x){x.classList.remove('open');});});
   function patchUserManagementCheckboxes(){var addBox=$('umAllowedTabsBox'); if(addBox&&!addBox.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')) addBox.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'">'+TITLE+'</label>'); document.querySelectorAll('#umUsersTable .um-row-tabs').forEach(function(box){if(!box.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')){var edit=box.querySelector('.um-tabs-edit')||box; edit.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'" disabled>'+TITLE+'</label>');}});}
   function installUserManagementPatch(){if(window.__repairEfficiencyUmPatchInstalled)return; window.__repairEfficiencyUmPatchInstalled=true; document.addEventListener('click',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('um-edit'))setTimeout(patchUserManagementCheckboxes,60);},true); try{new MutationObserver(function(){patchUserManagementCheckboxes(); enforceRepairPermission();}).observe(document.body,{childList:true,subtree:true});}catch(e){} setInterval(function(){patchUserManagementCheckboxes(); enforceRepairPermission();},3000);}
-  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
+  function installRefreshPatch(){if(window.__repairEfficiencyRefreshPatchInstalled)return; window.__repairEfficiencyRefreshPatchInstalled=true; document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('#sidebarRefreshDataBtn'):null; if(!btn)return; var active=''; try{active=localStorage.getItem('serviceEyeActiveTab')||'';}catch(ex){} var pg=$(PAGE); if(active===KEY||(pg&&pg.style.display!=='none')){e.preventDefault(); e.stopImmediatePropagation(); window.loadRepairEfficiency(true);}},true);}
+  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installRefreshPatch(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
 })();
 
 
-
-/* ===== clean-authoritative-sidebar-router ===== */
+/* ===== repair-efficiency-navigation-final-fix ===== */
 
 (function(){
   'use strict';
-  if(window.__sscCleanAuthoritativeRouter) return;
-  window.__sscCleanAuthoritativeRouter = true;
+  if(window.__repairEfficiencyNavigationFinalFix) return;
+  window.__repairEfficiencyNavigationFinalFix = true;
+
+  var TAB_ORDER = [
+    {key:'dashboard', label:'Dashboard', icon:'<span class="side-icon dashboard-side-icon">📊</span>', page:'dashboardPage'},
+    {key:'gspn', label:'GSPN Tracking Cases', icon:'<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />', page:'gspnPage'},
+    {key:'sky', label:'SKY Tracking Cases', icon:'<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />', page:'skyPage'},
+    {key:'preBooking', label:'Pre_Booking', icon:'<span class="side-icon prebooking-side-icon">📋</span>', page:'preBookingPage'},
+    {key:'returnCases', label:'Return Cases', icon:'<span class="side-icon returncases-side-icon">↩️</span>', page:'returnCasesPage'},
+    {key:'receivedDelivered', label:'Received & Delivered', icon:'<span class="side-icon">📦</span>', page:'receivedDeliveredPage'},
+    {key:'repairEfficiency', label:'Repair Efficiency', icon:'<span class="side-icon">🛠️</span>', page:'repairEfficiencyPage'},
+    {key:'profit', label:'Profitability & commission', icon:'<span class="side-icon">💰</span>', page:'profitPage'},
+    {key:'cashTarget', label:'Cash & Target', icon:'<span class="side-icon">🎯</span>', page:'cashTargetPage'},
+    {key:'userManagement', label:'User Management', icon:'<span class="side-icon">👥</span>', page:'userManagementPage', admin:true}
+  ];
+  var PAGE_BY_TAB = {};
+  TAB_ORDER.forEach(function(t){ PAGE_BY_TAB[t.key] = t.page; });
+
+  function $(id){ return document.getElementById(id); }
+  function txt(v){ return String(v == null ? '' : v).trim(); }
+  function low(v){ return txt(v).toLowerCase(); }
+  function tabDef(key){ for(var i=0;i<TAB_ORDER.length;i++){ if(TAB_ORDER[i].key === key) return TAB_ORDER[i]; } return null; }
+  function normalTab(tab){
+    var t = txt(tab);
+    if(t === 'cash' || t === 'cash-target' || t === 'cash_target') return 'cashTarget';
+    if(t === 'pre_booking' || t === 'pre booking') return 'preBooking';
+    if(t === 'return cases') return 'returnCases';
+    if(t === 'received delivered' || t === 'received & delivered') return 'receivedDelivered';
+    if(t === 'repair efficiency') return 'repairEfficiency';
+    if(t === 'user management') return 'userManagement';
+    return tabDef(t) ? t : 'gspn';
+  }
+  function keyFromTab(el){
+    if(!el) return '';
+    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || el.dataset.serviceTab || '';
+    k = normalTab(k);
+    if(k && tabDef(k)) return k;
+    var oc = el.getAttribute('onclick') || '';
+    var m = oc.match(/switchTab\(['\"]([^'\"]+)/) || oc.match(/openCashTargetTab/);
+    if(m && m[1]) return normalTab(m[1]);
+    if(oc.indexOf('openCashTargetTab') >= 0) return 'cashTarget';
+    var t = low(el.textContent);
+    if(t.indexOf('repair efficiency') >= 0) return 'repairEfficiency';
+    if(t.indexOf('received') >= 0 && t.indexOf('delivered') >= 0) return 'receivedDelivered';
+    if(t.indexOf('return cases') >= 0) return 'returnCases';
+    if(t.indexOf('pre_booking') >= 0 || t.indexOf('pre booking') >= 0) return 'preBooking';
+    if(t.indexOf('dashboard') >= 0) return 'dashboard';
+    if(t.indexOf('gspn') >= 0) return 'gspn';
+    if(t.indexOf('sky') >= 0) return 'sky';
+    if(t.indexOf('profit') >= 0 || t.indexOf('commission') >= 0) return 'profit';
+    if(t.indexOf('cash') >= 0 || t.indexOf('target') >= 0) return 'cashTarget';
+    if(t.indexOf('user management') >= 0) return 'userManagement';
+    return '';
+  }
+  function isDenied(key){
+    var el = document.querySelector('.side-tab[data-pb-tab="'+key+'"],.side-tab[data-fb-tab-key="'+key+'"]');
+    if(!el) return false;
+    if(el.classList.contains('fb-tab-denied')) return true;
+    if(el.getAttribute('aria-hidden') === 'true') return true;
+    var cs = window.getComputedStyle ? getComputedStyle(el) : null;
+    if(cs && (cs.display === 'none' || cs.visibility === 'hidden')) return true;
+    return false;
+  }
+  function makeTab(def){
+    var el = document.createElement('div');
+    el.className = 'side-tab' + (def.admin ? ' firebase-user-management-tab admin-only' : '');
+    el.setAttribute('data-pb-tab', def.key);
+    el.setAttribute('data-fb-tab-key', def.key);
+    el.setAttribute('data-tip', def.label);
+    el.setAttribute('onclick', "switchTab('"+def.key+"')");
+    el.innerHTML = def.icon + '<span class="side-label">' + def.label + '</span>';
+    return el;
+  }
+  function normalizeSidebar(){
+    var side = $('sideMenu') || document.querySelector('.side-menu');
+    if(!side) return;
+
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k = keyFromTab(el);
+      if(!k || !tabDef(k)) return;
+      var def = tabDef(k);
+      el.setAttribute('data-pb-tab', k);
+      el.setAttribute('data-fb-tab-key', k);
+      el.dataset.serviceTab = k;
+      el.setAttribute('data-tip', def.label);
+      el.setAttribute('onclick', "switchTab('"+k+"')");
+      if(k === 'repairEfficiency'){
+        el.style.removeProperty('display');
+        el.style.removeProperty('visibility');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('height');
+        el.style.removeProperty('width');
+        el.style.removeProperty('pointer-events');
+      }
+    });
+
+    var seen = {};
+    Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
+      var k = keyFromTab(el);
+      if(!k || !tabDef(k)) return;
+      if(seen[k]){ try{ el.remove(); }catch(e){ if(el.parentNode) el.parentNode.removeChild(el); } }
+      else seen[k] = el;
+    });
+
+    TAB_ORDER.forEach(function(def){
+      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){ return keyFromTab(x) === def.key; });
+      if(!el){
+        el = makeTab(def);
+        side.appendChild(el);
+      }
+      el.style.order = String(20 + TAB_ORDER.indexOf(def));
+    });
+
+    var bottom = $('codexSidebarBottom') || $('sidebarRefreshDataBlock') || $('v25ColorOptions');
+    TAB_ORDER.forEach(function(def){
+      var el = Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){ return keyFromTab(x) === def.key; });
+      if(!el) return;
+      if(bottom && bottom.parentNode === side) side.insertBefore(el, bottom);
+      else side.appendChild(el);
+    });
+  }
+  function hideAllPages(){
+    Object.keys(PAGE_BY_TAB).forEach(function(k){ var p = $(PAGE_BY_TAB[k]); if(p) p.style.display = 'none'; });
+  }
+  function setActive(key){
+    Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){ el.classList.toggle('active', keyFromTab(el) === key); });
+    try{ localStorage.setItem('serviceEyeActiveTab', key); }catch(e){}
+    try{ if(typeof window.sscUpdatePresenceTab === 'function') window.sscUpdatePresenceTab(tabDef(key).label || key); }catch(e){}
+  }
+  function runTabInit(key){
+    setTimeout(function(){
+      try{
+        if(key === 'gspn'){
+          if(typeof currentFilteredRows !== 'undefined' && currentFilteredRows && currentFilteredRows.length && typeof updateCharts === 'function') updateCharts(currentFilteredRows);
+        }else if(key === 'sky' && typeof window.renderSky === 'function') window.renderSky();
+        else if(key === 'profit' && typeof window.renderProfit === 'function') window.renderProfit();
+        else if(key === 'cashTarget' && typeof window.renderCashTarget === 'function') window.renderCashTarget();
+        else if(key === 'preBooking'){
+          if(typeof window.loadPreBooking === 'function') window.loadPreBooking(false);
+          else if(typeof window.renderPB === 'function') window.renderPB();
+        }else if(key === 'dashboard'){
+          if(typeof window.loadDashboardSources === 'function') window.loadDashboardSources(false);
+          else if(typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
+        }else if(key === 'returnCases'){
+          if(typeof window.loadReturnCases === 'function') window.loadReturnCases(false);
+          else if(typeof window.renderReturnCases === 'function') window.renderReturnCases();
+        }else if(key === 'receivedDelivered'){
+          if(typeof window.loadReceivedDelivered === 'function') window.loadReceivedDelivered(false);
+          else if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
+        }else if(key === 'repairEfficiency'){
+          if(typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
+          else if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
+        }else if(key === 'userManagement'){
+          if(typeof window.renderUserManagement === 'function') window.renderUserManagement();
+          if(typeof window.loadUserManagement === 'function') window.loadUserManagement();
+        }
+      }catch(e){ console.error('Tab render error:', key, e); }
+    }, 80);
+  }
+
+  var previousSwitchTab = window.switchTab;
+  window.switchTab = function(tab){
+    var key = normalTab(tab);
+    normalizeSidebar();
+    if(isDenied(key) && key !== 'repairEfficiency') return false;
+    if(key === 'repairEfficiency'){
+      var reEl = document.querySelector('.side-tab[data-pb-tab="repairEfficiency"],.side-tab[data-fb-tab-key="repairEfficiency"]');
+      if(reEl && reEl.classList.contains('fb-tab-denied')) return false;
+    }
+    try{ if(typeof window.applyTabDesign === 'function') window.applyTabDesign(key === 'cashTarget' ? 'profit' : key, false); }catch(e){}
+    if(key === 'cashTarget' && !$('cashTargetPage') && typeof previousSwitchTab === 'function'){
+      try{ previousSwitchTab.call(this, key); }catch(e){}
+    }
+    hideAllPages();
+    var page = $(PAGE_BY_TAB[key]);
+    if(page) page.style.display = 'block';
+    setActive(key);
+    runTabInit(key);
+    setTimeout(normalizeSidebar, 120);
+    return true;
+  };
+  window.openCashTargetTab = function(){ return window.switchTab('cashTarget'); };
+
+  document.addEventListener('click', function(ev){
+    var tab = ev.target && ev.target.closest ? ev.target.closest('.side-tab') : null;
+    if(!tab) return;
+    var key = keyFromTab(tab);
+    if(!key || !tabDef(key)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    window.switchTab(key);
+    return false;
+  }, true);
+
+  function boot(){
+    normalizeSidebar();
+    var active = 'gspn';
+    try{ active = normalTab(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); }catch(e){}
+    if(!$(PAGE_BY_TAB[active])){
+      if(active === 'repairEfficiency' && typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
+      else if(active === 'receivedDelivered' && typeof window.loadReceivedDelivered === 'function') window.loadReceivedDelivered(false);
+      else if(active === 'returnCases' && typeof window.loadReturnCases === 'function') window.loadReturnCases(false);
+    }
+    window.switchTab(active);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+  window.addEventListener('load', function(){ setTimeout(boot, 150); setTimeout(normalizeSidebar, 900); });
+  setTimeout(normalizeSidebar, 500);
+})();
+
+
+/* ===== repair-efficiency-absolute-final-router ===== */
+
+(function(){
+  'use strict';
+  if(window.__repairEfficiencyAbsoluteFinalRouter) return;
+  window.__repairEfficiencyAbsoluteFinalRouter = true;
 
   var ORDER = ['dashboard','gspn','sky','preBooking','returnCases','receivedDelivered','repairEfficiency','profit','cashTarget','userManagement'];
   var PAGE = {
@@ -14905,25 +15515,11 @@ window.addEventListener('beforeunload', function() {
     returnCases:'Return Cases', receivedDelivered:'Received & Delivered', repairEfficiency:'Repair Efficiency',
     profit:'Profitability & commission', cashTarget:'Cash & Target', userManagement:'User Management'
   };
-  var ICON = {
-    dashboard:'<span class="side-icon dashboard-side-icon">📊</span>',
-    gspn:'<img class="side-tab-logo" src="assets/GSPN.png" alt="GSPN Logo" />',
-    sky:'<img class="side-tab-logo" src="assets/SKY.PNG" alt="SKY CARE Logo" />',
-    preBooking:'<span class="side-icon prebooking-side-icon">📋</span>',
-    returnCases:'<span class="side-icon returncases-side-icon">↩️</span>',
-    receivedDelivered:'<span class="side-icon">📦</span>',
-    repairEfficiency:'<span class="side-icon">🛠️</span>',
-    profit:'<span class="side-icon">💰</span>',
-    cashTarget:'<span class="side-icon">🎯</span>',
-    userManagement:'<span class="side-icon">👥</span>'
-  };
-
-  function $(id){ return document.getElementById(id); }
-  function text(v){ return String(v == null ? '' : v).trim(); }
-  function lower(v){ return text(v).toLowerCase(); }
+  function $(id){return document.getElementById(id);}
+  function text(v){return String(v == null ? '' : v).trim();}
+  function lower(v){return text(v).toLowerCase();}
   function norm(tab){
     tab = text(tab);
-    if(tab === 'cash') return 'cashTarget';
     if(PAGE[tab]) return tab;
     var t = lower(tab).replace(/[\s_-]+/g,' ');
     if(t === 'pre booking') return 'preBooking';
@@ -14936,12 +15532,12 @@ window.addEventListener('beforeunload', function() {
   }
   function keyOf(el){
     if(!el) return '';
-    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || (el.dataset && el.dataset.serviceTab) || '';
+    var k = el.getAttribute('data-pb-tab') || el.getAttribute('data-fb-tab-key') || el.dataset.serviceTab || '';
     if(k) return norm(k);
     var oc = lower(el.getAttribute('onclick') || ''), tx = lower(el.textContent || '');
     if(oc.indexOf('repair') >= 0 || tx.indexOf('repair efficiency') >= 0) return 'repairEfficiency';
     if(oc.indexOf('received') >= 0 || (tx.indexOf('received') >= 0 && tx.indexOf('delivered') >= 0)) return 'receivedDelivered';
-    if(oc.indexOf('returncases') >= 0 || tx.indexOf('return cases') >= 0) return 'returnCases';
+    if(oc.indexOf('returncases') >= 0 || oc.indexOf('return cases') >= 0 || tx.indexOf('return cases') >= 0) return 'returnCases';
     if(oc.indexOf('prebooking') >= 0 || oc.indexOf('pre_booking') >= 0 || tx.indexOf('pre_booking') >= 0 || tx.indexOf('pre booking') >= 0) return 'preBooking';
     if(oc.indexOf('dashboard') >= 0 || tx.indexOf('dashboard') >= 0) return 'dashboard';
     if(oc.indexOf('gspn') >= 0 || tx.indexOf('gspn') >= 0) return 'gspn';
@@ -14951,41 +15547,18 @@ window.addEventListener('beforeunload', function() {
     if(tx.indexOf('user management') >= 0 || el.classList.contains('firebase-user-management-tab')) return 'userManagement';
     return '';
   }
-  function makeTab(key){
-    var el = document.createElement('div');
-    el.className = 'side-tab' + (key === 'userManagement' ? ' firebase-user-management-tab admin-only' : '');
-    el.setAttribute('role','button');
-    el.setAttribute('tabindex','0');
-    el.innerHTML = (ICON[key] || '') + '<span class="side-label">' + (LABEL[key] || key) + '</span>';
-    return el;
-  }
   function ensureSidebar(){
     var side = $('sideMenu') || document.querySelector('.side-menu');
     if(!side) return;
-    var seen = {};
     Array.prototype.slice.call(side.querySelectorAll('.side-tab')).forEach(function(el){
-      var k = keyOf(el);
-      if(!PAGE[k]) return;
-      if(seen[k]) { try{ el.remove(); }catch(e){ if(el.parentNode) el.parentNode.removeChild(el); } return; }
-      seen[k] = el;
+      var k = keyOf(el); if(!PAGE[k]) return;
       el.setAttribute('data-pb-tab', k);
       el.setAttribute('data-fb-tab-key', k);
-      if(el.dataset) el.dataset.serviceTab = k;
+      el.dataset.serviceTab = k;
       el.setAttribute('onclick', "switchTab('" + k + "')");
-      el.setAttribute('role','button');
-      el.setAttribute('tabindex','0');
       el.style.order = String(20 + ORDER.indexOf(k));
-    });
-    ORDER.forEach(function(k){
-      if(k === 'userManagement') return;
-      if(!seen[k]){
-        var tab = makeTab(k);
-        tab.setAttribute('data-pb-tab', k);
-        tab.setAttribute('data-fb-tab-key', k);
-        tab.setAttribute('onclick', "switchTab('" + k + "')");
-        tab.style.order = String(20 + ORDER.indexOf(k));
-        side.appendChild(tab);
-        seen[k] = tab;
+      if(k === 'repairEfficiency' || k === 'returnCases' || k === 'receivedDelivered'){
+        el.style.display = 'flex'; el.style.visibility = 'visible'; el.style.opacity = '1'; el.style.pointerEvents = 'auto';
       }
     });
   }
@@ -14997,21 +15570,6 @@ window.addEventListener('beforeunload', function() {
       if(key === 'repairEfficiency' && !$('repairEfficiencyPage') && typeof window.loadRepairEfficiency === 'function') window.loadRepairEfficiency(false);
     }catch(e){}
   }
-  function hasFirebaseProfile(){ return !!window.currentFirebaseUserProfile && typeof window.__sscFirebaseShowTab === 'function'; }
-  function runRender(key){
-    try{
-      if(key === 'gspn' && typeof window.render === 'function') window.render();
-      else if(key === 'sky') { if(typeof window.__lazyStartSky === 'function') window.__lazyStartSky(); else if(typeof window.renderSky === 'function') window.renderSky(); }
-      else if(key === 'profit' && typeof window.renderProfit === 'function') window.renderProfit();
-      else if(key === 'cashTarget' && typeof window.renderCashTarget === 'function') window.renderCashTarget();
-      else if(key === 'preBooking') { if(typeof window.renderPB === 'function') window.renderPB(); if(typeof window.loadPreBooking === 'function' && (!Array.isArray(window.preBookingRows) || !window.preBookingRows.length)) window.loadPreBooking(false); }
-      else if(key === 'dashboard' && typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
-      else if(key === 'returnCases') { if(typeof window.renderReturnCases === 'function') window.renderReturnCases(); if(typeof window.loadReturnCases === 'function' && (!Array.isArray(window.returnCasesRows) || !window.returnCasesRows.length)) window.loadReturnCases(false); }
-      else if(key === 'receivedDelivered') { if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered(); if(typeof window.loadReceivedDelivered === 'function' && (!Array.isArray(window.receivedDeliveredRows) || !window.receivedDeliveredRows.length)) window.loadReceivedDelivered(false); }
-      else if(key === 'repairEfficiency') { if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency(); if(typeof window.loadRepairEfficiency === 'function' && (!Array.isArray(window.repairEfficiencyRows) || !window.repairEfficiencyRows.length)) window.loadRepairEfficiency(false); }
-      else if(key === 'userManagement' && typeof window.renderUserManagement === 'function') window.renderUserManagement();
-    }catch(e){ console.error('Tab render error', key, e); }
-  }
   function applyOnly(key){
     key = norm(key);
     ensureSidebar();
@@ -15020,22 +15578,39 @@ window.addEventListener('beforeunload', function() {
     Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){ el.classList.toggle('active', keyOf(el) === key); });
     try{ localStorage.setItem('serviceEyeActiveTab', key); }catch(e){}
     try{ if(typeof window.sscUpdatePresenceTab === 'function') window.sscUpdatePresenceTab(LABEL[key] || key); }catch(e){}
-    setTimeout(function(){ runRender(key); }, 80);
+    setTimeout(function(){
+      Object.keys(PAGE).forEach(function(k){ var p = $(PAGE[k]); if(p) p.style.display = (k === key ? 'block' : 'none'); });
+      try{
+        if(key === 'preBooking'){
+          if(typeof window.renderPB === 'function') window.renderPB();
+          if(typeof window.loadPreBooking === 'function' && (!Array.isArray(window.preBookingRows) || !window.preBookingRows.length)) window.loadPreBooking(false);
+        } else if(key === 'dashboard'){
+          if(typeof window.renderDashboardTables === 'function') window.renderDashboardTables();
+        } else if(key === 'returnCases'){
+          if(typeof window.renderReturnCases === 'function') window.renderReturnCases();
+          if(typeof window.loadReturnCases === 'function' && (!Array.isArray(window.returnCasesRows) || !window.returnCasesRows.length)) window.loadReturnCases(false);
+        } else if(key === 'receivedDelivered'){
+          if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
+          if(typeof window.loadReceivedDelivered === 'function' && (!Array.isArray(window.receivedDeliveredRows) || !window.receivedDeliveredRows.length)) window.loadReceivedDelivered(false);
+        } else if(key === 'repairEfficiency'){
+          if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
+          if(typeof window.loadRepairEfficiency === 'function' && (!Array.isArray(window.repairEfficiencyRows) || !window.repairEfficiencyRows.length)) window.loadRepairEfficiency(false);
+        }
+      }catch(e){ console.error('Final tab apply error', key, e); }
+    }, 120);
   }
 
+  var previousSwitchTab = window.switchTab;
   window.switchTab = function(tab){
     var key = norm(tab);
-    if(!PAGE[key]) key = 'gspn';
-    ensureSidebar();
-    if(hasFirebaseProfile()){
-      if(typeof window.__sscFirebaseCanOpen === 'function' && !window.__sscFirebaseCanOpen(key)){
-        if(typeof window.__sscFirebaseApplyPermissions === 'function') window.__sscFirebaseApplyPermissions(true);
-        return false;
+    if(PAGE[key]){
+      if(['gspn','sky','profit','cashTarget','userManagement'].indexOf(key) >= 0 && typeof previousSwitchTab === 'function'){
+        try{ previousSwitchTab.apply(this, arguments); }catch(e){}
       }
-      return window.__sscFirebaseShowTab(key);
+      applyOnly(key);
+      return true;
     }
-    applyOnly(key);
-    return true;
+    return typeof previousSwitchTab === 'function' ? previousSwitchTab.apply(this, arguments) : false;
   };
   window.openCashTargetTab = function(){ return window.switchTab('cashTarget'); };
 
@@ -15044,21 +15619,21 @@ window.addEventListener('beforeunload', function() {
     if(!tab) return;
     var key = keyOf(tab);
     if(!PAGE[key]) return;
-    e.preventDefault();
-    e.stopPropagation();
-    window.switchTab(key);
-    return false;
+    /* This listener is intentionally not capture; older capture handlers may call window.switchTab, which now routes here. */
+    setTimeout(function(){ applyOnly(key); }, 0);
+    setTimeout(function(){ applyOnly(key); }, 180);
   }, false);
 
   function boot(){
     ensureSidebar();
     var active = 'gspn';
     try{ active = norm(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); }catch(e){}
-    if(PAGE[active] && !document.body.classList.contains('firebase-auth-required')) window.switchTab(active);
+    if(PAGE[active]) applyOnly(active);
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   window.addEventListener('load', function(){ setTimeout(boot, 250); setTimeout(ensureSidebar, 1000); });
 })();
+
 
 /* ===== accessibility-keyboard-sidebar ===== */
 
@@ -15073,3 +15648,67 @@ window.addEventListener('beforeunload', function() {
 
 
 
+/* ===== phase2-performance-patch-20260627 ===== */
+(function(){
+  'use strict';
+  if (window.__phase2PerfPatch) return;
+  window.__phase2PerfPatch = true;
+
+  var idle = window.requestIdleCallback || function(cb, opts){ return setTimeout(function(){ cb({didTimeout:true,timeRemaining:function(){return 0;}}); }, (opts && opts.timeout) || 120); };
+
+  function throttleNamed(name, delay){
+    var original = window[name];
+    if (typeof original !== 'function' || original.__phase2Throttled) return;
+    var timer = 0, pendingArgs = null, pendingThis = null;
+    function wrapped(){
+      pendingArgs = arguments; pendingThis = this;
+      if (timer) return;
+      timer = setTimeout(function(){
+        timer = 0;
+        var args = pendingArgs, ctx = pendingThis;
+        pendingArgs = pendingThis = null;
+        try { original.apply(ctx, args); } catch(e) {}
+      }, delay || 120);
+    }
+    wrapped.__phase2Throttled = true;
+    wrapped.__original = original;
+    window[name] = wrapped;
+  }
+
+  function idleNamed(name){
+    var original = window[name];
+    if (typeof original !== 'function' || original.__phase2Idle) return;
+    function wrapped(){
+      var args = arguments, ctx = this;
+      idle(function(){ try { original.apply(ctx, args); } catch(e) {} }, { timeout: 1200 });
+    }
+    wrapped.__phase2Idle = true;
+    wrapped.__original = original;
+    window[name] = wrapped;
+  }
+
+  function install(){
+    throttleNamed('renderSky', 180);
+    throttleNamed('render', 180);
+    throttleNamed('renderReceivedDelivered', 180);
+    throttleNamed('renderReturnCases', 180);
+    idleNamed('updateCharts');
+    idleNamed('updateSkyCharts');
+    idleNamed('updateReceivedDeliveredCharts');
+    idleNamed('updateReturnCharts');
+
+    var oldSwitch = window.switchTab;
+    if (typeof oldSwitch === 'function' && !oldSwitch.__phase2Switch) {
+      window.switchTab = function(tab){
+        var r = oldSwitch.apply(this, arguments);
+        if (tab === 'sky' && typeof window.__lazyStartSky === 'function') window.__lazyStartSky();
+        return r;
+      };
+      window.switchTab.__phase2Switch = true;
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
+  else setTimeout(install, 0);
+  window.addEventListener('load', function(){ setTimeout(install, 500); }, { once:true });
+})();
