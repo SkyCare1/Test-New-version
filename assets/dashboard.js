@@ -9,7 +9,7 @@
  *  - jQuery / jQuery UI dependency dropped (native <input type="date">)
  *
  * ARCHITECTURE NOTE
- *  This file is a sequential stack of 104 self-contained IIFE modules.
+ *  This file is a sequential stack of IIFE modules with superseded runtime guard layers consolidated on 2026-07-02.
  *  Later modules intentionally override or wrap globals defined by earlier ones
  *  (window.renderSky, window.switchTab, ...). MODULE ORDER IS SIGNIFICANT —
  *  do not reorder sections. The final behavior of any global is defined by the
@@ -12407,119 +12407,17 @@ void(scrubDom,2000);
 })();
 
 
-/* ===== inline-script-83 ===== */
 
-/* Performance Fix #5: Clear all tracked intervals on page unload */
-window.addEventListener('beforeunload', function() {
-  (window._ivals || []).forEach(function(id) { clearInterval(id); });
-  window._ivals = [];
-});
+/* [dedup] removed superseded module: inline-script-83 */
 
 
-/* ===== perf-switchTab-render-guards ===== */
-
-/* Performance Fix: Re-entrancy + debounce guards for switchTab (13-layer chain),
-   window.render (8 overwrites) and window.getSkyFilteredRows (9 overwrites).
-   Injected after all script blocks so the guards capture the fully-assembled versions. */
-(function(){
-
-  /* ── switchTab guard ── */
-  var _stChain = window.switchTab;
-  if (typeof _stChain === 'function' && !_stChain.__stGuarded) {
-    var _stRunning = false;
-    var _stNext = null;
-    window.switchTab = function switchTabGuarded(tab) {
-      if (_stRunning) { _stNext = tab; return; }   // absorb rapid clicks
-      _stRunning = true;
-      _stNext = null;
-      try { _stChain.call(this, tab); } catch(e) {}
-      _stRunning = false;
-      if (_stNext !== null) {
-        var t = _stNext; _stNext = null;
-        requestAnimationFrame(function(){ window.switchTab(t); });
-      }
-    };
-    window.switchTab.__stGuarded = true;
-  }
-
-  /* ── window.render guard ── */
-  var _rChain = window.render;
-  if (typeof _rChain === 'function' && !_rChain.__renderGuarded) {
-    var _rRafId = null;
-    window.render = function renderGuarded() {
-      cancelAnimationFrame(_rRafId);
-      _rRafId = requestAnimationFrame(function(){ try { _rChain.apply(this, arguments); } catch(e) {} });
-    };
-    window.render.__renderGuarded = true;
-  }
-
-  /* ── window.getSkyFilteredRows guard ── */
-  /* Not wrapped — just freeze the final version so no later assignment can replace it */
-  var _gsfr = window.getSkyFilteredRows;
-  if (typeof _gsfr === 'function') {
-    try {
-      Object.defineProperty(window, 'getSkyFilteredRows', {
-        get: function(){ return _gsfr; },
-        set: function(fn){
-          /* Only allow replacement if the new function is meaningfully different */
-          if (typeof fn === 'function' && fn !== _gsfr) _gsfr = fn;
-        },
-        configurable: true
-      });
-    } catch(e) {
-      /* Existing non-configurable definition detected; keep current function and continue. */
-    }
-  }
-
-})();
+/* [dedup] removed superseded module: perf-switchTab-render-guards */
 
 
-/* ===== perf-renderSky-guard ===== */
-
-/* Performance Fix #2: Re-entrancy guard + call debounce for the 14-layer renderSky chain.
-   Injected after all wrappers so it captures the fully-assembled chain.           */
-(function(){
-  var _chain = window.renderSky;
-  if (typeof _chain !== 'function') return;
-  var _running = false;
-  var _queued  = false;
-  var _rafId   = null;
-
-  window.renderSky = function renderSkyGuarded() {
-    if (_running) {
-      _queued = true;   // absorb extra call; will re-run once after current finishes
-      return;
-    }
-    cancelAnimationFrame(_rafId);
-    _rafId = requestAnimationFrame(function() {
-      _running = true;
-      _queued  = false;
-      try { _chain.apply(this, arguments); } catch(e) { }
-      _running = false;
-      if (_queued) {
-        _queued = false;
-        requestAnimationFrame(function(){ window.renderSky(); });
-      }
-    });
-  };
-  window.renderSky.__guarded = true;
-})();
+/* [dedup] removed superseded module: perf-renderSky-guard */
 
 
-/* ===== perf-updateSkyCharts-guard ===== */
-
-/* Performance Fix #12: Re-entrancy guard for updateSkyCharts chain */
-(function(){
-  var _chain = window.updateSkyCharts;
-  if (typeof _chain !== 'function') return;
-  var _rafId = null;
-  window.updateSkyCharts = function(rows) {
-    cancelAnimationFrame(_rafId);
-    var _rows = rows;
-    _rafId = requestAnimationFrame(function(){ try{ _chain(_rows); }catch(e){} });
-  };
-})();
-
+/* [dedup] removed superseded module: perf-updateSkyCharts-guard */
 
 /* ===== inline-script-87 ===== */
 
@@ -15429,67 +15327,124 @@ window.addEventListener('beforeunload', function() {
 })();
 
 
-/* ===== phase2-performance-patch-20260627 ===== */
+
+/* [dedup] removed superseded module: phase2-performance-patch-20260627 */
+
+/* ===== ssc-final-runtime-stabilizer-20260702 =====
+ * Single final runtime guard replacing several older patch layers.
+ * It keeps the already-assembled business logic intact, while preventing
+ * rapid duplicate calls, repeated chart redraws, and leaking tracked intervals.
+ */
 (function(){
   'use strict';
-  if (window.__phase2PerfPatch) return;
-  window.__phase2PerfPatch = true;
+  if (window.__sscFinalRuntimeStabilizer20260702) return;
+  window.__sscFinalRuntimeStabilizer20260702 = true;
 
-  var idle = window.requestIdleCallback || function(cb, opts){ return setTimeout(function(){ cb({didTimeout:true,timeRemaining:function(){return 0;}}); }, (opts && opts.timeout) || 120); };
+  var raf = window.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); };
+  var caf = window.cancelAnimationFrame || clearTimeout;
+  var idle = window.requestIdleCallback || function(cb, opts){
+    return setTimeout(function(){ cb({ didTimeout:true, timeRemaining:function(){ return 0; } }); }, (opts && opts.timeout) || 120);
+  };
 
-  function throttleNamed(name, delay){
+  function wrapRafLatest(name){
     var original = window[name];
-    if (typeof original !== 'function' || original.__phase2Throttled) return;
-    var timer = 0, pendingArgs = null, pendingThis = null;
-    function wrapped(){
-      pendingArgs = arguments; pendingThis = this;
-      if (timer) return;
-      timer = setTimeout(function(){
-        timer = 0;
-        var args = pendingArgs, ctx = pendingThis;
+    if (typeof original !== 'function' || original.__sscFinalGuard) return;
+    var rafId = 0;
+    var pendingArgs = null;
+    var pendingThis = null;
+    function guarded(){
+      pendingArgs = arguments;
+      pendingThis = this;
+      if (rafId) caf(rafId);
+      rafId = raf(function(){
+        rafId = 0;
+        var args = pendingArgs;
+        var ctx = pendingThis;
         pendingArgs = pendingThis = null;
-        try { original.apply(ctx, args); } catch(e) {}
-      }, delay || 120);
+        try { original.apply(ctx, args); } catch(e) { console.error('[SSC]', name, e); }
+      });
     }
-    wrapped.__phase2Throttled = true;
-    wrapped.__original = original;
-    window[name] = wrapped;
+    guarded.__sscFinalGuard = true;
+    guarded.__original = original;
+    window[name] = guarded;
   }
 
-  function idleNamed(name){
+  function wrapIdleLatest(name){
     var original = window[name];
-    if (typeof original !== 'function' || original.__phase2Idle) return;
-    function wrapped(){
-      var args = arguments, ctx = this;
-      idle(function(){ try { original.apply(ctx, args); } catch(e) {} }, { timeout: 1200 });
+    if (typeof original !== 'function' || original.__sscFinalIdleGuard) return;
+    var queued = false;
+    var pendingArgs = null;
+    var pendingThis = null;
+    function guarded(){
+      pendingArgs = arguments;
+      pendingThis = this;
+      if (queued) return;
+      queued = true;
+      idle(function(){
+        queued = false;
+        var args = pendingArgs;
+        var ctx = pendingThis;
+        pendingArgs = pendingThis = null;
+        try { original.apply(ctx, args); } catch(e) { console.error('[SSC]', name, e); }
+      }, { timeout: 900 });
     }
-    wrapped.__phase2Idle = true;
-    wrapped.__original = original;
-    window[name] = wrapped;
+    guarded.__sscFinalIdleGuard = true;
+    guarded.__original = original;
+    window[name] = guarded;
+  }
+
+  function guardSwitchTab(){
+    var original = window.switchTab;
+    if (typeof original !== 'function' || original.__sscFinalSwitchGuard) return;
+    var running = false;
+    var nextTab = null;
+    function guarded(tab){
+      if (running) { nextTab = tab; return false; }
+      running = true;
+      nextTab = null;
+      var result = false;
+      try { result = original.apply(this, arguments); }
+      catch(e) { console.error('[SSC] switchTab', e); }
+      finally { running = false; }
+      if (nextTab !== null) {
+        var t = nextTab;
+        nextTab = null;
+        raf(function(){ try { window.switchTab(t); } catch(e) { console.error('[SSC] switchTab queued', e); } });
+      }
+      return result;
+    }
+    guarded.__sscFinalSwitchGuard = true;
+    guarded.__original = original;
+    window.switchTab = guarded;
+  }
+
+  function cleanupIntervals(){
+    try {
+      (window._ivals || []).forEach(function(id){ clearInterval(id); });
+      window._ivals = [];
+    } catch(e) {}
   }
 
   function install(){
-    throttleNamed('renderSky', 180);
-    throttleNamed('render', 180);
-    throttleNamed('renderReceivedDelivered', 180);
-    throttleNamed('renderReturnCases', 180);
-    idleNamed('updateCharts');
-    idleNamed('updateSkyCharts');
-    idleNamed('updateReceivedDeliveredCharts');
-    idleNamed('updateReturnCharts');
-
-    var oldSwitch = window.switchTab;
-    if (typeof oldSwitch === 'function' && !oldSwitch.__phase2Switch) {
-      window.switchTab = function(tab){
-        var r = oldSwitch.apply(this, arguments);
-        if (tab === 'sky' && typeof window.__lazyStartSky === 'function') window.__lazyStartSky();
-        return r;
-      };
-      window.switchTab.__phase2Switch = true;
-    }
+    guardSwitchTab();
+    wrapRafLatest('render');
+    wrapRafLatest('renderSky');
+    wrapRafLatest('renderReceivedDelivered');
+    wrapRafLatest('renderReturnCases');
+    wrapRafLatest('renderRepairEfficiency');
+    wrapIdleLatest('updateCharts');
+    wrapIdleLatest('updateSkyCharts');
+    wrapIdleLatest('updateReceivedDeliveredCharts');
+    wrapIdleLatest('updateReturnCharts');
+    wrapIdleLatest('updateRepairEfficiencyCharts');
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
-  else setTimeout(install, 0);
-  window.addEventListener('load', function(){ setTimeout(install, 500); }, { once:true });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', install, { once:true });
+  } else {
+    install();
+  }
+  window.addEventListener('beforeunload', cleanupIntervals, { once:true });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) cleanupIntervals(); }, { passive:true });
 })();
+
