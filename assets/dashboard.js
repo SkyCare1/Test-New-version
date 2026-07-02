@@ -15449,348 +15449,272 @@ void(scrubDom,2000);
 })();
 
 
-/* ===== ssc-unified-filter-system-20260702 =====
- * Unified, high-performance dropdown filters for all dashboard tabs.
- * Keeps the native <select> as the source of truth, so existing tab logic,
- * events, render functions, exports, and saved filter behavior remain intact.
+/* ===== ssc-unified-filter-system-v2-20260702 =====
+ * Fixes duplicate/unstyled dropdown filters.
+ * Scope: native <select> filters only. Custom non-select filters keep their own data logic
+ * and are normalized by CSS, so no tab-specific data behavior is broken.
  */
 (function(){
   'use strict';
-  if (window.__sscUnifiedFilterSystem20260702) return;
-  window.__sscUnifiedFilterSystem20260702 = true;
+  if (window.__sscUnifiedFilterSystemV2_20260702) return;
+  window.__sscUnifiedFilterSystemV2_20260702 = true;
 
-  var ALL_VALUES = new Set(['', '__ALL__', 'ALL', '__all__']);
   var SELECTOR = 'select[id*="Filter"]';
-  var raf = window.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); };
-  var components = new Map();
-  var activePanel = null;
-  var renderTimer = 0;
+  var ALL_VALUES = {'':1,'__ALL__':1,'ALL':1,'__all__':1,'(Select All)':1,'Select All':1};
+  var components = Object.create(null);
+  var active = null;
+  var rafId = 0;
 
-  function $(id){ return document.getElementById(id); }
-  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-  function clean(s){ return String(s == null ? '' : s).trim(); }
-  function isAllValue(v){ return ALL_VALUES.has(String(v == null ? '' : v)); }
-  function uniqueId(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9); }
-  function visibleText(opt){ return clean(opt.textContent || opt.label || opt.value); }
-  function selectOptions(select){ return Array.prototype.slice.call(select.options || []); }
-  function isFilterSelect(select){ return select && select.id && /Filter/i.test(select.id) && select.id !== 'umRole'; }
+  function qs(sel, root){ return (root || document).querySelector(sel); }
+  function qsa(sel, root){ return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+  function byId(id){ return document.getElementById(id); }
+  function trim(v){ return String(v == null ? '' : v).trim(); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function isAll(v){ return !!ALL_VALUES[String(v == null ? '' : v)]; }
+  function opts(sel){ return Array.prototype.slice.call(sel.options || []); }
+  function optText(o){ return trim(o.textContent || o.label || o.value); }
+  function isFilterSelect(sel){ return sel && sel.tagName === 'SELECT' && sel.id && /Filter/i.test(sel.id) && sel.id !== 'umRole'; }
+  function safeEvent(sel,type){ try{ sel.dispatchEvent(new Event(type,{bubbles:true})); }catch(e){ var ev=document.createEvent('Event'); ev.initEvent(type,true,true); sel.dispatchEvent(ev); } }
 
-  function getLabel(select){
-    var p = select.parentElement;
-    if (p) {
-      var label = p.querySelector('.filter-label,.rc-filter-label,.rd-filter-label,.cash-filter-label,.profit-filter-label,label');
-      if (label && clean(label.textContent)) return clean(label.textContent).replace(/\s*-\s*multiple select\s*$/i, '');
-    }
-    var id = select.id.replace(/Filter$/i,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^(sky|profit|cash|rd|rc)\s+/i,'');
-    return id ? id.charAt(0).toUpperCase() + id.slice(1) : 'Filter';
+  function labelFor(sel){
+    var host = sel.closest('.filters,.sky-filters,.profit-filters,.cash-filters,.rd-filters,.rc-filters,.re-filters') || sel.parentElement;
+    var label = host && sel.parentElement && sel.parentElement.querySelector('.filter-label,.sky-filter-label,.profit-filter-label,.cash-filter-label,label');
+    if (label && trim(label.textContent)) return trim(label.textContent).replace(/\s*-\s*multiple select\s*$/i,'');
+    var id = sel.id.replace(/Filter$/i,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^(sky|profit|cash|rd|rc|re)\s+/i,'');
+    return id ? id.charAt(0).toUpperCase()+id.slice(1) : 'Filter';
   }
 
-  function getSelected(select){
-    var opts = selectOptions(select);
-    if (select.multiple) {
-      var vals = opts.filter(function(o){ return o.selected; }).map(function(o){ return o.value; });
-      if (!vals.length && opts.some(function(o){ return isAllValue(o.value); })) return [''];
-      return vals;
+  function selectedValues(sel){
+    if (sel.multiple) {
+      var values = opts(sel).filter(function(o){return o.selected;}).map(function(o){return String(o.value);});
+      if (!values.length) {
+        var all = opts(sel).filter(function(o){return isAll(o.value);})[0];
+        return [all ? String(all.value) : ''];
+      }
+      return values;
     }
-    return [select.value || ''];
+    return [String(sel.value || '')];
   }
 
-  function setSelected(select, values){
-    values = Array.isArray(values) ? values.map(String) : [String(values == null ? '' : values)];
-    var valueSet = new Set(values);
-    var opts = selectOptions(select);
-    if (select.multiple) {
-      var allOpt = opts.find(function(o){ return isAllValue(o.value); });
-      var realValues = values.filter(function(v){ return !isAllValue(v); });
-      if (!realValues.length && allOpt) valueSet = new Set([allOpt.value]);
-      opts.forEach(function(o){ o.selected = valueSet.has(String(o.value)); });
-      if (!opts.some(function(o){ return o.selected; }) && allOpt) allOpt.selected = true;
+  function applyValues(sel, values){
+    values = (Array.isArray(values) ? values : [values]).map(function(v){return String(v == null ? '' : v);});
+    var allOpt = opts(sel).filter(function(o){return isAll(o.value);})[0];
+    if (sel.multiple) {
+      var real = values.filter(function(v){return !isAll(v);});
+      var set = Object.create(null);
+      (real.length ? real : [allOpt ? String(allOpt.value) : '']).forEach(function(v){set[v]=1;});
+      opts(sel).forEach(function(o){ o.selected = !!set[String(o.value)]; });
+      if (!opts(sel).some(function(o){return o.selected;}) && allOpt) allOpt.selected = true;
     } else {
-      var first = values[0] || '';
-      select.value = first;
-      if (select.value !== first && opts.length) select.selectedIndex = 0;
+      var value = values[0] || '';
+      sel.value = value;
+      if (sel.value !== value && opts(sel).length) sel.selectedIndex = 0;
     }
   }
 
-  function fireSelect(select){
-    ['input','change'].forEach(function(type){
-      try { select.dispatchEvent(new Event(type, { bubbles:true })); }
-      catch(e) { var ev = document.createEvent('Event'); ev.initEvent(type, true, true); select.dispatchEvent(ev); }
-    });
-    scheduleRelevantRender(select);
-  }
-
-  function scheduleRelevantRender(select){
-    clearTimeout(renderTimer);
-    renderTimer = setTimeout(function(){
-      var page = select.closest('.page-shell');
-      var pid = page && page.id || '';
-      try{
-        if (pid === 'skyPage' && typeof window.renderSky === 'function') window.renderSky();
-        else if (pid === 'profitPage' && typeof window.renderProfit === 'function') window.renderProfit();
-        else if (pid === 'cashTargetPage' && typeof window.renderCashTarget === 'function') window.renderCashTarget();
-        else if (pid === 'receivedDeliveredPage' && typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered();
-        else if (pid === 'returnCasesPage' && typeof window.renderReturnCases === 'function') window.renderReturnCases();
-        else if (pid === 'repairEfficiencyPage' && typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency();
-        else if (pid === 'gspnPage' && typeof window.render === 'function') window.render();
-      }catch(e){ console.warn('[SSC filters] render skipped', e); }
-    }, 80);
-  }
-
-  function closeActive(){
-    if (activePanel) activePanel.classList.remove('open');
-    activePanel = null;
-  }
-
-  function cleanupLegacyShells(select){
-    var id = select.id;
-    ['_excel','_v3_wrap','_v4_wrap','_v50'].forEach(function(suffix){
-      var node = $(id + suffix);
-      if (node && node.classList && !node.classList.contains('ssc-filter')) node.remove();
-    });
-    var next = select.nextElementSibling;
-    while (next && (next.classList.contains('excel-filter-container') || next.classList.contains('sky-filter-dropdown') || next.classList.contains('sky-dropdown-filter'))) {
-      var doomed = next; next = next.nextElementSibling; doomed.remove();
+  function cleanupLegacyFor(sel){
+    var id = sel.id;
+    qsa('[id="'+CSS.escape(id+'_excel')+'"],[id="'+CSS.escape(id+'_sscuf')+'"],.ssc-filter[data-for="'+CSS.escape(id)+'"],.ssc-filter-v2[data-for="'+CSS.escape(id)+'"]').forEach(function(n){ n.remove(); });
+    // Remove old wrappers in the same filter cell; they are duplicated UI for the same native select.
+    var parent = sel.parentElement;
+    if (parent) {
+      qsa('.excel-filter-container,.sky-v43-multi,.sky-v46-filter,.sky-v47-filter,.sky-v48-filter,.sky-v49-filter,.sky-filter-dropdown,.sky-dropdown-filter,.profit-filter-dd,.cash-filter-dd', parent).forEach(function(n){ n.remove(); });
     }
-  }
-
-  function createComponent(select){
-    cleanupLegacyShells(select);
-    var id = select.id;
-    var wrap = document.createElement('div');
-    wrap.className = 'ssc-filter';
-    wrap.id = id + '_sscuf';
-    wrap.dataset.for = id;
-    var searchId = uniqueId(id + '_search');
-    wrap.innerHTML = '' +
-      '<button type="button" class="ssc-filter-btn" aria-haspopup="listbox" aria-expanded="false">' +
-        '<span class="ssc-filter-title"></span><span class="ssc-filter-summary">All</span><span class="ssc-filter-chevron">▾</span>' +
-      '</button>' +
-      '<div class="ssc-filter-panel" role="dialog">' +
-        '<div class="ssc-filter-head"><strong></strong><button type="button" class="ssc-filter-x" aria-label="Close">×</button></div>' +
-        '<input id="'+esc(searchId)+'" class="ssc-filter-search" type="search" placeholder="Search..." autocomplete="off">' +
-        '<div class="ssc-filter-list" role="listbox"></div>' +
-        '<div class="ssc-filter-foot">' +
-          '<button type="button" class="ssc-filter-clear">Clear</button>' +
-          '<button type="button" class="ssc-filter-apply">Apply</button>' +
-        '</div>' +
-      '</div>';
-    select.insertAdjacentElement('afterend', wrap);
-    select.classList.add('ssc-native-filter-source');
-    select.setAttribute('aria-hidden','true');
-    select.tabIndex = -1;
-    var comp = { select:select, wrap:wrap, temp:getSelected(select), lastSignature:'' };
-    components.set(id, comp);
-
-    var btn = wrap.querySelector('.ssc-filter-btn');
-    var panel = wrap.querySelector('.ssc-filter-panel');
-    var list = wrap.querySelector('.ssc-filter-list');
-    var search = wrap.querySelector('.ssc-filter-search');
-    var title = wrap.querySelector('.ssc-filter-title');
-    var title2 = wrap.querySelector('.ssc-filter-head strong');
-
-    title.textContent = getLabel(select);
-    title2.textContent = getLabel(select);
-
-    function positionPanel(){
-      var r = btn.getBoundingClientRect();
-      var width = Math.min(Math.max(r.width, 260), Math.max(260, window.innerWidth - 24));
-      var left = Math.min(Math.max(12, r.left), Math.max(12, window.innerWidth - width - 12));
-      var maxH = Math.min(420, window.innerHeight - 32);
-      var downTop = r.bottom + 6;
-      var upTop = r.top - maxH - 6;
-      var top = (downTop + maxH <= window.innerHeight || upTop < 12) ? downTop : Math.max(12, upTop);
-      panel.style.left = left + 'px';
-      panel.style.top = top + 'px';
-      panel.style.width = width + 'px';
-      panel.style.maxHeight = maxH + 'px';
-      list.style.maxHeight = Math.max(130, maxH - 148) + 'px';
-    }
-
-    function signature(){
-      return selectOptions(select).map(function(o){ return [o.value, visibleText(o), o.selected ? 1 : 0].join('\u0001'); }).join('\u0002') + '|' + select.multiple;
-    }
-
-    function normalizeTemp(){
-      var opts = selectOptions(select);
-      var valid = new Set(opts.map(function(o){ return String(o.value); }));
-      comp.temp = comp.temp.filter(function(v){ return valid.has(String(v)); });
-      if (!comp.temp.length) {
-        var all = opts.find(function(o){ return isAllValue(o.value); });
-        comp.temp = [all ? all.value : (opts[0] ? opts[0].value : '')];
-      }
-      if (select.multiple && comp.temp.some(isAllValue)) comp.temp = [comp.temp.find(isAllValue) || ''];
-    }
-
-    function updateSummary(){
-      var opts = selectOptions(select);
-      var selected = getSelected(select);
-      var selectedReal = selected.filter(function(v){ return !isAllValue(v); });
-      var summary = 'All';
-      if (selectedReal.length) {
-        var texts = selectedReal.map(function(v){ var o = opts.find(function(x){ return String(x.value) === String(v); }); return o ? visibleText(o) : v; }).filter(Boolean);
-        summary = texts.length > 2 ? (texts.length + ' selected') : texts.join(', ');
-      }
-      wrap.querySelector('.ssc-filter-summary').textContent = summary || 'All';
-      wrap.classList.toggle('has-value', !!selectedReal.length);
-      btn.title = getLabel(select) + ': ' + (summary || 'All');
-    }
-
-    function draw(term){
-      normalizeTemp();
-      term = clean(term).toLowerCase();
-      var opts = selectOptions(select);
-      var allOpt = opts.find(function(o){ return isAllValue(o.value); });
-      var rows = opts.filter(function(o){ return !term || visibleText(o).toLowerCase().indexOf(term) >= 0; });
-      if (allOpt && rows.indexOf(allOpt) < 0 && !term) rows.unshift(allOpt);
-      if (!rows.length) {
-        list.innerHTML = '<div class="ssc-filter-empty">No matching values</div>';
-        return;
-      }
-      var multi = !!select.multiple;
-      var inputType = multi ? 'checkbox' : 'radio';
-      var name = id + '_choice';
-      list.innerHTML = rows.map(function(o){
-        var value = String(o.value);
-        var checked = comp.temp.map(String).indexOf(value) >= 0;
-        var all = isAllValue(value);
-        return '<label class="ssc-filter-option'+(all?' is-all':'')+'"><input type="'+inputType+'" name="'+esc(name)+'" value="'+esc(value)+'" '+(checked?'checked':'')+'> <span>'+esc(all ? 'Select All' : visibleText(o))+'</span></label>';
-      }).join('');
-      Array.prototype.slice.call(list.querySelectorAll('input')).forEach(function(input){
-        input.addEventListener('change', function(){
-          var val = input.value;
-          if (multi) {
-            var set = new Set(comp.temp.map(String));
-            if (isAllValue(val)) set = input.checked ? new Set([val]) : new Set();
-            else {
-              Array.from(set).forEach(function(v){ if (isAllValue(v)) set.delete(v); });
-              if (input.checked) set.add(val); else set.delete(val);
-              if (!set.size && allOpt) set.add(allOpt.value);
-            }
-            comp.temp = Array.from(set);
-            draw(search.value);
-          } else {
-            comp.temp = [val];
-          }
-        });
-      });
-    }
-
-    function open(){
-      if (activePanel && activePanel !== wrap) activePanel.classList.remove('open');
-      activePanel = wrap;
-      comp.temp = getSelected(select);
-      draw(search.value = '');
-      wrap.classList.add('open');
-      btn.setAttribute('aria-expanded','true');
-      positionPanel();
-      setTimeout(function(){ try{ search.focus(); }catch(e){} }, 0);
-    }
-    function close(){
-      wrap.classList.remove('open');
-      btn.setAttribute('aria-expanded','false');
-      if (activePanel === wrap) activePanel = null;
-    }
-    function apply(){
-      setSelected(select, comp.temp);
-      updateSummary();
-      close();
-      fireSelect(select);
-    }
-    function clear(){
-      var opts = selectOptions(select);
-      var all = opts.find(function(o){ return isAllValue(o.value); });
-      comp.temp = [all ? all.value : ''];
-      apply();
-    }
-
-    btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); wrap.classList.contains('open') ? close() : open(); });
-    wrap.querySelector('.ssc-filter-x').addEventListener('click', close);
-    wrap.querySelector('.ssc-filter-apply').addEventListener('click', apply);
-    wrap.querySelector('.ssc-filter-clear').addEventListener('click', clear);
-    search.addEventListener('input', function(){ draw(search.value); });
-    panel.addEventListener('click', function(e){ e.stopPropagation(); });
-    select.addEventListener('change', function(){ comp.temp = getSelected(select); updateSummary(); });
-
-    var mo = new MutationObserver(function(){ refreshComponent(select); });
-    mo.observe(select, { childList:true, subtree:true, attributes:true, attributeFilter:['selected','value','label'] });
-    comp.observer = mo;
-    refreshComponent(select);
-  }
-
-  function refreshComponent(select){
-    if (!isFilterSelect(select)) return;
-    var comp = components.get(select.id);
-    if (!comp) return createComponent(select);
-    cleanupLegacyShells(select);
-    var sig = selectOptions(select).map(function(o){ return [o.value, visibleText(o), o.selected ? 1 : 0].join('\u0001'); }).join('\u0002') + '|' + select.multiple;
-    if (sig === comp.lastSignature) return;
-    comp.lastSignature = sig;
-    comp.temp = getSelected(select);
-    var label = getLabel(select);
-    comp.wrap.querySelector('.ssc-filter-title').textContent = label;
-    comp.wrap.querySelector('.ssc-filter-head strong').textContent = label;
-    var selected = getSelected(select).filter(function(v){ return !isAllValue(v); });
-    var opts = selectOptions(select);
-    var summary = 'All';
-    if (selected.length) {
-      var texts = selected.map(function(v){ var o = opts.find(function(x){ return String(x.value) === String(v); }); return o ? visibleText(o) : v; });
-      summary = texts.length > 2 ? texts.length + ' selected' : texts.join(', ');
-    }
-    comp.wrap.querySelector('.ssc-filter-summary').textContent = summary || 'All';
-    comp.wrap.classList.toggle('has-value', !!selected.length);
-  }
-
-  function enhanceAll(root){
-    root = root || document;
-    Array.prototype.slice.call(root.querySelectorAll(SELECTOR)).forEach(function(select){
-      if (!isFilterSelect(select)) return;
-      if (!components.has(select.id)) createComponent(select); else refreshComponent(select);
-    });
-    cleanupAllLegacy();
   }
 
   function cleanupAllLegacy(){
-    Array.prototype.slice.call(document.querySelectorAll('.excel-filter-container,.sky-filter-dropdown,.sky-dropdown-filter')).forEach(function(node){
-      var prev = node.previousElementSibling;
-      if (prev && prev.matches && prev.matches(SELECTOR)) node.remove();
+    qsa('.excel-filter-container,.sky-v43-multi,.sky-v46-filter,.sky-v47-filter,.sky-v48-filter,.sky-v49-filter,.sky-filter-dropdown,.sky-dropdown-filter,.profit-filter-dd,.cash-filter-dd').forEach(function(n){
+      var p=n.parentElement;
+      if (p && p.querySelector && p.querySelector('select[id*="Filter"]')) n.remove();
     });
   }
 
-  function scheduleEnhance(root){ raf(function(){ enhanceAll(root || document); }); }
+  function closeActive(){
+    if (active && active.wrap) active.wrap.classList.remove('open');
+    if (active && active.btn) active.btn.setAttribute('aria-expanded','false');
+    active = null;
+  }
 
-  document.addEventListener('click', function(e){ if(e.target && e.target.closest && e.target.closest('.ssc-filter')) return; closeActive(); cleanupAllLegacy(); }, true);
-  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeActive(); });
-  window.addEventListener('resize', function(){ if (activePanel) activePanel.classList.remove('open'); }, { passive:true });
-  window.addEventListener('scroll', function(){ if (activePanel) activePanel.classList.remove('open'); }, { passive:true, capture:true });
+  function create(sel){
+    cleanupLegacyFor(sel);
+    sel.classList.add('ssc-filter-source');
+    sel.setAttribute('aria-hidden','true');
+    sel.tabIndex = -1;
 
-  var oldCreate = window.createOrUpdateExcelFilter;
-  window.createOrUpdateExcelFilter = function(config){
-    var id = config && config.id || config;
-    var select = typeof id === 'string' ? $(id) : null;
-    if (select) { refreshComponent(select); return; }
-    if (typeof oldCreate === 'function') return oldCreate.apply(this, arguments);
-  };
-  window.refreshSkyExcelFilterWidgets = function(){ scheduleEnhance(document); };
-  window.sscRefreshUnifiedFilters = function(){ enhanceAll(document); };
+    var wrap = document.createElement('div');
+    wrap.className = 'ssc-filter-v2';
+    wrap.dataset.for = sel.id;
+    wrap.innerHTML = '<button type="button" class="ssc-filter-v2-btn" aria-expanded="false">'
+      + '<span class="ssc-filter-v2-label"></span><span class="ssc-filter-v2-value">All</span><span class="ssc-filter-v2-arrow">▾</span></button>'
+      + '<div class="ssc-filter-v2-panel"><div class="ssc-filter-v2-head"><b></b><button type="button" class="ssc-filter-v2-close">×</button></div>'
+      + '<input class="ssc-filter-v2-search" type="search" placeholder="Search..." autocomplete="off">'
+      + '<div class="ssc-filter-v2-list"></div><div class="ssc-filter-v2-actions"><button type="button" class="ssc-filter-v2-clear">Clear</button><button type="button" class="ssc-filter-v2-apply">Apply</button></div></div>';
+    sel.insertAdjacentElement('afterend', wrap);
 
-  var domObserver = new MutationObserver(function(muts){
-    var should = false;
-    muts.forEach(function(m){
-      if (should) return;
-      if (m.target && m.target.matches && m.target.matches(SELECTOR)) should = true;
-      Array.prototype.slice.call(m.addedNodes || []).forEach(function(n){
-        if (n.nodeType === 1 && (n.matches && n.matches(SELECTOR) || n.querySelector && n.querySelector(SELECTOR))) should = true;
+    var comp = components[sel.id] = {
+      sel: sel,
+      wrap: wrap,
+      btn: qs('.ssc-filter-v2-btn', wrap),
+      panel: qs('.ssc-filter-v2-panel', wrap),
+      list: qs('.ssc-filter-v2-list', wrap),
+      search: qs('.ssc-filter-v2-search', wrap),
+      temp: selectedValues(sel),
+      sig: ''
+    };
+
+    comp.btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); toggle(comp); });
+    comp.panel.addEventListener('click', function(e){ e.stopPropagation(); });
+    qs('.ssc-filter-v2-close', wrap).addEventListener('click', closeActive);
+    qs('.ssc-filter-v2-clear', wrap).addEventListener('click', function(){ clear(comp); });
+    qs('.ssc-filter-v2-apply', wrap).addEventListener('click', function(){ apply(comp); });
+    comp.search.addEventListener('input', function(){ draw(comp); });
+    sel.addEventListener('change', function(){ comp.temp = selectedValues(sel); refresh(comp); });
+    refresh(comp);
+  }
+
+  function signature(sel){
+    return opts(sel).map(function(o){return [o.value,optText(o),o.selected?1:0].join('\u0001');}).join('\u0002')+'|'+(sel.multiple?1:0);
+  }
+
+  function refresh(comp){
+    if (!comp || !comp.sel || !document.documentElement.contains(comp.sel)) return;
+    cleanupLegacyFor(comp.sel);
+    var lab = labelFor(comp.sel);
+    qs('.ssc-filter-v2-label', comp.wrap).textContent = lab;
+    qs('.ssc-filter-v2-head b', comp.wrap).textContent = lab;
+    var selected = selectedValues(comp.sel).filter(function(v){return !isAll(v);});
+    var texts = selected.map(function(v){ var o=opts(comp.sel).filter(function(x){return String(x.value)===String(v);})[0]; return o ? optText(o) : v; }).filter(Boolean);
+    var value = texts.length ? (texts.length > 2 ? texts.length+' selected' : texts.join(', ')) : 'All';
+    qs('.ssc-filter-v2-value', comp.wrap).textContent = value;
+    comp.wrap.classList.toggle('has-value', !!texts.length);
+    comp.btn.title = lab + ': ' + value;
+    comp.sig = signature(comp.sel);
+  }
+
+  function draw(comp){
+    var sel = comp.sel;
+    var term = trim(comp.search.value).toLowerCase();
+    var options = opts(sel);
+    var allOpt = options.filter(function(o){return isAll(o.value);})[0];
+    var tempSet = Object.create(null);
+    comp.temp.forEach(function(v){ tempSet[String(v)] = 1; });
+    var rows = options.filter(function(o){ return !term || optText(o).toLowerCase().indexOf(term) >= 0; });
+    if (!term && allOpt && rows.indexOf(allOpt) < 0) rows.unshift(allOpt);
+    if (!rows.length) { comp.list.innerHTML = '<div class="ssc-filter-v2-empty">No values</div>'; return; }
+    var type = sel.multiple ? 'checkbox' : 'radio';
+    var name = sel.id + '_ssc_filter_choice';
+    comp.list.innerHTML = rows.map(function(o){
+      var v = String(o.value), all = isAll(v), checked = !!tempSet[v];
+      return '<label class="ssc-filter-v2-option'+(all?' is-all':'')+'"><input type="'+type+'" name="'+esc(name)+'" value="'+esc(v)+'" '+(checked?'checked':'')+'><span>'+esc(all?'Select All':optText(o))+'</span></label>';
+    }).join('');
+    qsa('input', comp.list).forEach(function(input){
+      input.addEventListener('change', function(){
+        var v = String(input.value);
+        if (sel.multiple) {
+          var map = Object.create(null);
+          comp.temp.forEach(function(x){ map[String(x)] = 1; });
+          if (isAll(v)) map = input.checked ? (function(){var m=Object.create(null); m[v]=1; return m;})() : Object.create(null);
+          else {
+            Object.keys(map).forEach(function(k){ if (isAll(k)) delete map[k]; });
+            if (input.checked) map[v]=1; else delete map[v];
+            if (!Object.keys(map).length && allOpt) map[String(allOpt.value)] = 1;
+          }
+          comp.temp = Object.keys(map);
+          draw(comp);
+        } else {
+          comp.temp = [v];
+        }
       });
     });
-    if (should) scheduleEnhance(document);
+  }
+
+  function position(comp){
+    var r = comp.btn.getBoundingClientRect();
+    var width = Math.min(Math.max(r.width, 280), Math.max(280, window.innerWidth - 24));
+    var maxH = Math.min(420, window.innerHeight - 32);
+    var left = Math.min(Math.max(12, r.left), Math.max(12, window.innerWidth - width - 12));
+    var down = r.bottom + 6, up = r.top - maxH - 6;
+    var top = (down + maxH <= window.innerHeight || up < 12) ? down : Math.max(12, up);
+    comp.panel.style.left = left + 'px';
+    comp.panel.style.top = top + 'px';
+    comp.panel.style.width = width + 'px';
+    comp.panel.style.maxHeight = maxH + 'px';
+    comp.list.style.maxHeight = Math.max(140, maxH - 150) + 'px';
+  }
+
+  function open(comp){
+    if (active && active !== comp) closeActive();
+    active = comp;
+    comp.temp = selectedValues(comp.sel);
+    comp.search.value = '';
+    draw(comp);
+    comp.wrap.classList.add('open');
+    comp.btn.setAttribute('aria-expanded','true');
+    position(comp);
+    setTimeout(function(){ try{ comp.search.focus(); }catch(e){} }, 0);
+  }
+  function toggle(comp){ comp.wrap.classList.contains('open') ? closeActive() : open(comp); }
+  function apply(comp){
+    applyValues(comp.sel, comp.temp);
+    refresh(comp);
+    closeActive();
+    safeEvent(comp.sel,'input');
+    safeEvent(comp.sel,'change');
+  }
+  function clear(comp){
+    var all = opts(comp.sel).filter(function(o){return isAll(o.value);})[0];
+    comp.temp = [all ? String(all.value) : ''];
+    apply(comp);
+  }
+
+  function enhance(root){
+    root = root || document;
+    qsa(SELECTOR, root).forEach(function(sel){
+      if (!isFilterSelect(sel)) return;
+      if (!components[sel.id] || !document.documentElement.contains(components[sel.id].wrap)) create(sel);
+      else {
+        var comp = components[sel.id];
+        cleanupLegacyFor(sel);
+        if (signature(sel) !== comp.sig) refresh(comp);
+      }
+    });
+    cleanupAllLegacy();
+  }
+  function schedule(root){
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(function(){ rafId = 0; enhance(root || document); });
+  }
+
+  // Replace old SKY Excel filter hook with the new single renderer.
+  window.createOrUpdateExcelFilter = function(config){
+    var id = config && config.id || config;
+    var sel = typeof id === 'string' ? byId(id) : null;
+    if (sel && isFilterSelect(sel)) { enhance(sel.parentElement || document); return; }
+  };
+  window.refreshSkyExcelFilterWidgets = function(){ schedule(document); };
+  window.sscRefreshUnifiedFilters = function(){ enhance(document); };
+
+  document.addEventListener('click', function(e){ if (!e.target.closest || !e.target.closest('.ssc-filter-v2')) closeActive(); }, true);
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeActive(); });
+  window.addEventListener('resize', closeActive, {passive:true});
+  window.addEventListener('scroll', closeActive, {passive:true, capture:true});
+
+  var mo = new MutationObserver(function(muts){
+    var need = false;
+    muts.forEach(function(m){
+      if (need) return;
+      if (m.target && m.target.matches && m.target.matches(SELECTOR)) need = true;
+      qsa(SELECTOR, m.target && m.target.nodeType === 1 ? m.target : document).some(function(){ need = true; return true; });
+      Array.prototype.slice.call(m.addedNodes || []).forEach(function(n){ if (n.nodeType === 1 && (n.matches && n.matches(SELECTOR) || n.querySelector && n.querySelector(SELECTOR))) need = true; });
+    });
+    if (need) schedule(document);
   });
 
   function boot(){
-    enhanceAll(document);
-    domObserver.observe(document.documentElement, { childList:true, subtree:true });
-    setTimeout(function(){ enhanceAll(document); }, 600);
-    setTimeout(function(){ enhanceAll(document); }, 1800);
+    enhance(document);
+    mo.observe(document.documentElement, {childList:true, subtree:true});
+    setTimeout(function(){ enhance(document); }, 500);
+    setTimeout(function(){ enhance(document); }, 1500);
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true }); else boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
 })();
