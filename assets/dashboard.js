@@ -1163,22 +1163,9 @@ function switchTab(tab) {
     }
 
     function clearFilters(scrollAfter = false) {
-      quickFilter = null;
-      appliedFromDate = null;
-      appliedToDate = null;
       resetFiltersToAll();
-      ['fromDate','toDate','searchBox'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-      ['branchFilter','techFilter','warrantyFilter','alertFilter','jobTypeFilter'].forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        Array.from(el.options || []).forEach((opt, idx) => { opt.selected = opt.value === ALL_VALUE || idx === 0; });
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
       refreshFilterLists();
-      if (typeof window.refreshGspnExcelFilterWidgets === 'function') window.refreshGspnExcelFilterWidgets();
-      if (typeof window.__sscRefreshFilterCaptions === 'function') window.__sscRefreshFilterCaptions('gspn');
       render();
-      requestAnimationFrame(() => { if (typeof window.__sscRefreshFilterCaptions === 'function') window.__sscRefreshFilterCaptions('gspn'); });
       if (scrollAfter === true) scrollToCases();
     }
 
@@ -5073,7 +5060,6 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
   const FILTERS = [
     {id:'branchFilter', all:'All Branches'},
     {id:'techFilter', all:'All Technicians'},
-    {id:'stageFilter', all:'All Stages'},
     {id:'warrantyFilter', all:'All GSPN Warranty'},
     {id:'jobTypeFilter', all:'All GSPN JobType'},
     {id:'alertFilter', all:'All KPI Alerts'}
@@ -5157,35 +5143,6 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
     paint(filter||'');
   }
   function ensure(){ FILTERS.forEach(build); }
-  function clearGspnV50(scroll){
-    FILTERS.forEach(function(cfg){
-      var select=q(cfg.id);
-      if(!select) return;
-      select.multiple=true;
-      select.setAttribute('multiple','multiple');
-      [...select.options].forEach(function(o,i){ o.selected = (o.value===ALL || i===0); });
-      var wrap=q(cfg.id+'_v50');
-      if(wrap){
-        wrap.classList.remove('open');
-        var btn=wrap.querySelector('.gspn-v50-btn');
-        if(btn){ btn.textContent='(Select All)'; btn.title='(Select All)'; }
-      }
-      select.dispatchEvent(new Event('change',{bubbles:true}));
-    });
-    var search=q('searchBox'); if(search) search.value='';
-    try{ quickFilter=null; }catch(e){}
-    if(typeof oldClearFiltersForV50 === 'function'){
-      try{ oldClearFiltersForV50(false); }catch(e){}
-    }
-    ensure();
-    if(typeof window.render==='function') window.render();
-    if(scroll && typeof window.scrollToElement==='function') window.scrollToElement('allCasesTable');
-  }
-  const oldClearFiltersForV50=window.clearFilters;
-  window.clearFilters=clearGspnV50;
-  document.querySelectorAll('#gspnPage button').forEach(function(btn){
-    if(/clear filters/i.test(btn.textContent||'')) btn.onclick=function(){ clearGspnV50(false); };
-  });
   const oldRender=window.render;
   if(typeof oldRender==='function' && !oldRender.__gspnV50Wrapped){
     const wrapped=function(){ const res=oldRender.apply(this,arguments); requestAnimationFrame(ensure); return res; };
@@ -10210,19 +10167,12 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
     return match ? Number(match[0]) : null;
   }
   function skyAgingDaysNumber(row) {
+    // Strict source: use only the real Aging Days column. This prevents 0-3 day rows from being counted
+    // just because their text group contains a value like "4 to 10 Days" from a stale/derived field.
     let days = numberFrom(val(row, 'Aging Days'));
     if (days == null) days = numberFrom(val(row, 'Aging_Days'));
     if (days == null) days = numberFrom(val(row, 'AgingDays'));
     if (days == null) days = numberFrom(val(row, 'Aging'));
-    if (days == null) {
-      const group = clean(val(row, 'Aging Days Group')).toLowerCase();
-      if (/4|10|more|greater|above|over/.test(group)) days = 4;
-      else if (/0|1|2|3/.test(group)) days = 0;
-    }
-    if (days == null) {
-      const openDate = toDateObject(val(row, 'Open Case Date') || val(row, 'Open_Date') || val(row, 'Open Date'));
-      if (openDate) days = Math.max(0, Math.floor((Date.now() - openDate.getTime()) / 86400000));
-    }
     return Number.isFinite(days) ? days : null;
   }
   function isOpen4Plus(row) {
@@ -10573,19 +10523,8 @@ function createSkyColumnChart(canvasId, labels, values, datasetLabel, onLabelCli
   const previousSkyClearFilters = window.clearSkyFilters;
   window.clearSkyFilters = function(){
     window.__skyOpen4PlusOnly = false;
-    ['skyBranchFilter','skyStageFilter','skyJobTypeFilter','skyAgingDaysGroupFilter'].forEach(function(id){
-      const el = byId(id); if (!el) return;
-      Array.from(el.options || []).forEach(function(opt, idx){ opt.selected = opt.value === '__ALL__' || idx === 0; });
-    });
-    ['skyQueueFilter','skyBrandFilter','skySearchBox','skyFromDate','skyToDate'].forEach(function(id){ const el = byId(id); if (el) el.value = ''; });
-    ['skyQueueChartBrandFilter','skyBrandChartQueueFilter','skyStageChartBranchFilter','skyBranchChartStageFilter','skyReadyAgingBrandFilter','skyStageAllQueueFilter'].forEach(function(id){ const el = byId(id); if (el) el.value = ''; });
-    try { window.skyV26Status = ''; window.skyV27Status = ''; window.skyV28Status = ''; window.statusDrill = ''; } catch(e) {}
-    try { if (typeof previousSkyClearFilters === 'function') previousSkyClearFilters.apply(this, arguments); } catch(e) {}
-    const out = renderSkyFinal();
-    if (typeof window.refreshSkyExcelFilterWidgets === 'function') window.refreshSkyExcelFilterWidgets();
-    if (typeof window.__sscRefreshFilterCaptions === 'function') window.__sscRefreshFilterCaptions('sky');
-    requestAnimationFrame(function(){ if (typeof window.__sscRefreshFilterCaptions === 'function') window.__sscRefreshFilterCaptions('sky'); });
-    return out;
+    if (typeof previousSkyClearFilters === 'function') return previousSkyClearFilters.apply(this, arguments);
+    return renderSkyFinal();
   };
   window.exportSkyExcel = function(){
     let rows = Array.isArray(window.currentSkyRows) ? window.currentSkyRows.slice() : [];
@@ -13732,49 +13671,184 @@ window.addEventListener('beforeunload', function() {
     if(tbl) tbl.innerHTML='<thead><tr><th>Dataset</th><th>Status</th><th>Rows</th><th>Validation Details</th></tr></thead><tbody>'+output.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+secStatusPill(x.status,x.status==='OK'?'ok':(x.status==='Warning'?'warn':'bad'))+'</td><td>'+esc(x.rows)+'</td><td>'+esc(x.details)+'</td></tr>').join('')+'</tbody>';
   };
 
-  let securityBroadcastUnsub=null, securityBroadcastState={enabled:false,requireAck:false,title:'',body:''};
-  function broadcastAckKey(state){ return String((state&&state.id) || (state&&state.updatedAt) || 'current'); }
+  let securityBroadcastUnsub = null;
+  let securityBroadcastState = {enabled:false, requireAck:false, title:'', body:'', id:''};
+
+  function broadcastAckKey(state){
+    const st = state || {};
+    const raw = st.id || st.messageId || st.updatedAt || st.createdAt || 'current';
+    if(raw && typeof raw === 'object') return 'current';
+    return String(raw || 'current').replace(/[^a-zA-Z0-9_-]+/g, '_') || 'current';
+  }
+
+  function userAckId(profile){
+    const p = profile || currentProfile || {};
+    return String(p.id || p.email || p.username || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'user';
+  }
+
+  function setBroadcastActionMessage(message, ok){
+    const el = $('securityBroadcastMsg');
+    if(!el) return;
+    el.className = 'um-msg ' + (ok ? 'ok' : 'err');
+    el.textContent = message || '';
+    el.style.display = message ? 'block' : 'none';
+  }
+
   function applyBroadcastState(state){
-    securityBroadcastState=state||{enabled:false,requireAck:false,title:'',body:''};
+    const incoming = state || {};
+    securityBroadcastState = {
+      enabled: !!incoming.enabled,
+      requireAck: !!incoming.requireAck,
+      title: incoming.title || '',
+      body: incoming.body || '',
+      id: incoming.id || incoming.messageId || '',
+      updatedAt: incoming.updatedAt || '',
+      updatedBy: incoming.updatedBy || ''
+    };
+
     const t=$('securityBroadcastTitle'), b=$('securityBroadcastBody'), en=$('securityBroadcastEnabled'), req=$('securityBroadcastRequireAck');
     if(isAdmin()){
-      if(t) t.value=securityBroadcastState.title||''; if(b) b.value=securityBroadcastState.body||''; if(en) en.checked=!!securityBroadcastState.enabled; if(req) req.checked=!!securityBroadcastState.requireAck;
+      if(t && document.activeElement !== t) t.value = securityBroadcastState.title || '';
+      if(b && document.activeElement !== b) b.value = securityBroadcastState.body || '';
+      if(en) en.checked = !!securityBroadcastState.enabled;
+      if(req) req.checked = !!securityBroadcastState.requireAck;
     }
     renderBroadcastOverlay();
-    if(isAdmin()) window.refreshAcknowledgements && window.refreshAcknowledgements();
+    if(isAdmin() && window.refreshAcknowledgements) window.refreshAcknowledgements();
   }
+
   function listenBroadcast(){
-    try{ if(!rtdb || securityBroadcastUnsub) return; securityBroadcastUnsub=rtdb.ref('security/broadcast').on('value', snap=>applyBroadcastState(snap.val()||{})); }catch(e){}
+    try{
+      if(!rtdb || securityBroadcastUnsub) return;
+      securityBroadcastUnsub = snap => applyBroadcastState(snap.val() || {});
+      rtdb.ref('security/broadcast').on('value', securityBroadcastUnsub);
+    }catch(e){}
   }
+
+  async function writeBroadcastAcknowledgement(key, state){
+    if(!rtdb || !currentProfile) throw new Error('Realtime Database or user profile is not ready.');
+    await rtdb.ref('security/acknowledgements/' + key + '/' + userAckId(currentProfile)).set({
+      ts: firebase.database.ServerValue.TIMESTAMP,
+      username: currentUserLabel(),
+      email: currentProfile.email || '',
+      role: currentProfile.role || '',
+      title: state.title || '',
+      messageId: key
+    });
+  }
+
   function renderBroadcastOverlay(){
-    let ov=document.getElementById('securityBroadcastOverlay');
-    if(!ov){ ov=document.createElement('div'); ov.id='securityBroadcastOverlay'; ov.innerHTML='<div class="security-broadcast-card"><h2 id="securityBroadcastOverlayTitle"></h2><p id="securityBroadcastOverlayBody"></p><button id="securityBroadcastAckBtn" type="button">Acknowledge</button></div>'; document.body.appendChild(ov); }
-    const st=securityBroadcastState||{}; const key=broadcastAckKey(st); const ack=localStorage.getItem('sscBroadcastAck_'+key)==='1';
-    const show=!!(st.enabled && st.requireAck && !isAdmin() && !ack);
-    const tt=document.getElementById('securityBroadcastOverlayTitle'), bb=document.getElementById('securityBroadcastOverlayBody'), btn=document.getElementById('securityBroadcastAckBtn');
-    if(tt) tt.textContent=st.title||'Required Action'; if(bb) bb.textContent=st.body||'Please acknowledge this message.';
-    if(btn) btn.onclick=async function(){
-      try{ localStorage.setItem('sscBroadcastAck_'+key,'1'); if(rtdb && currentProfile) await rtdb.ref('security/acknowledgements/'+key+'/'+currentUserKey()).set({ts:firebase.database.ServerValue.TIMESTAMP,username:currentUserLabel(),email:currentProfile.email||'',role:currentProfile.role||''}); logSecurityActivity('Broadcast acknowledged', st.title||'Required Action'); }catch(e){}
-      renderBroadcastOverlay();
-    };
-    ov.style.display=show?'flex':'none';
+    let ov = document.getElementById('securityBroadcastOverlay');
+    if(!ov){
+      ov = document.createElement('div');
+      ov.id = 'securityBroadcastOverlay';
+      ov.innerHTML = '<div class="security-broadcast-card"><h2 id="securityBroadcastOverlayTitle"></h2><p id="securityBroadcastOverlayBody"></p><div id="securityBroadcastOverlayNote" class="security-broadcast-note"></div><button id="securityBroadcastAckBtn" type="button">Acknowledge</button></div>';
+      document.body.appendChild(ov);
+    }
+
+    const st = securityBroadcastState || {};
+    const key = broadcastAckKey(st);
+    const localAck = localStorage.getItem('sscBroadcastAck_' + key) === '1';
+    const show = !!(st.enabled && !isAdmin() && (!st.requireAck || !localAck));
+    const tt = document.getElementById('securityBroadcastOverlayTitle');
+    const bb = document.getElementById('securityBroadcastOverlayBody');
+    const note = document.getElementById('securityBroadcastOverlayNote');
+    const btn = document.getElementById('securityBroadcastAckBtn');
+
+    if(tt) tt.textContent = st.title || 'Required Action';
+    if(bb) bb.textContent = st.body || 'Please review the dashboard message.';
+    if(note) note.textContent = st.requireAck ? 'Acknowledgement is required before continuing.' : 'Broadcast message from ADMIN.';
+    if(btn){
+      btn.textContent = st.requireAck ? 'Acknowledge and Continue' : 'OK';
+      btn.onclick = async function(){
+        btn.disabled = true;
+        try{
+          if(st.requireAck) await writeBroadcastAcknowledgement(key, st);
+          localStorage.setItem('sscBroadcastAck_' + key, '1');
+          logSecurityActivity(st.requireAck ? 'Broadcast acknowledged' : 'Broadcast dismissed', st.title || 'Required Action');
+          renderBroadcastOverlay();
+        }catch(e){
+          btn.disabled = false;
+          alert('Acknowledgement could not be saved. Please check your connection and try again.');
+        }
+      };
+    }
+    ov.style.display = show ? 'flex' : 'none';
   }
-  window.saveBroadcastMessage=async function(){
+
+  window.saveBroadcastMessage = async function(){
     if(!isAdmin() || !rtdb) return;
-    const payload={id:'bc_'+Date.now(), enabled:!!($('securityBroadcastEnabled')&&$('securityBroadcastEnabled').checked), requireAck:!!($('securityBroadcastRequireAck')&&$('securityBroadcastRequireAck').checked), title:($('securityBroadcastTitle')&&$('securityBroadcastTitle').value.trim())||'Required Action', body:($('securityBroadcastBody')&&$('securityBroadcastBody').value.trim())||'Please review the dashboard message.', updatedAt:firebase.database.ServerValue.TIMESTAMP, updatedBy:currentProfile.email||currentProfile.username||'ADMIN'};
-    await rtdb.ref('security/broadcast').set(payload); logSecurityActivity('Broadcast saved', payload.title);
+    const enabled = !!($('securityBroadcastEnabled') && $('securityBroadcastEnabled').checked);
+    const requireAck = !!($('securityBroadcastRequireAck') && $('securityBroadcastRequireAck').checked);
+    const title = ($('securityBroadcastTitle') && $('securityBroadcastTitle').value.trim()) || 'Required Action';
+    const body = ($('securityBroadcastBody') && $('securityBroadcastBody').value.trim()) || 'Please review the dashboard message.';
+    const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const payload = {
+      id: messageId,
+      enabled: enabled,
+      requireAck: requireAck,
+      title: title,
+      body: body,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP,
+      updatedBy: currentProfile.email || currentProfile.username || 'ADMIN'
+    };
+    try{
+      await rtdb.ref('security/broadcast').set(payload);
+      if(requireAck) await rtdb.ref('security/acknowledgements/' + messageId).remove();
+      setBroadcastActionMessage('Broadcast saved successfully.', true);
+      logSecurityActivity('Broadcast saved', title + (requireAck ? ' / Forced acknowledgement' : ' / Display only'));
+    }catch(e){
+      setBroadcastActionMessage('Broadcast save failed: ' + (e && e.message || e), false);
+    }
   };
-  window.clearBroadcastMessage=async function(){ if(!isAdmin() || !rtdb) return; await rtdb.ref('security/broadcast').set({id:'bc_'+Date.now(),enabled:false,requireAck:false,title:'',body:'',updatedAt:firebase.database.ServerValue.TIMESTAMP,updatedBy:currentProfile.email||currentProfile.username||'ADMIN'}); logSecurityActivity('Broadcast cleared',''); };
-  window.refreshAcknowledgements=async function(){
+
+  window.clearBroadcastMessage = async function(){
+    if(!isAdmin() || !rtdb) return;
+    try{
+      const oldKey = broadcastAckKey(securityBroadcastState);
+      await rtdb.ref('security/broadcast').set({
+        enabled:false,
+        requireAck:false,
+        title:'',
+        body:'',
+        id:'',
+        updatedAt: firebase.database.ServerValue.TIMESTAMP,
+        updatedBy: currentProfile.email || currentProfile.username || 'ADMIN'
+      });
+      try{ if(oldKey && oldKey !== 'current') await rtdb.ref('security/acknowledgements/' + oldKey).remove(); }catch(_e){}
+      setBroadcastActionMessage('Broadcast cleared.', true);
+      logSecurityActivity('Broadcast cleared','');
+    }catch(e){
+      setBroadcastActionMessage('Clear broadcast failed: ' + (e && e.message || e), false);
+    }
+  };
+
+  window.refreshAcknowledgements = async function(){
     if(!isAdmin() || !rtdb || !db) return;
     const tbl=$('securityAcknowledgementTable'), kpi=$('secAckPending');
     try{
-      const userSnap=await db.collection('users').get(); const users=[]; userSnap.forEach(doc=>users.push(Object.assign({id:doc.id},doc.data()||{})));
-      const key=broadcastAckKey(securityBroadcastState); const ackSnap=await rtdb.ref('security/acknowledgements/'+key).once('value'); const ack=ackSnap.val()||{};
-      const active=users.filter(u=>u.active!==false && String(u.role||'').toUpperCase()!=='ADMIN'); const pending=active.filter(u=>!ack[String((u.id||u.email||u.username||'')).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')]);
-      if(kpi) kpi.textContent=pending.length;
-      if(tbl) tbl.innerHTML='<thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Time</th></tr></thead><tbody>'+active.map(u=>{ const id=String((u.id||u.email||u.username||'')).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); const a=ack[id]; return '<tr><td>'+esc(u.username||'')+'</td><td>'+esc(u.email||'')+'</td><td>'+esc(u.role||'')+'</td><td>'+secStatusPill(a?'Acknowledged':'Pending',a?'ok':'warn')+'</td><td>'+esc(a?securityTime(a.ts):'')+'</td></tr>'; }).join('')+'</tbody>';
-    }catch(e){ if(tbl) tbl.innerHTML='<tbody><tr><td>Acknowledgement refresh failed: '+esc(e&&e.message||e)+'</td></tr></tbody>'; }
+      if(!securityBroadcastState || !securityBroadcastState.enabled || !securityBroadcastState.requireAck){
+        if(kpi) kpi.textContent = '0';
+        if(tbl) tbl.innerHTML = '<tbody><tr><td>No active forced acknowledgement message.</td></tr></tbody>';
+        return;
+      }
+
+      const userSnap = await db.collection('users').get();
+      const users = [];
+      userSnap.forEach(doc => users.push(Object.assign({id:doc.id}, doc.data() || {})));
+      const key = broadcastAckKey(securityBroadcastState);
+      const ackSnap = await rtdb.ref('security/acknowledgements/' + key).once('value');
+      const ack = ackSnap.val() || {};
+      const active = users.filter(u => u.active !== false && String(u.role || '').toUpperCase() !== 'ADMIN');
+      const pending = active.filter(u => !ack[userAckId(u)]);
+      if(kpi) kpi.textContent = pending.length;
+      if(tbl) tbl.innerHTML = '<thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Time</th></tr></thead><tbody>' + active.map(u => {
+        const a = ack[userAckId(u)];
+        return '<tr><td>'+esc(u.username||'')+'</td><td>'+esc(u.email||'')+'</td><td>'+esc(u.role||'')+'</td><td>'+secStatusPill(a?'Acknowledged':'Pending',a?'ok':'warn')+'</td><td>'+esc(a?securityTime(a.ts):'')+'</td></tr>';
+      }).join('') + '</tbody>';
+    }catch(e){
+      if(tbl) tbl.innerHTML = '<tbody><tr><td>Acknowledgement refresh failed: '+esc(e&&e.message||e)+'</td></tr></tbody>';
+    }
   };
 
   function installBrowserErrorLogger(){
@@ -14013,7 +14087,7 @@ window.addEventListener('beforeunload', function() {
       sec.innerHTML='<span class="side-icon">🔐</span><span class="side-label">Security</span>';
       sec.onclick=()=>showTab('security');
       const um=document.querySelector('.side-tab.firebase-user-management-tab');
-      if(um&&um.parentNode) um.parentNode.insertBefore(sec,um.nextSibling); else side.appendChild(sec); sec.style.order='999'; if(um) um.style.order='998';
+      if(um&&um.parentNode) um.parentNode.insertBefore(sec,um.nextSibling); else side.appendChild(sec);
     }
   }
   function ensureUserWidget(){
@@ -14958,7 +15032,7 @@ window.addEventListener('beforeunload', function() {
   function uniq(a){var o={}; return a.map(txt).filter(Boolean).filter(function(x){var k=x.toLowerCase(); if(o[k])return false; o[k]=1; return true;}).sort(function(a,b){return a.localeCompare(b);});}
   function notice(status,source,rows,msg){var n=$('serviceV2Notice_receivedDelivered'); if(!n)return; n.innerHTML='<span class="source">Received &amp; Delivered — '+esc(status)+'</span><span>Source: <b>'+esc(source||'Auto Sync')+'</b></span><span>Rows: <b>'+fmt(rows||0)+'</b></span><span>Last Update: <b>'+esc(status==='Waiting for data'?'-':new Date().toLocaleString())+'</b></span><span>'+esc(msg||'')+'</span>';}
   function filterBox(id,title){return '<div class="rd-filter-box" id="'+id+'" data-title="'+esc(title)+'"></div>';}
-  function makePage(){ if($('receivedDeliveredPage')) return; document.body.insertAdjacentHTML('beforeend','<div class="page-shell" id="receivedDeliveredPage"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Received &amp; Delivered</div></div></div><div class="header-actions"></div></header><div id="serviceV2Notice_receivedDelivered" class="service-v2-update-notice"><span class="source">Received &amp; Delivered — Waiting for data</span><span>Source: <b>Auto Sync</b></span><span>Rows: <b>0</b></span><span>Last Update: <b>-</b></span><span>Waiting for data</span></div><main><div class="rd-filters">'+filterBox('rdBranchFilter','Branch')+filterBox('rdEmployeeFilter','Employee')+filterBox('rdTypeFilter','Type')+filterBox('rdMonthFilter','Month')+'<div class="rd-filter-actions"><button class="rd-btn light" onclick="window.rdClearFilters&&window.rdClearFilters()">Clear Filters</button></div></div><div class="rd-cards cards"><div class="card rd-card clickable blue" data-card="branch"><div class="label">Top Branch</div><div class="value" id="rdTopBranch">-</div><div class="percent" id="rdTopBranchNums">Received: 0 | Delivered: 0</div></div><div class="card rd-card clickable purple" data-card="employee"><div class="label">Top Employee</div><div class="value" id="rdTopEmployee">-</div><div class="percent" id="rdTopEmployeeNums">Received: 0 | Delivered: 0</div></div><div class="card rd-card clickable green" data-card="month"><div class="label">Top Month</div><div class="value" id="rdTopMonth">-</div><div class="percent" id="rdTopMonthNums">Received: 0 | Delivered: 0</div></div></div><section class="rd-section"><h2>Received &amp; Delivered by Branch / Month <span><button class="rd-btn" onclick="window.rdDownloadTable(\'branch\')">Download</button></span></h2><div class="rd-table-wrap"><table class="rd-table" id="rdBranchTable"></table></div></section><section class="rd-section"><h2>Received &amp; Delivered by Employee / Month <span><button class="rd-btn" onclick="window.rdDownloadTable(\'employee\')">Download</button></span></h2><div class="rd-table-wrap"><table class="rd-table" id="rdEmployeeTable"></table></div></section></main></div><div class="rd-drill" id="rdDrill"><div class="rd-drill-box"><div class="rd-drill-head"><h2 id="rdDrillTitle">Details</h2><div><button class="rd-btn" onclick="window.rdDownloadDrill()">Download</button> <button class="rd-btn light" onclick="document.getElementById(\'rdDrill\').style.display=\'none\'">Close</button></div></div><div class="rd-table-wrap"><table class="rd-table" id="rdDrillTable"></table></div></div></div>'); }
+  function makePage(){ if($('receivedDeliveredPage')) return; document.body.insertAdjacentHTML('beforeend','<div class="page-shell" id="receivedDeliveredPage"><header><div class="brand"><div class="logo-box"><img src="assets/SKY.PNG" loading="eager" decoding="async" fetchpriority="high" data-site-logo="1" alt="Logo"></div><div><h1>Service Support Center</h1><div class="sub">Received &amp; Delivered</div></div></div><div class="header-actions"></div></header><div id="serviceV2Notice_receivedDelivered" class="service-v2-update-notice"><span class="source">Received &amp; Delivered — Waiting for data</span><span>Source: <b>Auto Sync</b></span><span>Rows: <b>0</b></span><span>Last Update: <b>-</b></span><span>Waiting for data</span></div><main><div class="rd-filters">'+filterBox('rdBranchFilter','Branch')+filterBox('rdEmployeeFilter','Employee')+filterBox('rdMonthFilter','Month')+'<div class="rd-filter-actions"><button class="rd-btn light" onclick="window.rdClearFilters&&window.rdClearFilters()">Clear Filters</button></div></div><div class="rd-cards cards"><div class="card rd-card clickable blue" data-card="branch"><div class="label">Top Branch</div><div class="value" id="rdTopBranch">-</div><div class="percent" id="rdTopBranchNums">Received: 0 | Delivered: 0</div></div><div class="card rd-card clickable purple" data-card="employee"><div class="label">Top Employee</div><div class="value" id="rdTopEmployee">-</div><div class="percent" id="rdTopEmployeeNums">Received: 0 | Delivered: 0</div></div><div class="card rd-card clickable green" data-card="month"><div class="label">Top Month</div><div class="value" id="rdTopMonth">-</div><div class="percent" id="rdTopMonthNums">Received: 0 | Delivered: 0</div></div></div><section class="rd-section"><h2>Received &amp; Delivered by Branch / Month <span><button class="rd-btn" onclick="window.rdDownloadTable(\'branch\')">Download</button></span></h2><div class="rd-table-wrap"><table class="rd-table" id="rdBranchTable"></table></div></section><section class="rd-section"><h2>Received &amp; Delivered by Employee / Month <span><button class="rd-btn" onclick="window.rdDownloadTable(\'employee\')">Download</button></span></h2><div class="rd-table-wrap"><table class="rd-table" id="rdEmployeeTable"></table></div></section></main></div><div class="rd-drill" id="rdDrill"><div class="rd-drill-box"><div class="rd-drill-head"><h2 id="rdDrillTitle">Details</h2><div><button class="rd-btn" onclick="window.rdDownloadDrill()">Download</button> <button class="rd-btn light" onclick="document.getElementById(\'rdDrill\').style.display=\'none\'">Close</button></div></div><div class="rd-table-wrap"><table class="rd-table" id="rdDrillTable"></table></div></div></div>'); }
   function keyOf(el){var oc=el.getAttribute('onclick')||''; var m=oc.match(/switchTab\(['"]([^'"]+)/); return el.getAttribute('data-pb-tab')||el.getAttribute('data-fb-tab-key')||(m&&m[1])||'';}
   function ensureSide(){var side=$('sideMenu')||document.querySelector('.side-menu'); if(!side)return; if(!Array.prototype.slice.call(side.querySelectorAll('.side-tab')).some(function(x){return keyOf(x)==='receivedDelivered';})){ var html='<div class="side-tab" data-pb-tab="receivedDelivered" data-fb-tab-key="receivedDelivered" onclick="switchTab(\'receivedDelivered\')"><span class="side-icon">📦</span><span class="side-label">Received &amp; Delivered</span></div>'; var ref=Array.prototype.slice.call(side.querySelectorAll('.side-tab')).find(function(x){return keyOf(x)==='returnCases';}); if(ref)ref.insertAdjacentHTML('afterend',html); else side.insertAdjacentHTML('beforeend',html);} }
   function waitX(){return new Promise(function(resolve,reject){var t=0;(function chk(){if(window.XLSX)return resolve(); if((t+=100)>8000)return reject(new Error('XLSX library not loaded')); setTimeout(chk,100);})();});}
@@ -14988,12 +15062,12 @@ window.addEventListener('beforeunload', function() {
   }
   async function fetchRows(manual){await waitX(); var files=['Received_Delivered.xlsx','Received & Delivered.xlsx','Received and Delivered.xlsx','Received Delivered.xlsx','Received_and_Delivered.xlsx'], lastErr=null; for(var i=0;i<files.length;i++){try{var wb=await fetchWorkbookFile(files[i],manual); var sn=wb.SheetNames.includes('Received_Delivered')?'Received_Delivered':(wb.SheetNames.includes('Sheet2')?'Sheet2':(wb.SheetNames.includes('Sheet1')?'Sheet1':wb.SheetNames[0])); return {rows:XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true}),file:files[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Received and Delivered file not found');}
   function normaliseMonth(v){if(v instanceof Date){var names=['January','February','March','April','May','June','July','August','September','October','November','December']; return v.getFullYear()+'-'+names[v.getMonth()];} return txt(v).replace(/\s+/g,'-');}
-  function normaliseRaw(rows){var out=[]; (rows||[]).forEach(function(r){var branch=txt(r.Branch||r.branch), emp=txt(r.Employee||r.employee), month=normaliseMonth(r.Month||r.month), rec=num(r.Received||r.received), del=num(r.Delivered||r.delivered), type=txt(r.Type||r.type||(rec&&!del?'Received':(!rec&&del?'Delivered':'Received & Delivered'))), total=(r.Total!==undefined&&r.Total!=='')?num(r.Total):(rec+del), pctVal=(r['% of Branch']!==undefined?r['% of Branch']:(r.PercentBranch!==undefined?r.PercentBranch:r['%'])); if(branch&&emp&&month){out.push({Branch:branch,Employee:emp,Type:type,Month:month,Received:rec,Delivered:del,Total:total,'% of Branch':pctVal}); return;} var months=Object.keys(r).filter(function(k){return /^\d{4}[-\s_][A-Za-z]+$/i.test(k);}); var type=txt(r.Type||r.type); if(branch&&emp&&type&&months.length){months.forEach(function(m){var val=num(r[m]); var row={Branch:branch,Employee:emp,Type:type,Month:normaliseMonth(m),Received:0,Delivered:0,Total:0,'% of Branch':''}; if(/^received$/i.test(type))row.Received=val; else if(/^delivered$/i.test(type))row.Delivered=val; row.Total=row.Received+row.Delivered; out.push(row);});}}); return out.filter(function(r){return r.Branch||r.Employee||r.Month;});}
+  function normaliseRaw(rows){var out=[]; (rows||[]).forEach(function(r){var branch=txt(r.Branch||r.branch), emp=txt(r.Employee||r.employee), month=normaliseMonth(r.Month||r.month), rec=num(r.Received||r.received), del=num(r.Delivered||r.delivered), total=(r.Total!==undefined&&r.Total!=='')?num(r.Total):(rec+del), pctVal=(r['% of Branch']!==undefined?r['% of Branch']:(r.PercentBranch!==undefined?r.PercentBranch:r['%'])); if(branch&&emp&&month){out.push({Branch:branch,Employee:emp,Month:month,Received:rec,Delivered:del,Total:total,'% of Branch':pctVal}); return;} var months=Object.keys(r).filter(function(k){return /^\d{4}[-\s_][A-Za-z]+$/i.test(k);}); var type=txt(r.Type||r.type); if(branch&&emp&&type&&months.length){months.forEach(function(m){var val=num(r[m]); var row={Branch:branch,Employee:emp,Month:normaliseMonth(m),Received:0,Delivered:0,Total:0,'% of Branch':''}; if(/^received$/i.test(type))row.Received=val; else if(/^delivered$/i.test(type))row.Delivered=val; row.Total=row.Received+row.Delivered; out.push(row);});}}); return out.filter(function(r){return r.Branch||r.Employee||r.Month;});}
   function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light clear">Clear</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; var clearBtn=b.querySelector('.clear'); if(clearBtn) clearBtn.onclick=function(){temp=[]; b.__selected=[]; if(btn)btn.textContent='(Select All)'; b.classList.remove('open'); render();}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
-  function initFilters(){buildFilter('rdBranchFilter',rdRows.map(function(r){return r.Branch;})); buildFilter('rdEmployeeFilter',rdRows.map(function(r){return r.Employee;})); buildFilter('rdTypeFilter',rdRows.map(function(r){return r.Type;})); buildFilter('rdMonthFilter',rdRows.map(function(r){return r.Month;})); document.querySelectorAll('#receivedDeliveredPage .rd-card[data-card]').forEach(function(c){ if(!c.__rd){c.__rd=true;c.onclick=function(){var type=c.dataset.card, value=c.dataset.value||''; rdCardFilter=(rdCardFilter.type===type&&rdCardFilter.value===value)?{type:'',value:''}:{type:type,value:value}; render();};} });}
-  function filterRows(){var br=selected('rdBranchFilter'), emp=selected('rdEmployeeFilter'), typ=selected('rdTypeFilter'), mon=selected('rdMonthFilter'); return rdRows.filter(function(r){if(br.length&&br.indexOf(r.Branch)<0)return false;if(emp.length&&emp.indexOf(r.Employee)<0)return false;if(typ.length){var rt=txt(r.Type); var okType=typ.indexOf(rt)>=0 || (typ.indexOf('Received')>=0&&num(r.Received)>0) || (typ.indexOf('Delivered')>=0&&num(r.Delivered)>0); if(!okType)return false;} if(mon.length&&mon.indexOf(r.Month)<0)return false;if(rdCardFilter.type==='branch'&&r.Branch!==rdCardFilter.value)return false;if(rdCardFilter.type==='employee'&&r.Employee!==rdCardFilter.value)return false;if(rdCardFilter.type==='month'&&r.Month!==rdCardFilter.value)return false;return true;});}
+  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
+    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); b.classList.remove('open'); render();}; draw();}
+  function initFilters(){buildFilter('rdBranchFilter',rdRows.map(function(r){return r.Branch;})); buildFilter('rdEmployeeFilter',rdRows.map(function(r){return r.Employee;})); buildFilter('rdMonthFilter',rdRows.map(function(r){return r.Month;})); document.querySelectorAll('#receivedDeliveredPage .rd-card[data-card]').forEach(function(c){ if(!c.__rd){c.__rd=true;c.onclick=function(){var type=c.dataset.card, value=c.dataset.value||''; rdCardFilter=(rdCardFilter.type===type&&rdCardFilter.value===value)?{type:'',value:''}:{type:type,value:value}; render();};} });}
+  function filterRows(){var br=selected('rdBranchFilter'), emp=selected('rdEmployeeFilter'), mon=selected('rdMonthFilter'); return rdRows.filter(function(r){if(br.length&&br.indexOf(r.Branch)<0)return false;if(emp.length&&emp.indexOf(r.Employee)<0)return false;if(mon.length&&mon.indexOf(r.Month)<0)return false;if(rdCardFilter.type==='branch'&&r.Branch!==rdCardFilter.value)return false;if(rdCardFilter.type==='employee'&&r.Employee!==rdCardFilter.value)return false;if(rdCardFilter.type==='month'&&r.Month!==rdCardFilter.value)return false;return true;});}
   function aggregate(rows,dims,includePct){var map={}; rows.forEach(function(r){var key=dims.map(function(d){return r[d];}).join('||'); if(!map[key]){map[key]={}; dims.forEach(function(d){map[key][d]=r[d];}); map[key].Received=0; map[key].Delivered=0; map[key].Total=0; map[key]._pctSum=0; map[key]._pctCount=0;} map[key].Received+=num(r.Received); map[key].Delivered+=num(r.Delivered); map[key].Total+=num(r.Total||(num(r.Received)+num(r.Delivered))); if(r['% of Branch']!==''&&r['% of Branch']!=null){map[key]._pctSum+=num(r['% of Branch']); map[key]._pctCount++;}}); return Object.keys(map).map(function(k){var x=map[k]; if(includePct)x['% of Branch']=x._pctCount?x._pctSum/x._pctCount:''; delete x._pctSum; delete x._pctCount; return x;});}
   function topBy(rows,field){var g=aggregate(rows,[field],false); g.sort(function(a,b){return (b.Received+b.Delivered)-(a.Received+a.Delivered);}); return g[0]||{};}
   function setCard(idName,idNums,obj,field,type){var val=obj[field]||'-', a=$(idName), b=$(idNums), card=document.querySelector('#receivedDeliveredPage .rd-card[data-card="'+type+'"]'); if(a)a.textContent=val; if(b)b.textContent='Received: '+fmt(obj.Received)+' | Delivered: '+fmt(obj.Delivered); if(card){card.dataset.value=val; card.classList.toggle('active',rdCardFilter.type===type&&rdCardFilter.value===val);}}
@@ -15001,9 +15075,7 @@ window.addEventListener('beforeunload', function() {
   function branchRows(rows){return aggregate(rows,['Branch','Month'],false);}
   function employeeRows(rows){return aggregate(rows,['Employee','Month'],true);}
   function sortRows(rows,kind){var s=rdSort[kind], main=kind==='employee'?'Employee':'Branch'; rows.sort(function(a,b){var av=a[s.col],bv=b[s.col], c=0; if(s.col==='Month')c=monthIndex(av)-monthIndex(bv); else c=(typeof av==='number'||typeof bv==='number'||s.col==='% of Branch')?(num(av)-num(bv)):txt(av).localeCompare(txt(bv)); if(c===0)c=txt(a[main]).localeCompare(txt(b[main]))||monthIndex(a.Month)-monthIndex(b.Month); return c*s.dir;}); return rows;}
-  function renderTable(id,rows,cols,kind){rows=sortRows(rows.slice(),kind); var tbl=$(id), main=kind==='employee'?'Employee':'Branch'; if(!tbl)return; var totalRow={}; totalRow[main]='Grand Total'; totalRow.Month=''; totalRow.Received=rows.reduce(function(a,r){return a+num(r.Received);},0); totalRow.Delivered=rows.reduce(function(a,r){return a+num(r.Delivered);},0); totalRow.Total=rows.reduce(function(a,r){return a+num(r.Total);},0); totalRow['% of Branch']='';
-    var totalHtml='<tr class="rd-total-row">'+cols.map(function(c,idx){var v=totalRow[c]; if(idx===0)return '<td><strong>Grand Total</strong></td>'; if(c==='Received'||c==='Delivered'||c==='Total')return '<td><strong>'+fmt(v)+'</strong></td>'; return '<td></td>';}).join('')+'</tr>';
-    tbl.innerHTML='<thead><tr>'+cols.map(function(c,i){return '<th draggable="true" data-col="'+esc(c)+'" data-kind="'+kind+'" data-idx="'+i+'">'+esc(c)+' '+(rdSort[kind].col===c?(rdSort[kind].dir>0?'▲':'▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c], display=(c==='% of Branch')?pct(v):(typeof v==='number'?fmt(v):v), cls='', html=esc(display), link=(c===main||c==='Month'||c==='Received'||c==='Delivered'||c==='Total'||c==='% of Branch'); if(c===main){cls=' group-cell'; html='<span class="rd-group-toggle">⊟</span>'+esc(display);} var attrs=link?' class="rd-link'+cls+'" data-kind="'+kind+'" data-col="'+esc(c)+'" data-value="'+esc(v)+'" data-main="'+esc(r[main]||'')+'" data-month="'+esc(r.Month||'')+'"':' class="'+cls+'"'; return '<td'+attrs+'>'+html+'</td>';}).join('')+'</tr>';}).join('')+totalHtml+'</tbody>'; tbl.querySelectorAll('th').forEach(function(th){th.onclick=function(){var k=th.dataset.kind,c=th.dataset.col; if(rdSort[k].col===c)rdSort[k].dir*=-1; else rdSort[k]={col:c,dir:1}; render();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',th.dataset.idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault();var from=Number(e.dataTransfer.getData('text/plain')), to=Number(th.dataset.idx), k=th.dataset.kind, arr=rdCols[k]; if(isNaN(from)||isNaN(to)||from===to)return; arr.splice(to,0,arr.splice(from,1)[0]); render();};}); tbl.querySelectorAll('.rd-link').forEach(function(td){td.onclick=function(){drill(td.dataset.kind,td.dataset.col,td.dataset.value,td.dataset);};});}
+  function renderTable(id,rows,cols,kind){rows=sortRows(rows.slice(),kind); var tbl=$(id), main=kind==='employee'?'Employee':'Branch'; if(!tbl)return; tbl.innerHTML='<thead><tr>'+cols.map(function(c,i){return '<th draggable="true" data-col="'+esc(c)+'" data-kind="'+kind+'" data-idx="'+i+'">'+esc(c)+' '+(rdSort[kind].col===c?(rdSort[kind].dir>0?'▲':'▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c], display=(c==='% of Branch')?pct(v):(typeof v==='number'?fmt(v):v), cls='', html=esc(display), link=(c===main||c==='Month'||c==='Received'||c==='Delivered'||c==='Total'||c==='% of Branch'); if(c===main){cls=' group-cell'; html='<span class="rd-group-toggle">⊟</span>'+esc(display);} var attrs=link?' class="rd-link'+cls+'" data-kind="'+kind+'" data-col="'+esc(c)+'" data-value="'+esc(v)+'" data-main="'+esc(r[main]||'')+'" data-month="'+esc(r.Month||'')+'"':' class="'+cls+'"'; return '<td'+attrs+'>'+html+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>'; tbl.querySelectorAll('th').forEach(function(th){th.onclick=function(){var k=th.dataset.kind,c=th.dataset.col; if(rdSort[k].col===c)rdSort[k].dir*=-1; else rdSort[k]={col:c,dir:1}; render();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',th.dataset.idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault();var from=Number(e.dataTransfer.getData('text/plain')), to=Number(th.dataset.idx), k=th.dataset.kind, arr=rdCols[k]; if(isNaN(from)||isNaN(to)||from===to)return; arr.splice(to,0,arr.splice(from,1)[0]); render();};}); tbl.querySelectorAll('.rd-link').forEach(function(td){td.onclick=function(){drill(td.dataset.kind,td.dataset.col,td.dataset.value,td.dataset);};});}
   function drill(kind,col,value,ctx){ctx=ctx||{}; var main=kind==='employee'?'Employee':'Branch'; var rows=rdFiltered.filter(function(r){ if(ctx.main&&r[main]!==ctx.main)return false; if(ctx.month&&r.Month!==ctx.month)return false; return true;}); rdDrillRows=rows; if($('rdDrillTitle'))$('rdDrillTitle').textContent='Details - '+col+': '+value; renderDetail('rdDrillTable',rows); if($('rdDrill'))$('rdDrill').style.display='block';}
   function renderDetail(id,rows){var cols=['Branch','Employee','Month','Received','Delivered','Total','% of Branch']; var tbl=$(id); tbl.innerHTML='<thead><tr>'+cols.map(function(c){return '<th>'+esc(c)+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c]; return '<td>'+esc(c==='% of Branch'?pct(v):(typeof v==='number'?fmt(v):v))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>';}
   function render(){rdFiltered=filterRows(); renderCards(rdFiltered); rdCols.branch=rdCols.branch.length?rdCols.branch:['Branch','Month','Received','Delivered','Total']; rdCols.employee=rdCols.employee.length?rdCols.employee:['Employee','Month','Received','Delivered','Total','% of Branch']; renderTable('rdBranchTable',branchRows(rdFiltered),rdCols.branch,'branch'); renderTable('rdEmployeeTable',employeeRows(rdFiltered),rdCols.employee,'employee'); notice('Data updated','Auto Sync',rdRows.length,'Fresh data loaded by Auto sync');}
@@ -15011,7 +15083,7 @@ window.addEventListener('beforeunload', function() {
   function toXlsx(rows,name){ if(!window.XLSX)return; var ws=XLSX.utils.json_to_sheet(rows), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31)); XLSX.writeFile(wb,name+'.xlsx'); }
   window.rdDownloadTable=function(kind){var rows=kind==='employee'?employeeRows(rdFiltered):branchRows(rdFiltered); toXlsx(rows,kind==='employee'?'Received Delivered by Employee':'Received Delivered by Branch');};
   window.rdDownloadDrill=function(){toXlsx(rdDrillRows,'Received Delivered Details');};
-  window.rdClearFilters=function(){['rdBranchFilter','rdEmployeeFilter','rdTypeFilter','rdMonthFilter'].forEach(function(id){var b=$(id); if(b)b.__selected=[];}); rdCardFilter={type:'',value:''}; initFilters(); render();};
+  window.rdClearFilters=function(){['rdBranchFilter','rdEmployeeFilter','rdMonthFilter'].forEach(function(id){var b=$(id); if(b)b.__selected=[];}); rdCardFilter={type:'',value:''}; initFilters(); render();};
   window.loadReceivedDelivered=async function(manual){makePage(); ensureSide(); notice('Updating now','Auto Sync',rdRows.length,'Loading data...'); try{var result=await fetchRows(!!manual); rdRows=normaliseRaw(result.rows); window.receivedDeliveredRows=rdRows; initFilters(); render(); notice('Data updated','GitHub: '+(result.file||'Received_Delivered.xlsx'),rdRows.length,'Fresh data loaded by Auto sync'); try{localStorage.setItem('serviceV2Last_receivedDelivered',JSON.stringify({state:'success',source:'GitHub: '+(result.file||'Received_Delivered.xlsx'),rows:rdRows.length,time:new Date().toLocaleString(),msg:'Fresh data loaded by Auto sync'}));}catch(_e){} return rdRows;}catch(e){console.error(e); window.receivedDeliveredRows=rdRows; initFilters(); if(rdRows.length){render(); notice('Data updated','Auto Sync',rdRows.length,'GitHub not reachable — existing data kept'); return rdRows;} render(); notice('Waiting for data','Auto Sync',0,e&&e.message?e.message:'Load failed'); return [];}};
   function hideAllShow(){['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage','repairEfficiencyPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='receivedDelivered');}); try{localStorage.setItem('serviceEyeActiveTab','receivedDelivered');}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab('receivedDelivered'); }catch(e){}}
   function show(){makePage(); ensureSide(); hideAllShow(); if(!rdRows.length)window.loadReceivedDelivered(false); else render();}
@@ -15799,8 +15871,8 @@ window.addEventListener('beforeunload', function() {
   async function fetchRows(manual){await waitX(); var lastErr=null; for(var i=0;i<FILES.length;i++){try{var wb=await fetchWorkbookFile(FILES[i],manual); var sn=wb.SheetNames.indexOf('Repair Efficiency')>=0?'Repair Efficiency':(wb.SheetNames.indexOf('Sheet1')>=0?'Sheet1':wb.SheetNames[0]); var rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true}); return {rows:rows,file:FILES[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Repair Efficiency file not found');}
   function normaliseRaw(rows){reRawCols=[]; var out=[]; (rows||[]).forEach(function(row){if(!Object.values(row).some(function(v){return txt(v)!=='';}))return; Object.keys(row).forEach(function(k){if(reRawCols.indexOf(k)<0)reRawCols.push(k);}); var tech=txt(get(row,['Technician Name','Technician','TechnicianName','Tech Name','Tech'])); var tier=txt(get(row,['Performance Tier','Tier','PerformanceTier'])); var rank=get(row,['Rank','Ranking','Technician Rank']); var success=get(row,['Repair Success %','Repair Success','RepairSuccess%','Repair Success Percent','Success %','Success']); var notRep=get(row,['Not-Repaired %','Not Repaired %','Not-Repaired','Not Repaired','NotRepaired%','Not repaired %']); var copy=Object.assign({},row); copy._technician=tech; copy._tier=tier; copy._rank=rank; copy._success=success; copy._notRepaired=notRep; out.push(copy);}); if(!reRawCols.length)reRawCols=['Rank','Technician Name','Repair Success %','Not-Repaired %','Performance Tier']; return out;}
   function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="re-filter-label">'+esc(title)+'</div><button type="button" class="re-filter-btn">'+esc(label)+'</button><div class="re-filter-menu"><input class="re-filter-search" placeholder="Search"><div class="re-filter-list"></div><div class="re-filter-actions-menu"><button type="button" class="re-btn ok">OK</button><button type="button" class="re-btn light clear">Clear</button><button type="button" class="re-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.re-filter-btn'), menu=b.querySelector('.re-filter-menu'), list=b.querySelector('.re-filter-list'), search=b.querySelector('.re-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="re-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="re-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.re-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; var clearBtn=b.querySelector('.clear'); if(clearBtn) clearBtn.onclick=function(){temp=[]; b.__selected=[]; if(btn)btn.textContent='(Select All)'; b.classList.remove('open'); render();}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
+  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="re-filter-label">'+esc(title)+'</div><button type="button" class="re-filter-btn">'+esc(label)+'</button><div class="re-filter-menu"><input class="re-filter-search" placeholder="Search"><div class="re-filter-list"></div><div class="re-filter-actions-menu"><button type="button" class="re-btn ok">OK</button><button type="button" class="re-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.re-filter-btn'), menu=b.querySelector('.re-filter-menu'), list=b.querySelector('.re-filter-list'), search=b.querySelector('.re-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="re-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="re-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
+    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.re-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); b.classList.remove('open'); render();}; draw();}
   function initFilters(){buildFilter('reTechnicianFilter',reRows.map(function(r){return r._technician;})); buildFilter('reTierFilter',reRows.map(function(r){return r._tier;}));}
   function filterRows(){var tech=selected('reTechnicianFilter'), tier=selected('reTierFilter'); return reRows.filter(function(r){if(tech.length&&tech.indexOf(r._technician)<0)return false;if(tier.length&&tier.indexOf(r._tier)<0)return false;return true;});}
   function bestRows(rows){return rows.slice().sort(function(a,b){var ar=rankVal(a), br=rankVal(b); if(ar!==br)return ar-br; var s=num(b._success)-num(a._success); if(s)return s; return txt(a._technician).localeCompare(txt(b._technician));}).slice(0,3);}
@@ -16281,28 +16353,4 @@ window.addEventListener('beforeunload', function() {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
   else setTimeout(install, 0);
   window.addEventListener('load', function(){ setTimeout(install, 500); }, { once:true });
-})();
-
-
-/* ===== ssc-strict-requested-fixes-20260702 ===== */
-(function(){
-  'use strict';
-  if(window.__sscStrictRequestedFixes20260702) return;
-  window.__sscStrictRequestedFixes20260702 = true;
-  function q(id){return document.getElementById(id);} 
-  function setExcelCaption(id, text){
-    var wrap=q(id+'_excel'), btn=wrap&&wrap.querySelector('.excel-filter-button');
-    if(btn) btn.textContent=text || '(Select All)';
-  }
-  window.__sscRefreshFilterCaptions=function(scope){
-    if(scope==='gspn' || !scope){ ['branchFilter','techFilter','warrantyFilter','alertFilter','jobTypeFilter'].forEach(function(id){ setExcelCaption(id,'(Select All)'); }); }
-    if(scope==='sky' || !scope){ ['skyBranchFilter','skyStageFilter','skyJobTypeFilter','skyAgingDaysGroupFilter'].forEach(function(id){ setExcelCaption(id,'(Select All)'); }); }
-  };
-  function placeSecurityBelowUserManagement(){
-    var um=document.querySelector('.side-tab[data-fb-tab-key="userManagement"],.side-tab[data-pb-tab="userManagement"],.side-tab.firebase-user-management-tab');
-    var sec=document.querySelector('.side-tab[data-fb-tab-key="security"],.side-tab[data-pb-tab="security"]');
-    if(um&&sec){ sec.style.order='999'; um.style.order='998'; if(sec.previousElementSibling!==um && um.parentNode) um.insertAdjacentElement('afterend',sec); }
-  }
-  document.addEventListener('DOMContentLoaded',function(){ setTimeout(placeSecurityBelowUserManagement,300); setTimeout(placeSecurityBelowUserManagement,1200); });
-  window.addEventListener('load',function(){ setTimeout(placeSecurityBelowUserManagement,500); setTimeout(placeSecurityBelowUserManagement,1800); });
 })();
