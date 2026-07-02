@@ -5073,6 +5073,7 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
   const FILTERS = [
     {id:'branchFilter', all:'All Branches'},
     {id:'techFilter', all:'All Technicians'},
+    {id:'stageFilter', all:'All Stages'},
     {id:'warrantyFilter', all:'All GSPN Warranty'},
     {id:'jobTypeFilter', all:'All GSPN JobType'},
     {id:'alertFilter', all:'All KPI Alerts'}
@@ -5156,6 +5157,35 @@ void(()=>{ if(byId('skyPage')) SKY_FILTERS.forEach(buildWidget); fixGspnScroll()
     paint(filter||'');
   }
   function ensure(){ FILTERS.forEach(build); }
+  function clearGspnV50(scroll){
+    FILTERS.forEach(function(cfg){
+      var select=q(cfg.id);
+      if(!select) return;
+      select.multiple=true;
+      select.setAttribute('multiple','multiple');
+      [...select.options].forEach(function(o,i){ o.selected = (o.value===ALL || i===0); });
+      var wrap=q(cfg.id+'_v50');
+      if(wrap){
+        wrap.classList.remove('open');
+        var btn=wrap.querySelector('.gspn-v50-btn');
+        if(btn){ btn.textContent='(Select All)'; btn.title='(Select All)'; }
+      }
+      select.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    var search=q('searchBox'); if(search) search.value='';
+    try{ quickFilter=null; }catch(e){}
+    if(typeof oldClearFiltersForV50 === 'function'){
+      try{ oldClearFiltersForV50(false); }catch(e){}
+    }
+    ensure();
+    if(typeof window.render==='function') window.render();
+    if(scroll && typeof window.scrollToElement==='function') window.scrollToElement('allCasesTable');
+  }
+  const oldClearFiltersForV50=window.clearFilters;
+  window.clearFilters=clearGspnV50;
+  document.querySelectorAll('#gspnPage button').forEach(function(btn){
+    if(/clear filters/i.test(btn.textContent||'')) btn.onclick=function(){ clearGspnV50(false); };
+  });
   const oldRender=window.render;
   if(typeof oldRender==='function' && !oldRender.__gspnV50Wrapped){
     const wrapped=function(){ const res=oldRender.apply(this,arguments); requestAnimationFrame(ensure); return res; };
@@ -14960,8 +14990,8 @@ window.addEventListener('beforeunload', function() {
   function normaliseMonth(v){if(v instanceof Date){var names=['January','February','March','April','May','June','July','August','September','October','November','December']; return v.getFullYear()+'-'+names[v.getMonth()];} return txt(v).replace(/\s+/g,'-');}
   function normaliseRaw(rows){var out=[]; (rows||[]).forEach(function(r){var branch=txt(r.Branch||r.branch), emp=txt(r.Employee||r.employee), month=normaliseMonth(r.Month||r.month), rec=num(r.Received||r.received), del=num(r.Delivered||r.delivered), type=txt(r.Type||r.type||(rec&&!del?'Received':(!rec&&del?'Delivered':'Received & Delivered'))), total=(r.Total!==undefined&&r.Total!=='')?num(r.Total):(rec+del), pctVal=(r['% of Branch']!==undefined?r['% of Branch']:(r.PercentBranch!==undefined?r.PercentBranch:r['%'])); if(branch&&emp&&month){out.push({Branch:branch,Employee:emp,Type:type,Month:month,Received:rec,Delivered:del,Total:total,'% of Branch':pctVal}); return;} var months=Object.keys(r).filter(function(k){return /^\d{4}[-\s_][A-Za-z]+$/i.test(k);}); var type=txt(r.Type||r.type); if(branch&&emp&&type&&months.length){months.forEach(function(m){var val=num(r[m]); var row={Branch:branch,Employee:emp,Type:type,Month:normaliseMonth(m),Received:0,Delivered:0,Total:0,'% of Branch':''}; if(/^received$/i.test(type))row.Received=val; else if(/^delivered$/i.test(type))row.Delivered=val; row.Total=row.Received+row.Delivered; out.push(row);});}}); return out.filter(function(r){return r.Branch||r.Employee||r.Month;});}
   function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
+  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light clear">Clear</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
+    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; var clearBtn=b.querySelector('.clear'); if(clearBtn) clearBtn.onclick=function(){temp=[]; b.__selected=[]; if(btn)btn.textContent='(Select All)'; b.classList.remove('open'); render();}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
   function initFilters(){buildFilter('rdBranchFilter',rdRows.map(function(r){return r.Branch;})); buildFilter('rdEmployeeFilter',rdRows.map(function(r){return r.Employee;})); buildFilter('rdTypeFilter',rdRows.map(function(r){return r.Type;})); buildFilter('rdMonthFilter',rdRows.map(function(r){return r.Month;})); document.querySelectorAll('#receivedDeliveredPage .rd-card[data-card]').forEach(function(c){ if(!c.__rd){c.__rd=true;c.onclick=function(){var type=c.dataset.card, value=c.dataset.value||''; rdCardFilter=(rdCardFilter.type===type&&rdCardFilter.value===value)?{type:'',value:''}:{type:type,value:value}; render();};} });}
   function filterRows(){var br=selected('rdBranchFilter'), emp=selected('rdEmployeeFilter'), typ=selected('rdTypeFilter'), mon=selected('rdMonthFilter'); return rdRows.filter(function(r){if(br.length&&br.indexOf(r.Branch)<0)return false;if(emp.length&&emp.indexOf(r.Employee)<0)return false;if(typ.length){var rt=txt(r.Type); var okType=typ.indexOf(rt)>=0 || (typ.indexOf('Received')>=0&&num(r.Received)>0) || (typ.indexOf('Delivered')>=0&&num(r.Delivered)>0); if(!okType)return false;} if(mon.length&&mon.indexOf(r.Month)<0)return false;if(rdCardFilter.type==='branch'&&r.Branch!==rdCardFilter.value)return false;if(rdCardFilter.type==='employee'&&r.Employee!==rdCardFilter.value)return false;if(rdCardFilter.type==='month'&&r.Month!==rdCardFilter.value)return false;return true;});}
   function aggregate(rows,dims,includePct){var map={}; rows.forEach(function(r){var key=dims.map(function(d){return r[d];}).join('||'); if(!map[key]){map[key]={}; dims.forEach(function(d){map[key][d]=r[d];}); map[key].Received=0; map[key].Delivered=0; map[key].Total=0; map[key]._pctSum=0; map[key]._pctCount=0;} map[key].Received+=num(r.Received); map[key].Delivered+=num(r.Delivered); map[key].Total+=num(r.Total||(num(r.Received)+num(r.Delivered))); if(r['% of Branch']!==''&&r['% of Branch']!=null){map[key]._pctSum+=num(r['% of Branch']); map[key]._pctCount++;}}); return Object.keys(map).map(function(k){var x=map[k]; if(includePct)x['% of Branch']=x._pctCount?x._pctSum/x._pctCount:''; delete x._pctSum; delete x._pctCount; return x;});}
@@ -15769,8 +15799,8 @@ window.addEventListener('beforeunload', function() {
   async function fetchRows(manual){await waitX(); var lastErr=null; for(var i=0;i<FILES.length;i++){try{var wb=await fetchWorkbookFile(FILES[i],manual); var sn=wb.SheetNames.indexOf('Repair Efficiency')>=0?'Repair Efficiency':(wb.SheetNames.indexOf('Sheet1')>=0?'Sheet1':wb.SheetNames[0]); var rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:'',raw:true}); return {rows:rows,file:FILES[i]};}catch(e){lastErr=e;}} throw lastErr||new Error('Repair Efficiency file not found');}
   function normaliseRaw(rows){reRawCols=[]; var out=[]; (rows||[]).forEach(function(row){if(!Object.values(row).some(function(v){return txt(v)!=='';}))return; Object.keys(row).forEach(function(k){if(reRawCols.indexOf(k)<0)reRawCols.push(k);}); var tech=txt(get(row,['Technician Name','Technician','TechnicianName','Tech Name','Tech'])); var tier=txt(get(row,['Performance Tier','Tier','PerformanceTier'])); var rank=get(row,['Rank','Ranking','Technician Rank']); var success=get(row,['Repair Success %','Repair Success','RepairSuccess%','Repair Success Percent','Success %','Success']); var notRep=get(row,['Not-Repaired %','Not Repaired %','Not-Repaired','Not Repaired','NotRepaired%','Not repaired %']); var copy=Object.assign({},row); copy._technician=tech; copy._tier=tier; copy._rank=rank; copy._success=success; copy._notRepaired=notRep; out.push(copy);}); if(!reRawCols.length)reRawCols=['Rank','Technician Name','Repair Success %','Not-Repaired %','Performance Tier']; return out;}
   function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="re-filter-label">'+esc(title)+'</div><button type="button" class="re-filter-btn">'+esc(label)+'</button><div class="re-filter-menu"><input class="re-filter-search" placeholder="Search"><div class="re-filter-list"></div><div class="re-filter-actions-menu"><button type="button" class="re-btn ok">OK</button><button type="button" class="re-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.re-filter-btn'), menu=b.querySelector('.re-filter-menu'), list=b.querySelector('.re-filter-list'), search=b.querySelector('.re-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="re-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="re-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.re-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
+  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="re-filter-label">'+esc(title)+'</div><button type="button" class="re-filter-btn">'+esc(label)+'</button><div class="re-filter-menu"><input class="re-filter-search" placeholder="Search"><div class="re-filter-list"></div><div class="re-filter-actions-menu"><button type="button" class="re-btn ok">OK</button><button type="button" class="re-btn light clear">Clear</button><button type="button" class="re-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.re-filter-btn'), menu=b.querySelector('.re-filter-menu'), list=b.querySelector('.re-filter-list'), search=b.querySelector('.re-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="re-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="re-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
+    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.re-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; var clearBtn=b.querySelector('.clear'); if(clearBtn) clearBtn.onclick=function(){temp=[]; b.__selected=[]; if(btn)btn.textContent='(Select All)'; b.classList.remove('open'); render();}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); var cap=!temp.length?'(Select All)':(temp.length>2?temp.length+' selected':temp.join(', ')); if(btn)btn.textContent=cap; b.classList.remove('open'); render();}; draw();}
   function initFilters(){buildFilter('reTechnicianFilter',reRows.map(function(r){return r._technician;})); buildFilter('reTierFilter',reRows.map(function(r){return r._tier;}));}
   function filterRows(){var tech=selected('reTechnicianFilter'), tier=selected('reTierFilter'); return reRows.filter(function(r){if(tech.length&&tech.indexOf(r._technician)<0)return false;if(tier.length&&tier.indexOf(r._tier)<0)return false;return true;});}
   function bestRows(rows){return rows.slice().sort(function(a,b){var ar=rankVal(a), br=rankVal(b); if(ar!==br)return ar-br; var s=num(b._success)-num(a._success); if(s)return s; return txt(a._technician).localeCompare(txt(b._technician));}).slice(0,3);}
@@ -16275,174 +16305,4 @@ window.addEventListener('beforeunload', function() {
   }
   document.addEventListener('DOMContentLoaded',function(){ setTimeout(placeSecurityBelowUserManagement,300); setTimeout(placeSecurityBelowUserManagement,1200); });
   window.addEventListener('load',function(){ setTimeout(placeSecurityBelowUserManagement,500); setTimeout(placeSecurityBelowUserManagement,1800); });
-})();
-
-/* ===== strict-unified-filter-engine-20260702 ===== */
-(function(){
-  'use strict';
-  if (window.__sscUnifiedFilterEngine20260702) return;
-  window.__sscUnifiedFilterEngine20260702 = true;
-
-  var ALL = (typeof window.ALL_VALUE !== 'undefined' ? window.ALL_VALUE : '__ALL__');
-  function byId(id){ return document.getElementById(id); }
-  function txt(v){ return String(v == null ? '' : v).trim(); }
-  function esc(v){ return txt(v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];}); }
-  function isAllValue(v){ v = txt(v); return !v || v === ALL || v === '__ALL__' || /^\(?select all\)?$/i.test(v) || /^all\b/i.test(v); }
-  function unique(values){ var seen = Object.create(null), out = []; (values || []).forEach(function(v){ v = txt(v); if(!v) return; var k = v.toLowerCase(); if(seen[k]) return; seen[k] = 1; out.push(v); }); return out.sort(function(a,b){return a.localeCompare(b);}); }
-  function selectedNative(select){ if(!select) return []; return Array.prototype.slice.call(select.selectedOptions || []).map(function(o){return o.value;}).filter(function(v){return !isAllValue(v);}); }
-  function setNative(select, values){
-    if(!select) return;
-    var vals = new Set((values || []).map(txt).filter(Boolean));
-    if(select.multiple){
-      var any = false;
-      Array.prototype.slice.call(select.options).forEach(function(o){
-        var real = !isAllValue(o.value);
-        o.selected = vals.size ? vals.has(o.value) : !real;
-        if(o.selected) any = true;
-      });
-      if(!any && select.options.length) select.options[0].selected = true;
-    }else{
-      select.value = vals.size ? Array.from(vals)[0] : '';
-    }
-    try{ select.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){}
-  }
-  function getOptionObjects(select){
-    return Array.prototype.slice.call(select.options || []).map(function(o){ return { value: o.value, text: txt(o.textContent || o.value), all: isAllValue(o.value) || isAllValue(o.textContent) }; });
-  }
-  function hideOldWidgets(id){
-    [id + '_excel', id + '_profitdd', id + '_v5dd', id + '_v6dd', id + '_v7dd'].forEach(function(x){ var el = byId(x); if(el) el.style.display = 'none'; });
-    [id + '_v5panel', id + '_v6panel', id + '_v7panel'].forEach(function(x){ var el = byId(x); if(el) el.style.display = 'none'; });
-  }
-  function summaryText(values){ values = values || []; return values.length ? (values.length > 2 ? values.length + ' selected' : values.join(', ')) : '(Select All)'; }
-  function renderAfterApply(id){
-    if(/^sky/i.test(id)){ if(typeof window.renderSky === 'function') window.renderSky(); return; }
-    if(/^profit/i.test(id)){ if(typeof window.renderProfit === 'function') window.renderProfit(); return; }
-    if(/^cash/i.test(id)){ if(typeof window.renderCashTarget === 'function') window.renderCashTarget(); return; }
-    if(typeof window.render === 'function') window.render();
-  }
-  function buildNativeFilter(select){
-    if(!select || !select.id || select.dataset.sscUnifiedLock === '1') return;
-    var id = select.id;
-    if(!/(Filter|filter)$/i.test(id)) return;
-    hideOldWidgets(id);
-    select.classList.add('ssc-native-filter-hidden');
-    select.style.display = 'none';
-    var multiple = !!select.multiple || select.size > 1;
-    var wrap = byId(id + '_sscfilter');
-    if(!wrap){
-      wrap = document.createElement('div');
-      wrap.id = id + '_sscfilter';
-      wrap.className = 'ssc-filter';
-      select.insertAdjacentElement('afterend', wrap);
-    }
-    var options = getOptionObjects(select);
-    var realOptions = options.filter(function(o){return !o.all;});
-    var selected = selectedNative(select);
-    if(!multiple && select.value && !isAllValue(select.value)) selected = [select.value];
-    var label = summaryText(selected.map(function(v){ var hit = realOptions.find(function(o){return o.value === v;}); return hit ? hit.text : v; }));
-    wrap.innerHTML = '<button type="button" class="ssc-filter-btn" title="'+esc(label)+'"><span>'+esc(label)+'</span><b>▼</b></button>'+
-      '<div class="ssc-filter-panel"><input class="ssc-filter-search" placeholder="Search"><div class="ssc-filter-list"></div><div class="ssc-filter-actions"><button type="button" class="ssc-filter-ok">OK</button><button type="button" class="ssc-filter-clear">Clear</button><button type="button" class="ssc-filter-cancel">Cancel</button></div></div>';
-    var btn = wrap.querySelector('.ssc-filter-btn'), panel = wrap.querySelector('.ssc-filter-panel'), search = wrap.querySelector('.ssc-filter-search'), list = wrap.querySelector('.ssc-filter-list');
-    var temp = new Set(selected);
-    function position(){
-      var r = btn.getBoundingClientRect(), w = Math.min(340, window.innerWidth - 24), maxH = Math.min(370, window.innerHeight - 30);
-      var left = Math.min(Math.max(12, r.left), window.innerWidth - w - 12), top = r.bottom + 6;
-      if(top + maxH > window.innerHeight) top = Math.max(12, r.top - maxH - 6);
-      panel.style.left = left + 'px'; panel.style.top = top + 'px'; panel.style.width = w + 'px'; panel.style.maxHeight = maxH + 'px'; list.style.maxHeight = Math.max(110, maxH - 132) + 'px';
-    }
-    function draw(){
-      var q = txt(search.value).toLowerCase();
-      var shown = realOptions.filter(function(o){return !q || o.text.toLowerCase().indexOf(q) >= 0;});
-      var html = '<label class="ssc-filter-option"><input type="checkbox" data-all="1" '+(!temp.size?'checked':'')+'> <span>(Select All)</span></label>';
-      html += shown.map(function(o){ return '<label class="ssc-filter-option"><input type="checkbox" data-value="'+esc(o.value)+'" '+(temp.has(o.value)?'checked':'')+'> <span>'+esc(o.text)+'</span></label>'; }).join('');
-      list.innerHTML = html;
-      list.querySelectorAll('input').forEach(function(cb){
-        cb.onchange = function(){
-          if(cb.getAttribute('data-all')) temp.clear();
-          else {
-            var v = cb.getAttribute('data-value');
-            if(!multiple) temp.clear();
-            if(cb.checked) temp.add(v); else temp.delete(v);
-          }
-          draw();
-        };
-      });
-    }
-    btn.onclick = function(e){ e.stopPropagation(); document.querySelectorAll('.ssc-filter.open').forEach(function(x){ if(x !== wrap) x.classList.remove('open'); }); wrap.classList.toggle('open'); if(wrap.classList.contains('open')){ position(); draw(); setTimeout(function(){search.focus();},0); } };
-    panel.onclick = function(e){ e.stopPropagation(); };
-    search.oninput = draw;
-    wrap.querySelector('.ssc-filter-cancel').onclick = function(){ wrap.classList.remove('open'); };
-    wrap.querySelector('.ssc-filter-clear').onclick = function(){ temp.clear(); setNative(select, []); wrap.classList.remove('open'); renderAfterApply(id); };
-    wrap.querySelector('.ssc-filter-ok').onclick = function(){ setNative(select, Array.from(temp)); wrap.classList.remove('open'); renderAfterApply(id); };
-    draw();
-  }
-  function buildNativeFilters(){
-    var ids = [
-      'branchFilter','techFilter','stageFilter','warrantyFilter','alertFilter','jobTypeFilter',
-      'skyBranchFilter','skyQueueFilter','skyBrandFilter','skyStageFilter','skyJobTypeFilter','skyAgingDaysGroupFilter',
-      'profitBranchFilter','profitMonthFilter','profitTypeFilter','profitStatusFilter',
-      'cashBranchFilter','cashMonthFilter','cashDetailsMonthFilter','cashVarianceBranchFilter','cashDailyBranchFilter'
-    ];
-    ids.forEach(function(id){ var el = byId(id); if(el && el.tagName === 'SELECT') buildNativeFilter(el); });
-  }
-  function boxValues(box){
-    var inputs = Array.prototype.slice.call(box.querySelectorAll('.rd-filter-option input:not([data-all]), .re-filter-option input:not([data-all])'));
-    return unique(inputs.map(function(i){ return i.value || i.getAttribute('value'); }));
-  }
-  function buildBoxFilter(box, prefix){
-    if(!box) return;
-    var isRd = prefix === 'rd', title = txt(box.getAttribute('data-title') || box.querySelector('.'+prefix+'-filter-label')?.textContent || 'Filter');
-    var values = boxValues(box);
-    if(!values.length && Array.isArray(box.__values)) values = box.__values.slice();
-    box.__values = values.slice();
-    var chosen = Array.isArray(box.__selected) ? box.__selected.filter(function(v){return values.indexOf(v) >= 0;}) : [];
-    box.__selected = chosen.slice();
-    var oldMenu = box.querySelector('.'+prefix+'-filter-menu'); if(oldMenu) oldMenu.style.display = 'none';
-    var wrap = box.querySelector('.ssc-box-filter');
-    if(!wrap){ wrap = document.createElement('div'); wrap.className = 'ssc-box-filter'; box.appendChild(wrap); }
-    var label = summaryText(chosen);
-    wrap.innerHTML = '<div class="'+prefix+'-filter-label">'+esc(title)+'</div><button type="button" class="ssc-filter-btn" title="'+esc(label)+'"><span>'+esc(label)+'</span><b>▼</b></button>'+
-      '<div class="ssc-filter-panel"><input class="ssc-filter-search" placeholder="Search"><div class="ssc-filter-list"></div><div class="ssc-filter-actions"><button type="button" class="ssc-filter-ok">OK</button><button type="button" class="ssc-filter-clear">Clear</button><button type="button" class="ssc-filter-cancel">Cancel</button></div></div>';
-    var btn = wrap.querySelector('.ssc-filter-btn'), panel = wrap.querySelector('.ssc-filter-panel'), search = wrap.querySelector('.ssc-filter-search'), list = wrap.querySelector('.ssc-filter-list');
-    var temp = new Set(chosen);
-    function position(){ var r=btn.getBoundingClientRect(), w=Math.min(340, window.innerWidth-24), maxH=Math.min(370, window.innerHeight-30), left=Math.min(Math.max(12,r.left),window.innerWidth-w-12), top=r.bottom+6; if(top+maxH>window.innerHeight) top=Math.max(12,r.top-maxH-6); panel.style.left=left+'px'; panel.style.top=top+'px'; panel.style.width=w+'px'; panel.style.maxHeight=maxH+'px'; list.style.maxHeight=Math.max(110,maxH-132)+'px'; }
-    function draw(){ var q=txt(search.value).toLowerCase(), shown=values.filter(function(v){return !q || v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="ssc-filter-option"><input type="checkbox" data-all="1" '+(!temp.size?'checked':'')+'> <span>(Select All)</span></label>'+shown.map(function(v){return '<label class="ssc-filter-option"><input type="checkbox" data-value="'+esc(v)+'" '+(temp.has(v)?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){ if(cb.getAttribute('data-all')) temp.clear(); else {var v=cb.getAttribute('data-value'); if(cb.checked) temp.add(v); else temp.delete(v);} draw(); };}); }
-    btn.onclick = function(e){ e.stopPropagation(); document.querySelectorAll('.ssc-filter.open,.ssc-box-filter.open').forEach(function(x){ if(x!==wrap) x.classList.remove('open'); }); wrap.classList.toggle('open'); if(wrap.classList.contains('open')){ position(); draw(); setTimeout(function(){search.focus();},0); } };
-    panel.onclick = function(e){ e.stopPropagation(); };
-    search.oninput = draw;
-    wrap.querySelector('.ssc-filter-cancel').onclick = function(){ wrap.classList.remove('open'); };
-    wrap.querySelector('.ssc-filter-clear').onclick = function(){ box.__selected = []; wrap.classList.remove('open'); if(isRd && typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered(); else if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency(); schedule(); };
-    wrap.querySelector('.ssc-filter-ok').onclick = function(){ box.__selected = Array.from(temp); wrap.classList.remove('open'); if(isRd && typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered(); else if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency(); schedule(); };
-    draw();
-  }
-  function buildBoxFilters(){
-    ['rdBranchFilter','rdEmployeeFilter','rdTypeFilter','rdMonthFilter'].forEach(function(id){ buildBoxFilter(byId(id),'rd'); });
-    ['reTechnicianFilter','reTierFilter'].forEach(function(id){ buildBoxFilter(byId(id),'re'); });
-  }
-  var scheduled = 0;
-  function schedule(){ clearTimeout(scheduled); scheduled = setTimeout(function(){ buildNativeFilters(); buildBoxFilters(); }, 40); }
-
-  function wrapFunction(name){
-    var old = window[name];
-    if(typeof old !== 'function' || old.__sscUnifiedWrapped) return;
-    var wrapped = function(){ var r = old.apply(this, arguments); schedule(); return r; };
-    wrapped.__sscUnifiedWrapped = true;
-    window[name] = wrapped;
-  }
-  ['render','renderSky','renderProfit','renderCashTarget','renderReceivedDelivered','renderRepairEfficiency','refreshFilterLists','refreshSkyFilters','loadReceivedDelivered','loadRepairEfficiency'].forEach(wrapFunction);
-
-  var oldRdClear = window.rdClearFilters;
-  window.rdClearFilters = function(){ ['rdBranchFilter','rdEmployeeFilter','rdTypeFilter','rdMonthFilter'].forEach(function(id){ var b=byId(id); if(b) b.__selected=[]; }); var r = typeof oldRdClear === 'function' ? oldRdClear.apply(this, arguments) : undefined; if(typeof window.renderReceivedDelivered === 'function') window.renderReceivedDelivered(); schedule(); return r; };
-  var oldReClear = window.reClearFilters;
-  window.reClearFilters = function(){ ['reTechnicianFilter','reTierFilter'].forEach(function(id){ var b=byId(id); if(b) b.__selected=[]; }); var r = typeof oldReClear === 'function' ? oldReClear.apply(this, arguments) : undefined; if(typeof window.renderRepairEfficiency === 'function') window.renderRepairEfficiency(); schedule(); return r; };
-  var oldClearSky = window.clearSkyFilters;
-  window.clearSkyFilters = function(){ ['skyBranchFilter','skyQueueFilter','skyBrandFilter','skyStageFilter','skyJobTypeFilter','skyAgingDaysGroupFilter'].forEach(function(id){ var s=byId(id); if(s) setNative(s, []); }); var r = typeof oldClearSky === 'function' ? oldClearSky.apply(this, arguments) : undefined; schedule(); return r; };
-  var oldClearGspn = window.clearFilters;
-  window.clearFilters = function(){ ['branchFilter','techFilter','stageFilter','warrantyFilter','alertFilter','jobTypeFilter'].forEach(function(id){ var s=byId(id); if(s) setNative(s, []); }); var r = typeof oldClearGspn === 'function' ? oldClearGspn.apply(this, arguments) : undefined; schedule(); return r; };
-
-  document.addEventListener('click', function(){ document.querySelectorAll('.ssc-filter.open,.ssc-box-filter.open').forEach(function(x){ x.classList.remove('open'); }); });
-  window.addEventListener('resize', schedule, {passive:true});
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule); else schedule();
-  window.addEventListener('load', function(){ setTimeout(schedule, 200); setTimeout(schedule, 1200); });
-  try{ new MutationObserver(function(){ schedule(); }).observe(document.body, {childList:true, subtree:true}); }catch(e){}
 })();
