@@ -621,14 +621,14 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <h2><span>Data Validation Center</span><button type="button" class="security-btn" onclick="window.refreshDataValidation&&window.refreshDataValidation()">Validate Data</button></h2>
 <div class="security-table-wrap"><table class="security-table" id="securityDataValidationTable"><tbody><tr><td>Waiting for data validation...</td></tr></tbody></table></div>
 </section>
-<section class="security-section security-broadcast-section">
+<section class="security-section">
 <h2><span>Admin Broadcast Message & Forced Acknowledgement</span><button type="button" class="security-btn" onclick="window.refreshAcknowledgements&&window.refreshAcknowledgements()">Refresh Acknowledgement</button></h2>
 <div class="security-form-grid">
 <label>Message Title<input id="securityBroadcastTitle" placeholder="Required Action" /></label>
 <label>Message Body<textarea id="securityBroadcastBody" placeholder="Write a message that appears to users"></textarea></label>
 <label class="security-check"><input type="checkbox" id="securityBroadcastEnabled" /> Broadcast enabled</label>
-<label class="security-check"><input type="checkbox" id="securityBroadcastRequireAck" /> Force acknowledgement before users continue</label>
-<div class="security-form-actions"><button type="button" class="security-btn" onclick="window.saveBroadcastMessage&&window.saveBroadcastMessage()">Save / Publish Broadcast</button><button type="button" class="security-btn danger" onclick="window.clearBroadcastMessage&&window.clearBroadcastMessage()">Clear Broadcast</button><button type="button" class="security-btn" onclick="window.refreshAcknowledgements&&window.refreshAcknowledgements()">Refresh Status</button></div>
+<label class="security-check"><input type="checkbox" id="securityBroadcastRequireAck" /> Force acknowledgement</label>
+<div class="security-form-actions"><button type="button" class="security-btn" onclick="window.saveBroadcastMessage&&window.saveBroadcastMessage()">Save Broadcast</button><button type="button" class="security-btn danger" onclick="window.clearBroadcastMessage&&window.clearBroadcastMessage()">Clear Broadcast</button><span id="securityBroadcastMsg" class="um-msg" style="display:none"></span></div>
 </div>
 <div class="security-table-wrap"><table class="security-table" id="securityAcknowledgementTable"><tbody><tr><td>No acknowledgement data yet.</td></tr></tbody></table></div>
 </section>
