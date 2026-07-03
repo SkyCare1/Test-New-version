@@ -1,4 +1,3 @@
-function __sscClearOldVisualState(el){try{Array.from((el||document.body).classList||[]).forEach(function(c){if(/^theme-/.test(c)||c==='color-black')(el||document.body).classList.remove(c);}); if(el&&el.removeAttribute)el.removeAttribute('data-'+'page-color');}catch(e){}}
 /*
   Service Support Center — cleaned build
   Generated from dashboard(19).js.
@@ -1070,8 +1069,16 @@ window.debounce = window.debounce || function(fn, delay) {
     function loadLayoutPreferences() {
       const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
       document.documentElement.classList.remove("prepaint-menu-collapsed");
-      __sscClearOldVisualState(document.body);
+      try {
+        document.body.classList.remove("theme-pro", "theme-glass", "theme-fresh", "theme-volta", "color-black");
+        document.body.removeAttribute("data-page-color");
+        localStorage.removeItem("serviceEyeDesign");
+        localStorage.removeItem("gspnDesign");
+        localStorage.removeItem("skyDesign");
+        localStorage.removeItem("serviceEyePageColor_v2");
+      } catch(e) {}
       document.body.classList.toggle("menu-collapsed", collapsed);
+      if (window.sscApplySmartHomeTheme) window.sscApplySmartHomeTheme();
       requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
     }
 
@@ -1083,11 +1090,15 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function setDesign(design, save = true) {
-      __sscClearOldVisualState(document.body);
+      document.body.classList.remove("theme-pro", "theme-glass", "theme-fresh", "theme-volta", "color-black");
+      document.body.removeAttribute("data-page-color");
+      try { localStorage.removeItem("serviceEyeDesign"); localStorage.removeItem("gspnDesign"); localStorage.removeItem("skyDesign"); localStorage.removeItem("serviceEyePageColor_v2"); } catch(e) {}
+      if (window.sscApplySmartHomeTheme) window.sscApplySmartHomeTheme();
       if (save) {
         setTimeout(() => {
           if (currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows);
-        }, 50);
+          if (window.sscRefreshSmartCharts) window.sscRefreshSmartCharts();
+        }, 80);
       }
     }
 
@@ -2056,11 +2067,14 @@ const d = safeParseDate(out.Open_Date);
       }
 
       window.setDesign = function(design){
-        __sscClearOldVisualState(document.body);
+        document.body.classList.remove("theme-pro","theme-glass","theme-fresh","theme-volta","color-black");
+        document.body.removeAttribute("data-page-color");
+        try { localStorage.removeItem("serviceEyeDesign"); localStorage.removeItem("gspnDesign"); localStorage.removeItem("skyDesign"); localStorage.removeItem("serviceEyePageColor_v2"); } catch(e) {}
+        if(window.sscApplySmartHomeTheme) window.sscApplySmartHomeTheme();
       };
       window.applyTabDesignV19 = function(tab, design){
-        const page=document.getElementById(tab==="sky"?"skyPage":"gspnPage"); if(!page) return;
-        __sscClearOldVisualState(page);
+        var page=document.getElementById(tab==="sky"?"skyPage":"gspnPage"); if(!page) return;
+        page.classList.remove("theme-pro","theme-glass","theme-fresh","theme-volta","color-black");
       };
       const oldSwitch = window.switchTab;
       function updateSkyTimestampV19(){
@@ -2072,7 +2086,7 @@ const d = safeParseDate(out.Open_Date);
       const oldHandleSky = window.handleSkyFile;
       window.handleSkyFile = function(e){ localStorage.setItem("skyLastUploadTime", new Date().toLocaleString()); updateSkyTimestampV19(); return oldHandleSky ? oldHandleSky(e) : null; };
       document.addEventListener("DOMContentLoaded",()=>{
-        setTimeout(()=>{ refreshSkyFilterOptionsV19(); updateSkyTimestampV19(); window.renderSky && window._scheduleRender && window._scheduleRender('init-sky', window.renderSky, 100); },800);
+        setTimeout(()=>{ refreshSkyFilterOptionsV19(); updateSkyTimestampV19(); window.renderSky && window._scheduleRender && window._scheduleRender('init-sky', window.renderSky, 100); if(window.sscApplySmartHomeTheme) window.sscApplySmartHomeTheme(); },800);
       });
       document.addEventListener("click",()=>document.querySelectorAll(".excel-filter-container.open").forEach(x=>x.classList.remove("open")));
     })();
@@ -3053,21 +3067,10 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
       select.insertAdjacentElement('afterend', wrap);
     }
     wrap.className = 'excel-filter-container sky-filter-widget';
-    // Keep the active SKY filter widget visible even if older deprecated global
-    // filter styles are still present in the stylesheet.
-    wrap.style.setProperty('display', 'block', 'important');
-    wrap.style.setProperty('visibility', 'visible', 'important');
-    wrap.style.setProperty('pointer-events', 'auto', 'important');
-    wrap.style.setProperty('opacity', '1', 'important');
     if(!wrap.querySelector('.excel-filter-button') || !wrap.querySelector('.excel-filter-panel') || !wrap.querySelector('.excel-filter-list')){
       wrap.innerHTML = '<button type="button" class="excel-filter-button"></button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search" autocomplete="off"><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div>';
     }
-    const options = Array.from(select.options).map(function(o, idx){
-      const optionValue = clean(o.value);
-      let optionText = clean(o.textContent || o.label || o.innerText || optionValue);
-      if ((idx === 0 || optionValue === cfg.all || optionValue === '') && (!optionText || /^(all|select all|\(select all\))/i.test(optionText))) optionText = '(Select All)';
-      return { value: optionValue, text: optionText, selected: o.selected };
-    });
+    const options = Array.from(select.options).map(function(o){ return {value:o.value, text:o.textContent, selected:o.selected}; });
     const selectedValues = cfg.multi ? options.filter(function(o){ return o.selected && o.value !== cfg.all && o.value !== ''; }).map(function(o){ return o.text; }) : [];
     const current = cfg.multi ? (selectedValues.length ? (selectedValues.length > 2 ? selectedValues.length + ' selected' : selectedValues.join(', ')) : '(Select All)') : (select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : '(Select All)');
     const btn = wrap.querySelector('.excel-filter-button'), panel = wrap.querySelector('.excel-filter-panel'), list = wrap.querySelector('.excel-filter-list'), search = wrap.querySelector('.excel-filter-search');
@@ -3078,12 +3081,7 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
     function draw(){
       const q = clean(search.value).toLowerCase();
       const visible = options.filter(function(o){ return !q || clean(o.text).toLowerCase().includes(q); });
-      list.innerHTML = visible.map(function(o){
-        const optionValue = clean(o.value);
-        let optionText = clean(o.text) || optionValue || '(Select All)';
-        if ((optionValue === cfg.all || optionValue === '') && (!clean(o.text) || /all/i.test(clean(o.text)))) optionText = '(Select All)';
-        return '<label class="excel-filter-option sky-filter-option" title="'+esc(optionText)+'"><input class="sky-filter-checkbox" type="checkbox" data-value="'+esc(o.value)+'" '+(temp.has(o.value)?'checked':'')+'> <span class="sky-filter-option-text">'+esc(optionText)+'</span></label>';
-      }).join('');
+      list.innerHTML = visible.map(function(o){ return '<label class="excel-filter-option"><input type="checkbox" data-value="'+esc(o.value)+'" '+(temp.has(o.value)?'checked':'')+'> <span>'+esc(o.text)+'</span></label>'; }).join('');
       list.querySelectorAll('input').forEach(function(cb){ cb.onchange = function(){
         const v = cb.getAttribute('data-value');
         if(cfg.multi){
@@ -3681,7 +3679,7 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
   const cashPalette=['#ff4d2e','#0f4c81','#217346','#f59e0b','#7030a0','#00a6a6','#d63d22','#64748b','#38b000','#2b78b8','#9b5cf6','#f97316'];
   const cashValuePlugin={id:'cashValuePlugin',afterDatasetsDraw(chart){const {ctx}=chart;ctx.save();ctx.textAlign='center';ctx.textBaseline='bottom';ctx.font='bold 11px Manrope, Arial';chart.data.datasets.forEach((ds,di)=>{const meta=chart.getDatasetMeta(di);if(meta.hidden)return;meta.data.forEach((bar,i)=>{const val=ds.data[i];if(val==null)return;const text=String(val).includes('.')?Number(val).toFixed(1):money(val);const x=bar.x,y=bar.y-4;ctx.fillStyle='rgba(255,255,255,.94)';const w=ctx.measureText(text).width+10;ctx.fillRect(x-w/2,y-15,w,16);ctx.strokeStyle='rgba(255,255,255,.24)';ctx.strokeRect(x-w/2,y-15,w,16);ctx.fillStyle='#111827';ctx.fillText(text,x,y-1);});});ctx.restore();}};
 
-  function chartTextColor(){ return '#f8fafc'; }
+  function chartTextColor(){ try{return getComputedStyle(document.documentElement).getPropertyValue('--chart-text').trim() || '#111827';}catch(e){return '#111827';} }
   const cashChartAreaPlugin={id:'cashChartAreaPlugin',beforeDraw(chart){const {ctx,chartArea}=chart;if(!chartArea)return;ctx.save();ctx.fillStyle='#111827';ctx.fillRect(chartArea.left,chartArea.top,chartArea.right-chartArea.left,chartArea.bottom-chartArea.top);ctx.restore();}};
   const cashVarianceLabelPlugin={id:'cashVarianceLabelPlugin',afterDatasetsDraw(chart){ if(chart.canvas.id!=='cashMonthlyVarianceChart') return; const {ctx}=chart; const cash=chart.data.datasets[0], target=chart.data.datasets[1]; if(!cash||!target)return; ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='bold 13px Manrope, Arial'; const m0=chart.getDatasetMeta(0), m1=chart.getDatasetMeta(1); target.data.forEach((t,i)=>{ if(!t) return; const c=Number(cash.data[i]||0); const pct=((c-t)/t*100); const bar=m1.data[i]||m0.data[i]; if(!bar) return; const text=(pct>=0?'+':'')+pct.toFixed(0)+'%'; const x=bar.x; const y=bar.y + Math.max(18, (bar.base-bar.y)*0.42); const w=ctx.measureText(text).width+12; ctx.fillStyle=pct>=0?'rgba(22,163,74,.95)':'rgba(220,38,38,.95)'; ctx.fillRect(x-w/2,y-10,w,20); ctx.strokeStyle='rgba(255,255,255,.65)'; ctx.strokeRect(x-w/2,y-10,w,20); ctx.fillStyle='#ffffff'; ctx.fillText(text,x,y+1); }); ctx.restore(); }};
   function drawBar(id, labels, datasets){
@@ -6560,6 +6558,20 @@ window.addEventListener('beforeunload', function() {
       if(el){ side.insertBefore(el, bottom || null); }
     });
     if(bottom && bottom.parentNode===side) side.appendChild(bottom);
+    var colorBlock=$('v25ColorOptions');
+    if(colorBlock && colorBlock.parentElement && bottom && colorBlock.parentElement.parentNode===side) bottom.appendChild(colorBlock.parentElement);
+    var design=side.querySelector('.design-options');
+    if(design && bottom){
+      Array.from(bottom.querySelectorAll('.codex-sidebar-design-wrap')).forEach(function(w){
+        if(!w.querySelector('.design-options') && !(w.textContent||'').trim()) w.remove();
+      });
+      var wrap=bottom.querySelector('.codex-sidebar-design-wrap');
+      if(!wrap){ wrap=document.createElement('div'); wrap.className='codex-sidebar-design-wrap'; bottom.appendChild(wrap); }
+      var title=design.previousElementSibling;
+      if(title && title.classList && title.classList.contains('side-section-title') && title.parentNode!==wrap) wrap.insertBefore(title, wrap.firstChild);
+      if(design.parentNode!==wrap) wrap.appendChild(design);
+      bottom.appendChild(wrap);
+    }
     var refresh=$('codexGithubRefreshBtn'); if(refresh && bottom && refresh.parentNode!==bottom) bottom.insertBefore(refresh,bottom.firstChild);
     if(document.body.classList.contains('firebase-admin') || document.documentElement.classList.contains('admin')){
       side.querySelectorAll('[data-pb-tab="dashboard"],[data-pb-tab="preBooking"]').forEach(function(el){ el.classList.remove('fb-tab-denied'); el.style.display=''; el.style.visibility=''; });
@@ -6888,39 +6900,83 @@ window.addEventListener('beforeunload', function() {
    Shared UX
    ============================================================ */
 
-/* --- smart-home-single-theme-chart-readability --- */
+/* --- codex-page-color-full-page-final-script --- */
 
 (function(){
-  function brandPalette(){
-    var brand=(document.documentElement.getAttribute('data-brand')||localStorage.getItem('sscSmartHomeBrand')||'purple');
-    var map={
-      purple:['#7c3aed','#a855f7','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'],
-      blue:['#2563eb','#60a5fa','#7c3aed','#14b8a6','#f97316','#16a34a','#eab308'],
-      teal:['#14b8a6','#2dd4bf','#2563eb','#7c3aed','#f97316','#16a34a','#eab308'],
-      orange:['#ff8800','#f97316','#f59e0b','#2563eb','#14b8a6','#7c3aed','#16a34a'],
-      pink:['#e05bb7','#ec4899','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a']
-    };
-    return map[brand]||map.purple;
+  function isDarkMode(){
+    if(!document.body) return false;
+    var pageColor = document.body.dataset.pageColor || '';
+    return pageColor === 'dark' || (!pageColor && document.body.classList.contains('theme-glass'));
   }
   function applyChartReadability(){
     try{
-      var dark=document.documentElement.classList.contains('dark');
+      var dark = isDarkMode();
       if(window.Chart){
-        Chart.defaults.color = dark ? '#f8fafc' : '#111827';
-        Chart.defaults.borderColor = dark ? 'rgba(248,250,252,.18)' : 'rgba(17,24,39,.12)';
+        Chart.defaults.color = dark ? '#e5e7eb' : '#111827';
+        Chart.defaults.borderColor = dark ? 'rgba(148,163,184,.22)' : 'rgba(17,24,39,.16)';
       }
-      window.COLORS = brandPalette().slice();
+      if(window.dashboardCharts){
+        Object.keys(window.dashboardCharts).forEach(function(id){
+          var ch = window.dashboardCharts[id];
+          if(!ch || !ch.options) return;
+          if(ch.options.plugins && ch.options.plugins.legend && ch.options.plugins.legend.labels){
+            ch.options.plugins.legend.labels.color = dark ? '#e5e7eb' : '#111827';
+          }
+          if(ch.options.scales){
+            Object.keys(ch.options.scales).forEach(function(k){
+              var sc = ch.options.scales[k];
+              if(sc.ticks) sc.ticks.color = dark ? '#e5e7eb' : '#111827';
+              if(sc.grid) sc.grid.color = dark ? 'rgba(148,163,184,.22)' : 'rgba(17,24,39,.16)';
+            });
+          }
+          try{ ch.update('none'); }catch(e){}
+        });
+      }
     }catch(e){}
   }
-  function boot(){
-    if(document.body){
-      __sscClearOldVisualState(document.body);
-    }
-    applyChartReadability();
+  function applyStoredColor(){
+    try{
+      var key = localStorage.getItem('serviceEyePageColor_v2') || document.body.dataset.pageColor || 'coral';
+      document.body.dataset.pageColor = key;
+      if(key !== 'dark'){
+        document.body.classList.remove('theme-glass','color-black');
+        try{ if(localStorage.getItem('serviceEyeColor_sky') === 'black') localStorage.removeItem('serviceEyeColor_sky'); }catch(_e){}
+        try{ if(localStorage.getItem('serviceEyeColor_gspn') === 'black') localStorage.removeItem('serviceEyeColor_gspn'); }catch(_e){}
+      }
+      document.querySelectorAll('.codex-color-swatch').forEach(function(btn){ btn.classList.toggle('active', btn.dataset.color === key); });
+      applyChartReadability();
+    }catch(e){}
   }
+  function ensureDarkSwatch(){
+    var box = document.querySelector('#codexPageColorPanel .codex-page-color-swatches');
+    if(!box || box.querySelector('[data-color="dark"]')) return;
+    var btn=document.createElement('button');
+    btn.type='button'; btn.className='codex-color-swatch'; btn.dataset.color='dark'; btn.title='Dark Mode'; btn.style.background='linear-gradient(135deg,#020617,#334155)';
+    btn.onclick=function(){ if(window.setPageColor) window.setPageColor('dark'); else { localStorage.setItem('serviceEyePageColor_v2','dark'); document.body.dataset.pageColor='dark'; applyStoredColor(); } };
+    box.appendChild(btn);
+    applyStoredColor();
+  }
+  function patchSetPageColor(){
+    if(!window.setPageColor || window.setPageColor.__fullPageColorPatch) return;
+    var original = window.setPageColor;
+    window.setPageColor = function(color){
+      var key = color || 'coral';
+      try { localStorage.setItem('serviceEyePageColor_v2', key); } catch(e) {}
+      document.body.dataset.pageColor = key;
+      var r = original.apply(this, arguments);
+      applyStoredColor();
+      setTimeout(applyChartReadability, 80);
+      return r;
+    };
+    window.setPageColor.__fullPageColorPatch = true;
+  }
+  function boot(){ patchSetPageColor(); ensureDarkSwatch(); applyStoredColor(); setTimeout(applyChartReadability, 120); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  window.addEventListener('load', function(){ setTimeout(boot,120); });
+  window.addEventListener('load', function(){ setTimeout(boot,300); setTimeout(boot,1000); });
+  try{ new MutationObserver(function(){ clearTimeout(window.__pageColorFullTimer); window.__pageColorFullTimer=setTimeout(boot,120); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
 })();
+
+
 
 /* ============================================================
    Cash & Target
@@ -7025,14 +7081,14 @@ window.addEventListener('beforeunload', function() {
 
 (function(){
   'use strict';
-  var SMART_HOME_BRANDS={
-    purple:{label:'Purple',color:'#7c3aed',chart:['#7c3aed','#a855f7','#2563eb','#14b8a6','#f97316','#16a34a','#eab308']},
-    blue:{label:'Blue',color:'#2563eb',chart:['#2563eb','#60a5fa','#7c3aed','#14b8a6','#f97316','#16a34a','#eab308']},
-    teal:{label:'Teal',color:'#14b8a6',chart:['#14b8a6','#2dd4bf','#2563eb','#7c3aed','#f97316','#16a34a','#eab308']},
-    orange:{label:'Orange',color:'#ff8800',chart:['#ff8800','#f97316','#f59e0b','#2563eb','#14b8a6','#7c3aed','#16a34a']},
-    pink:{label:'Pink',color:'#e05bb7',chart:['#e05bb7','#ec4899','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a']}
+  var COLORS={
+    coral:{label:'Coral',value:'#ff4d2e',chart:['#ff4d2e','#0f172a','#f97316','#14b8a6','#7c3aed','#16a34a','#eab308']},
+    blue:{label:'Blue',value:'#2563eb',chart:['#2563eb','#0f766e','#f97316','#7c3aed','#16a34a','#e11d48','#0891b2']},
+    green:{label:'Green',value:'#16a34a',chart:['#16a34a','#2563eb','#f97316','#7c3aed','#0f766e','#e11d48','#eab308']},
+    purple:{label:'Purple',value:'#7c3aed',chart:['#7c3aed','#2563eb','#16a34a','#f97316','#0f766e','#e11d48','#eab308']},
+    teal:{label:'Teal',value:'#0f766e',chart:['#0f766e','#2563eb','#f97316','#7c3aed','#16a34a','#e11d48','#eab308']},
+    dark:{label:'Dark Mode',value:'#020617',chart:['#60a5fa','#34d399','#f97316','#a78bfa','#22d3ee','#facc15','#fb7185']}
   };
-  var SMART_HOME_DEFAULT_BRAND='purple';
   var GITHUB_TABS=['gspn','sky','profit','preBooking','returnCases','receivedDelivered','dashboard'];
   var refreshInFlight=false;
   function $(id){return document.getElementById(id);}
@@ -7052,66 +7108,31 @@ window.addEventListener('beforeunload', function() {
     return bottom;
   }
   function ensureTooltips(){document.querySelectorAll('.side-tab').forEach(function(el){var label=el.querySelector('.side-label');var t=text(label?label.textContent:el.textContent);if(t){el.dataset.tip=t;el.title=t;}});}
-  function safeBrand(value){return SMART_HOME_BRANDS[value]?value:SMART_HOME_DEFAULT_BRAND;}
-  function currentBrand(){return safeBrand(localStorage.getItem('sscSmartHomeBrand')||localStorage.getItem('brand')||SMART_HOME_DEFAULT_BRAND);}
-  function currentMode(){return (localStorage.getItem('sscSmartHomeTheme')||localStorage.getItem('theme')||'light')==='dark'?'dark':'light';}
-  function chartText(){return document.documentElement.classList.contains('dark')?'#f8fafc':'#111827';}
-  function chartBorder(){return document.documentElement.classList.contains('dark')?'rgba(248,250,252,.18)':'rgba(17,24,39,.12)';}
-  function applySmartHomeTheme(brand,mode,save){
+  function applyColor(color){
+    var key=COLORS[color]?color:'coral', cfg=COLORS[key];
+    try{localStorage.setItem('serviceEyePageColor_v2',key);}catch(e){}
+    document.body.dataset.pageColor=key;
+    document.documentElement.style.setProperty('--codex-accent',cfg.value);
     try{
-      brand=safeBrand(brand||currentBrand());
-      mode=(mode||currentMode())==='dark'?'dark':'light';
-      var root=document.documentElement;
-      root.setAttribute('data-brand',brand);
-      root.classList.toggle('dark',mode==='dark');
-      root.style.setProperty('--codex-accent',SMART_HOME_BRANDS[brand].color);
-      if(save!==false){
-        localStorage.setItem('sscSmartHomeBrand',brand);
-        localStorage.setItem('brand',brand);
-        localStorage.setItem('sscSmartHomeTheme',mode);
-        localStorage.setItem('theme',mode);
-      }
-      window.COLORS=SMART_HOME_BRANDS[brand].chart.slice();
-      if(window.Chart){Chart.defaults.color=chartText();Chart.defaults.borderColor=chartBorder();}
-      syncThemePanel();
+      if(window.Chart){var d=key==='dark';Chart.defaults.color=d?'#e5e7eb':'#111827';Chart.defaults.borderColor=d?'rgba(255,255,255,.18)':'rgba(17,24,39,.16)';}
+      window.COLORS=cfg.chart.slice();
     }catch(e){}
+    document.querySelectorAll('.codex-color-swatch').forEach(function(btn){btn.classList.toggle('active',btn.dataset.color===key);});
+    if(window.setPageColor&&window.setPageColor!==applyColor){try{window.setPageColor(key);}catch(e){}}
+    rerenderVisible();
   }
-  function syncThemePanel(){
-    try{
-      var brand=currentBrand(), mode=currentMode();
-      document.querySelectorAll('.ssc-theme-color').forEach(function(btn){btn.classList.toggle('active',btn.dataset.brand===brand);btn.setAttribute('aria-pressed',btn.dataset.brand===brand?'true':'false');});
-      var label=$('sscThemeModeLabel'), icon=$('sscThemeModeIcon'), toggle=$('sscThemeToggle');
-      if(label) label.textContent=mode==='dark'?'Dark':'Light';
-      if(icon) icon.innerHTML=mode==='dark'?'☾':'☼';
-      if(toggle) toggle.setAttribute('aria-pressed',mode==='dark'?'true':'false');
-    }catch(e){}
-  }
-  function ensureThemeControls(){
+  function ensurePalette(){
     var bottom=getBottom(); if(!bottom) return;
-    var card=$('sscThemeControls');
-    if(!card){
-      card=document.createElement('div');
-      card.id='sscThemeControls';
-      card.className='ssc-theme-controls';
-      card.innerHTML='<button type="button" id="sscThemeToggle" class="ssc-theme-toggle" aria-label="Toggle light or dark mode"><span>Theme</span><span class="ssc-theme-toggle-state"><b id="sscThemeModeLabel">Light</b><span id="sscThemeModeIcon" class="ssc-theme-icon">☼</span></span></button><div class="ssc-theme-title">Color theme</div><div class="ssc-theme-colors" role="group" aria-label="Color theme"><button type="button" class="ssc-theme-color purple" data-brand="purple" aria-label="Purple color theme"></button><button type="button" class="ssc-theme-color blue" data-brand="blue" aria-label="Blue color theme"></button><button type="button" class="ssc-theme-color teal" data-brand="teal" aria-label="Teal color theme"></button><button type="button" class="ssc-theme-color orange" data-brand="orange" aria-label="Orange color theme"></button><button type="button" class="ssc-theme-color pink" data-brand="pink" aria-label="Pink color theme"></button></div>';
-      var refresh=$('codexGithubRefreshBtn');
-      if(refresh&&refresh.parentNode===bottom) bottom.insertBefore(card,refresh); else bottom.appendChild(card);
-    }
-    var toggle=$('sscThemeToggle');
-    if(toggle&&!toggle.dataset.bound){
-      toggle.dataset.bound='1';
-      toggle.onclick=function(){var next=currentMode()==='dark'?'light':'dark';applySmartHomeTheme(currentBrand(),next,true);rerenderVisible();};
-    }
-    card.querySelectorAll('.ssc-theme-color').forEach(function(btn){
-      if(!btn.dataset.bound){
-        btn.dataset.bound='1';
-        btn.onclick=function(){applySmartHomeTheme(safeBrand(btn.dataset.brand),currentMode(),true);rerenderVisible();};
-      }
+    var panel=$('codexPageColorPanel');
+    if(!panel){panel=document.createElement('div');panel.id='codexPageColorPanel';panel.className='codex-page-color-panel';panel.innerHTML='<div class="codex-page-color-title">Page Color</div><div class="codex-page-color-swatches"></div>';bottom.insertBefore(panel,bottom.firstChild);}
+    var swatches=panel.querySelector('.codex-page-color-swatches'); if(!swatches) return;
+    Object.keys(COLORS).forEach(function(key){
+      var btn=swatches.querySelector('[data-color="'+key+'"]');
+      if(!btn){btn=document.createElement('button');btn.type='button';btn.className='codex-color-swatch';btn.dataset.color=key;btn.title=COLORS[key].label;btn.style.background= key==='dark'?'linear-gradient(135deg,#020617,#334155)':COLORS[key].value;swatches.appendChild(btn);}
+      btn.onclick=function(){applyColor(key);};
     });
-    syncThemePanel();
+    applyColor(localStorage.getItem('serviceEyePageColor_v2')||document.body.dataset.pageColor||'coral');
   }
-  function ensurePalette(){ applySmartHomeTheme(currentBrand(),currentMode(),false); }
-  window.setSmartHomeTheme=function(brand,mode){applySmartHomeTheme(brand,mode,true);rerenderVisible();};
   async function runGithubRefresh(tab,manual){
     var t=tab||visibleTab();
     if(t==='cashTarget'){ if(manual) alert('Cash & Target is manual only. Use the manual update/upload controls.'); return false; }
@@ -7148,10 +7169,10 @@ window.addEventListener('beforeunload', function() {
       if(t==='dashboard'&&typeof window.renderDashboardTables==='function') window.renderDashboardTables();
     }catch(e){}},80);
   }
-  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();ensureThemeControls();}
+  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
   window.addEventListener('load',function(){setTimeout(boot,500);});
-  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();ensureThemeControls();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
+  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
 })();
 
 
@@ -7213,18 +7234,16 @@ window.addEventListener('beforeunload', function() {
 /* --- codex-chart-readable-colors-final-script --- */
 
 (function(){
-  function textColor(){return document.documentElement.classList.contains('dark')?'#f8fafc':'#111827';}
-  function gridColor(){return document.documentElement.classList.contains('dark')?'rgba(248,250,252,.18)':'rgba(17,24,39,.16)';}
   function tuneChart(chart){
     if(!chart || !chart.options) return;
     try {
-      var c=textColor(), g=gridColor(), opts = chart.options;
-      if(opts.plugins && opts.plugins.legend && opts.plugins.legend.labels) opts.plugins.legend.labels.color = c;
+      var opts = chart.options;
+      if(opts.plugins && opts.plugins.legend && opts.plugins.legend.labels) opts.plugins.legend.labels.color = '#111827';
       if(opts.scales){
         Object.keys(opts.scales).forEach(function(k){
           var s=opts.scales[k];
-          if(s.ticks) s.ticks.color = c;
-          if(s.grid) s.grid.color = g;
+          if(s.ticks) s.ticks.color = '#111827';
+          if(s.grid) s.grid.color = 'rgba(17,24,39,.16)';
         });
       }
       chart.update('none');
@@ -7232,12 +7251,13 @@ window.addEventListener('beforeunload', function() {
   }
   function tuneAll(){
     try {
-      if(window.Chart){ Chart.defaults.color = textColor(); Chart.defaults.borderColor = gridColor(); }
+      if(window.Chart){ Chart.defaults.color = '#111827'; Chart.defaults.borderColor = 'rgba(17,24,39,.16)'; }
       if(window.dashboardCharts) Object.keys(window.dashboardCharts).forEach(function(id){ tuneChart(window.dashboardCharts[id]); });
     } catch(e) {}
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', tuneAll); else tuneAll();
   window.addEventListener('load', function(){ setTimeout(tuneAll, 400); });
+  document.addEventListener('click', function(e){ if(e.target && e.target.closest && e.target.closest('.codex-color-swatch')) setTimeout(tuneAll, 220); }, true);
 })();
 
 
@@ -7767,3 +7787,163 @@ window.addEventListener('beforeunload', function() {
   }, {passive:false});
 })();
 
+
+
+/* --- ssc-smart-home-theme-controls-deep-v1 --- */
+(function(){
+  'use strict';
+  var BRAND_META = {
+    purple:{label:'Purple', color:'#7c3aed', chart:['#8b5cf6','#6366f1','#14b8a6','#f97316','#ec4899','#22c55e','#facc15']},
+    blue:{label:'Blue', color:'#2563eb', chart:['#2563eb','#38bdf8','#14b8a6','#f97316','#8b5cf6','#22c55e','#facc15']},
+    teal:{label:'Teal', color:'#14b8a6', chart:['#14b8a6','#06b6d4','#22c55e','#2563eb','#f97316','#8b5cf6','#facc15']},
+    orange:{label:'Orange', color:'#f97316', chart:['#f97316','#f59e0b','#ef4444','#2563eb','#14b8a6','#8b5cf6','#22c55e']},
+    pink:{label:'Pink', color:'#db5aa6', chart:['#db5aa6','#ec4899','#8b5cf6','#2563eb','#14b8a6','#f97316','#22c55e']}
+  };
+  function $(id){ return document.getElementById(id); }
+  function cleanLegacy(){
+    try{
+      document.body.classList.remove('theme-pro','theme-glass','theme-fresh','theme-volta','color-black');
+      document.body.removeAttribute('data-page-color');
+      localStorage.removeItem('serviceEyeDesign');
+      localStorage.removeItem('gspnDesign');
+      localStorage.removeItem('skyDesign');
+      localStorage.removeItem('serviceEyePageColor_v2');
+    }catch(e){}
+    document.querySelectorAll('#codexPageColorPanel,.codex-page-color-panel,.design-options,#v25ColorOptions').forEach(function(el){ el.remove(); });
+  }
+  function currentBrand(){
+    var b = 'purple';
+    try{ b = localStorage.getItem('sscSmartHomeBrand') || localStorage.getItem('brand') || document.documentElement.getAttribute('data-brand') || 'purple'; }catch(e){}
+    return BRAND_META[b] ? b : 'purple';
+  }
+  function currentTheme(){
+    var t = 'light';
+    try{ t = localStorage.getItem('sscSmartHomeTheme') || localStorage.getItem('theme') || (document.documentElement.classList.contains('dark')?'dark':'light'); }catch(e){}
+    return t === 'dark' ? 'dark' : 'light';
+  }
+  function cssVar(name, fallback){
+    try{
+      var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return v || fallback;
+    }catch(e){ return fallback; }
+  }
+  function tuneChart(chart){
+    if(!chart || !chart.options) return;
+    var dark = document.documentElement.classList.contains('dark');
+    var text = cssVar('--chart-text', dark ? '#f8fafc' : '#111827');
+    var muted = cssVar('--chart-muted', dark ? '#a3a3a3' : '#64748b');
+    var grid = cssVar('--chart-grid', dark ? 'rgba(255,255,255,.12)' : 'rgba(17,24,39,.12)');
+    try{
+      chart.options.color = text;
+      chart.options.borderColor = grid;
+      chart.options.plugins = chart.options.plugins || {};
+      chart.options.plugins.legend = chart.options.plugins.legend || {};
+      chart.options.plugins.legend.labels = chart.options.plugins.legend.labels || {};
+      chart.options.plugins.legend.labels.color = text;
+      if(chart.options.plugins.title) chart.options.plugins.title.color = text;
+      if(chart.options.plugins.subtitle) chart.options.plugins.subtitle.color = muted;
+      chart.options.plugins.tooltip = chart.options.plugins.tooltip || {};
+      chart.options.plugins.tooltip.titleColor = '#ffffff';
+      chart.options.plugins.tooltip.bodyColor = '#ffffff';
+      chart.options.plugins.tooltip.footerColor = '#ffffff';
+      chart.options.plugins.tooltip.backgroundColor = dark ? 'rgba(15,15,15,.96)' : 'rgba(17,24,39,.94)';
+      if(chart.options.scales){
+        Object.keys(chart.options.scales).forEach(function(k){
+          var s = chart.options.scales[k] || {};
+          s.ticks = s.ticks || {};
+          s.ticks.color = text;
+          s.ticks.font = Object.assign({weight:'700'}, s.ticks.font || {});
+          s.grid = s.grid || {};
+          s.grid.color = grid;
+          s.border = s.border || {};
+          s.border.color = grid;
+          if(s.title){ s.title.color = text; }
+          chart.options.scales[k] = s;
+        });
+      }
+      chart.update('none');
+    }catch(e){}
+  }
+  function refreshCharts(){
+    var dark = document.documentElement.classList.contains('dark');
+    var brand = currentBrand();
+    var text = cssVar('--chart-text', dark ? '#f8fafc' : '#111827');
+    var grid = cssVar('--chart-grid', dark ? 'rgba(255,255,255,.12)' : 'rgba(17,24,39,.12)');
+    try{
+      window.COLORS = BRAND_META[brand].chart.slice();
+      if(window.Chart){
+        Chart.defaults.color = text;
+        Chart.defaults.borderColor = grid;
+        if(Chart.defaults.plugins && Chart.defaults.plugins.legend && Chart.defaults.plugins.legend.labels){ Chart.defaults.plugins.legend.labels.color = text; }
+        var seen = new Set();
+        if(Chart.instances){
+          Object.keys(Chart.instances).forEach(function(id){ var ch = Chart.instances[id]; if(ch && !seen.has(ch)){ seen.add(ch); tuneChart(ch); } });
+        }
+        document.querySelectorAll('canvas').forEach(function(c){
+          try{ var ch = Chart.getChart ? Chart.getChart(c) : null; if(ch && !seen.has(ch)){ seen.add(ch); tuneChart(ch); } }catch(e){}
+        });
+      }
+    }catch(e){}
+  }
+  function updateControlUI(){
+    var panel = $('sscSmartThemeControls');
+    if(!panel) return;
+    var theme = currentTheme(), brand = currentBrand();
+    var label = panel.querySelector('[data-theme-label]');
+    var icon = panel.querySelector('[data-theme-icon]');
+    if(label) label.textContent = theme === 'dark' ? 'Dark' : 'Light';
+    if(icon) icon.textContent = theme === 'dark' ? '☾' : '☼';
+    panel.querySelectorAll('[data-ssc-brand]').forEach(function(btn){ btn.classList.toggle('active', btn.getAttribute('data-ssc-brand') === brand); });
+  }
+  function apply(theme, brand){
+    cleanLegacy();
+    brand = BRAND_META[brand] ? brand : currentBrand();
+    theme = theme === 'dark' ? 'dark' : (theme === 'light' ? 'light' : currentTheme());
+    try{
+      document.documentElement.setAttribute('data-brand', brand);
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.body.classList.toggle('ssc-dark', theme === 'dark');
+      localStorage.setItem('sscSmartHomeBrand', brand);
+      localStorage.setItem('brand', brand);
+      localStorage.setItem('sscSmartHomeTheme', theme);
+      localStorage.setItem('theme', theme);
+    }catch(e){}
+    updateControlUI();
+    refreshCharts();
+    setTimeout(refreshCharts, 80);
+    setTimeout(refreshCharts, 260);
+  }
+  function ensureControls(){
+    var side = $('sideMenu') || document.querySelector('.side-menu');
+    if(!side) return;
+    cleanLegacy();
+    var panel = $('sscSmartThemeControls');
+    if(!panel){
+      panel = document.createElement('div');
+      panel.id = 'sscSmartThemeControls';
+      panel.className = 'ssc-smart-theme-controls';
+      panel.innerHTML = '<button type="button" class="ssc-theme-toggle" title="Toggle light / dark mode"><span>Theme</span><span class="ssc-theme-state"><b data-theme-label>Light</b><i data-theme-icon>☼</i></span></button><div class="ssc-color-theme"><div class="ssc-color-title">Color theme</div><div class="ssc-color-swatches"></div></div>';
+      var anchor = side.querySelector('.side-section-title') || side.children[1] || null;
+      if(anchor) side.insertBefore(panel, anchor); else side.appendChild(panel);
+      panel.querySelector('.ssc-theme-toggle').addEventListener('click', function(){ apply(currentTheme()==='dark'?'light':'dark', currentBrand()); });
+      var sw = panel.querySelector('.ssc-color-swatches');
+      Object.keys(BRAND_META).forEach(function(key){
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'ssc-brand-swatch'; b.setAttribute('data-ssc-brand', key); b.title = BRAND_META[key].label; b.setAttribute('aria-label', 'Use '+BRAND_META[key].label+' color theme'); b.style.background = BRAND_META[key].color;
+        b.addEventListener('click', function(){ apply(currentTheme(), key); });
+        sw.appendChild(b);
+      });
+    }
+    updateControlUI();
+  }
+  window.sscApplySmartHomeTheme = function(theme, brand){ apply(theme || currentTheme(), brand || currentBrand()); };
+  window.sscRefreshSmartCharts = refreshCharts;
+  function boot(){ ensureControls(); apply(currentTheme(), currentBrand()); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  window.addEventListener('load', function(){ setTimeout(boot, 100); setTimeout(refreshCharts, 650); setTimeout(refreshCharts, 1600); });
+  document.addEventListener('click', function(){ setTimeout(refreshCharts, 180); }, true);
+  document.addEventListener('change', function(){ setTimeout(refreshCharts, 180); }, true);
+  document.addEventListener('input', function(e){ if(e && e.target && e.target.closest && e.target.closest('.filters,.chart-card')) setTimeout(refreshCharts, 180); }, true);
+  try{ new MutationObserver(function(){ ensureControls(); setTimeout(refreshCharts, 120); }).observe(document.body || document.documentElement, {childList:true, subtree:true}); }catch(e){}
+})();
+/* --- end-ssc-smart-home-theme-controls-deep-v1 --- */
