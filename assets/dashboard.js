@@ -4630,14 +4630,35 @@ void(boot, 2500);
     if(window.__githubImmediateFirstLoadDone) return;
     window.__githubImmediateFirstLoadDone=true;
     const active=(localStorage.getItem('serviceEyeActiveTab')||'gspn');
-    let ordered=AUTO_TABS.slice();
-    if(AUTO_TABS.includes(active)) ordered=[active].concat(AUTO_TABS.filter(t=>t!==active));
-    const run=async function(){
-      for(const t of ordered){ await loadKnownGithubTab(t,true); }
-      await loadKnownGithubTab('dashboard',false);
-      setTimeout(checkGithubUpdates,2000);
+    const isSignedIn=function(){
+      return !!(window.currentFirebaseUserProfile || (document.body && document.body.classList.contains('firebase-authenticated')));
     };
-    setTimeout(run,120);
+    const wait=function(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});};
+    const run=async function(){
+      if(!isSignedIn()){
+        window.__githubImmediateFirstLoadDone=false;
+        return;
+      }
+      try{
+        if(AUTO_TABS.includes(active)) await loadKnownGithubTab(active,true);
+        else if(active==='dashboard') await loadKnownGithubTab('dashboard',false);
+      }catch(e){}
+      setTimeout(checkGithubUpdates,2500);
+
+      /* Low-priority background preload: one tab at a time, with long yields.
+         This keeps the page responsive and avoids Chrome's Page Unresponsive dialog. */
+      if(window.__sscDisableBackgroundPreload === true) return;
+      const rest=AUTO_TABS.filter(function(t){return t!==active;});
+      setTimeout(async function(){
+        for(const t of rest){
+          if(!isSignedIn() || document.hidden) break;
+          await wait(1800);
+          try{ await loadKnownGithubTab(t,false); }catch(e){}
+        }
+        try{ await loadKnownGithubTab('dashboard',false); }catch(e){}
+      }, 9000);
+    };
+    setTimeout(run,650);
   }
   window.__finalGithubLoad=loadGithub;
   window.loadKnownGithubTab=loadKnownGithubTab;
@@ -4914,16 +4935,41 @@ window.addEventListener('beforeunload', function() {
    The auth script below awaits this before calling initFirebase().      */
 (function(){
   var resolve;
-  window.__firebaseReady = new Promise(function(res){ resolve = res; });
+  var done = false;
   var loaded = 0;
-  function onLoad(){ if(++loaded === 4) resolve(); }
-  ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js','firebase-database-compat.js'].forEach(function(file){
+  var failed = [];
+  var files = ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js','firebase-database-compat.js'];
+  window.__firebaseLoadStatus = { loaded: 0, failed: failed, completed: false };
+  window.__firebaseReady = new Promise(function(res){ resolve = res; });
+  function finish(){
+    if(done) return;
+    done = true;
+    window.__firebaseLoadStatus.loaded = loaded;
+    window.__firebaseLoadStatus.completed = true;
+    resolve(window.__firebaseLoadStatus);
+  }
+  try{
+    if(window.firebase && firebase.apps !== undefined && firebase.auth && firebase.firestore && firebase.database){
+      loaded = files.length;
+      finish();
+      return;
+    }
+  }catch(_alreadyLoaded){}
+  function mark(file, ok){
+    loaded++;
+    window.__firebaseLoadStatus.loaded = loaded;
+    if(!ok) failed.push(file);
+    if(loaded >= files.length) finish();
+  }
+  files.forEach(function(file){
     var s = document.createElement('script');
     s.src = 'https://www.gstatic.com/firebasejs/10.12.5/' + file;
     s.async = true;
-    s.onload = onLoad;
+    s.onload = function(){ mark(file, true); };
+    s.onerror = function(){ mark(file, false); };
     document.head.appendChild(s);
   });
+  setTimeout(finish, 7000);
 })();
 
 
@@ -5978,7 +6024,11 @@ window.addEventListener('beforeunload', function() {
   window.addEventListener('beforeunload', function(){ try{ if(presenceUserRef) presenceUserRef.remove(); }catch(e){} });
 
   /* ── Auth state ── */
-  function ensureLoginOverlay(){ document.body.classList.add('firebase-auth-pending'); }
+  function ensureLoginOverlay(){
+    /* Do not show a blocking spinner. Default to the login overlay so the page never appears frozen. */
+    document.body.classList.remove('firebase-auth-pending');
+    if(!document.body.classList.contains('firebase-authenticated')) document.body.classList.add('firebase-auth-required');
+  }
 
   function setAuthenticated(profile){
     currentProfile = profile; clearOldLocalAuth(); saveCache(profile);
@@ -6392,8 +6442,13 @@ window.addEventListener('beforeunload', function() {
   /* ── boot ── */
   async function boot(){
     clearOldLocalAuth(); ensureLoginOverlay();
-    /* Wait for Firebase SDKs (loaded async) */
-    try{ await (window.__firebaseReady || Promise.resolve()); }catch(_e){}
+    /* Wait for Firebase SDKs, but never leave the page stuck on the loading spinner. */
+    try{
+      await Promise.race([
+        window.__firebaseReady || Promise.resolve(),
+        new Promise(function(resolve){ setTimeout(resolve, 8000); })
+      ]);
+    }catch(_e){}
     try{ initFirebase(); }catch(e){ showLoginError(e.message||String(e)); setUnauthenticated(); return; }
     hookNavigation(); hookLogin(); hookUserManagement();
 
@@ -6812,8 +6867,8 @@ window.addEventListener('beforeunload', function() {
   window.rcDownloadModelTable=function(){writeXlsx((window.rcModelRows||[]).map(function(x){return {'Model':x.model,'Count cases':x.count};}),'By Model','Return_Cases_by_Model.xlsx');};
   var oldSwitch=window.switchTab; window.switchTab=function(tab){ensureSide(); ensurePage(); if(tab==='returnCases'){ if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') return window.sscShowTab('returnCases'); ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','securityPage','preBookingPage','returnCasesPage','receivedDeliveredPage','dashboardPage','repairEfficiencyPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id==='returnCasesPage'?'block':'none');}); document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active',keyOf(el)==='returnCases');}); try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){} if(!rcRows.length)loadReturnCases(false); else render(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true); return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; if(typeof window.sscApplyPermissions==='function') setTimeout(function(){window.sscApplyPermissions(true);},0); return r;};
   window.loadReturnCases=loadReturnCases; window.renderReturnCases=render;
-  function boot(){ensureSide(); ensurePage(); normalizeNotice(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='returnCases')window.switchTab('returnCases'); else setTimeout(function(){ if(!rcRows.length) loadReturnCases(false); },900);}
-  document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,850); setInterval(function(){try{loadReturnCases(false);}catch(e){}},3*60*60*1000);});
+  function boot(){ensureSide(); ensurePage(); normalizeNotice(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='returnCases')window.switchTab('returnCases');}
+  document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,850); setInterval(function(){try{var t=localStorage.getItem('serviceEyeActiveTab')||''; if(t==='returnCases')loadReturnCases(false);}catch(e){}},3*60*60*1000);});
 })();
 
 
@@ -7606,7 +7661,7 @@ window.addEventListener('beforeunload', function() {
   function patchUserManagementCheckboxes(){var addBox=$('umAllowedTabsBox'); if(addBox&&!addBox.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')) addBox.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'">'+TITLE+'</label>'); document.querySelectorAll('#umUsersTable .um-row-tabs').forEach(function(box){if(!box.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')){var edit=box.querySelector('.um-tabs-edit')||box; edit.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'" disabled>'+TITLE+'</label>');}});}
   function installUserManagementPatch(){if(window.__repairEfficiencyUmPatchInstalled)return; window.__repairEfficiencyUmPatchInstalled=true; document.addEventListener('click',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('um-edit'))setTimeout(patchUserManagementCheckboxes,60);},true); try{new MutationObserver(function(){patchUserManagementCheckboxes(); enforceRepairPermission();}).observe(document.body,{childList:true,subtree:true});}catch(e){} setInterval(function(){patchUserManagementCheckboxes(); enforceRepairPermission();},3000);}
   function installRefreshPatch(){if(window.__repairEfficiencyRefreshPatchInstalled)return; window.__repairEfficiencyRefreshPatchInstalled=true; document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('#sidebarRefreshDataBtn'):null; if(!btn)return; var active=''; try{active=localStorage.getItem('serviceEyeActiveTab')||'';}catch(ex){} var pg=$(PAGE); if(active===KEY||(pg&&pg.style.display!=='none')){e.preventDefault(); e.stopImmediatePropagation(); window.loadRepairEfficiency(true);}},true);}
-  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installRefreshPatch(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); else {window.loadRepairEfficiency(false);} if(!refreshTimer)refreshTimer=setInterval(function(){if(document.visibilityState!=='hidden')window.loadRepairEfficiency(false);},60*60*1000);}
+  function boot(){makePage(); ensureSide(); patchUserManagementCheckboxes(); installRefreshPatch(); installUserManagementPatch(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a===KEY)show(); if(!refreshTimer)refreshTimer=setInterval(function(){var t='';try{t=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(document.visibilityState!=='hidden' && t===KEY)window.loadRepairEfficiency(false);},60*60*1000);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
 })();
 
