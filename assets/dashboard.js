@@ -6891,13 +6891,25 @@ window.addEventListener('beforeunload', function() {
 /* --- smart-home-single-theme-chart-readability --- */
 
 (function(){
+  function brandPalette(){
+    var brand=(document.documentElement.getAttribute('data-brand')||localStorage.getItem('sscSmartHomeBrand')||'purple');
+    var map={
+      purple:['#7c3aed','#a855f7','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'],
+      blue:['#2563eb','#60a5fa','#7c3aed','#14b8a6','#f97316','#16a34a','#eab308'],
+      teal:['#14b8a6','#2dd4bf','#2563eb','#7c3aed','#f97316','#16a34a','#eab308'],
+      orange:['#ff8800','#f97316','#f59e0b','#2563eb','#14b8a6','#7c3aed','#16a34a'],
+      pink:['#e05bb7','#ec4899','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a']
+    };
+    return map[brand]||map.purple;
+  }
   function applyChartReadability(){
     try{
+      var dark=document.documentElement.classList.contains('dark');
       if(window.Chart){
-        Chart.defaults.color = '#111827';
-        Chart.defaults.borderColor = 'rgba(17,24,39,.12)';
+        Chart.defaults.color = dark ? '#f8fafc' : '#111827';
+        Chart.defaults.borderColor = dark ? 'rgba(248,250,252,.18)' : 'rgba(17,24,39,.12)';
       }
-      window.COLORS = ['#a855f7','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'];
+      window.COLORS = brandPalette().slice();
     }catch(e){}
   }
   function boot(){
@@ -7013,7 +7025,14 @@ window.addEventListener('beforeunload', function() {
 
 (function(){
   'use strict';
-  var SMART_HOME_CHART_COLORS=['#a855f7','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'];
+  var SMART_HOME_BRANDS={
+    purple:{label:'Purple',color:'#7c3aed',chart:['#7c3aed','#a855f7','#2563eb','#14b8a6','#f97316','#16a34a','#eab308']},
+    blue:{label:'Blue',color:'#2563eb',chart:['#2563eb','#60a5fa','#7c3aed','#14b8a6','#f97316','#16a34a','#eab308']},
+    teal:{label:'Teal',color:'#14b8a6',chart:['#14b8a6','#2dd4bf','#2563eb','#7c3aed','#f97316','#16a34a','#eab308']},
+    orange:{label:'Orange',color:'#ff8800',chart:['#ff8800','#f97316','#f59e0b','#2563eb','#14b8a6','#7c3aed','#16a34a']},
+    pink:{label:'Pink',color:'#e05bb7',chart:['#e05bb7','#ec4899','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a']}
+  };
+  var SMART_HOME_DEFAULT_BRAND='purple';
   var GITHUB_TABS=['gspn','sky','profit','preBooking','returnCases','receivedDelivered','dashboard'];
   var refreshInFlight=false;
   function $(id){return document.getElementById(id);}
@@ -7033,15 +7052,66 @@ window.addEventListener('beforeunload', function() {
     return bottom;
   }
   function ensureTooltips(){document.querySelectorAll('.side-tab').forEach(function(el){var label=el.querySelector('.side-label');var t=text(label?label.textContent:el.textContent);if(t){el.dataset.tip=t;el.title=t;}});}
-  function applyColor(color){
+  function safeBrand(value){return SMART_HOME_BRANDS[value]?value:SMART_HOME_DEFAULT_BRAND;}
+  function currentBrand(){return safeBrand(localStorage.getItem('sscSmartHomeBrand')||localStorage.getItem('brand')||SMART_HOME_DEFAULT_BRAND);}
+  function currentMode(){return (localStorage.getItem('sscSmartHomeTheme')||localStorage.getItem('theme')||'light')==='dark'?'dark':'light';}
+  function chartText(){return document.documentElement.classList.contains('dark')?'#f8fafc':'#111827';}
+  function chartBorder(){return document.documentElement.classList.contains('dark')?'rgba(248,250,252,.18)':'rgba(17,24,39,.12)';}
+  function applySmartHomeTheme(brand,mode,save){
     try{
-      __sscClearOldVisualState(document.body);
-      document.documentElement.style.setProperty('--codex-accent','oklch(0.61 0.24 300)');
-      if(window.Chart){Chart.defaults.color='#111827';Chart.defaults.borderColor='rgba(17,24,39,.12)';}
-      window.COLORS=SMART_HOME_CHART_COLORS.slice();
+      brand=safeBrand(brand||currentBrand());
+      mode=(mode||currentMode())==='dark'?'dark':'light';
+      var root=document.documentElement;
+      root.setAttribute('data-brand',brand);
+      root.classList.toggle('dark',mode==='dark');
+      root.style.setProperty('--codex-accent',SMART_HOME_BRANDS[brand].color);
+      if(save!==false){
+        localStorage.setItem('sscSmartHomeBrand',brand);
+        localStorage.setItem('brand',brand);
+        localStorage.setItem('sscSmartHomeTheme',mode);
+        localStorage.setItem('theme',mode);
+      }
+      window.COLORS=SMART_HOME_BRANDS[brand].chart.slice();
+      if(window.Chart){Chart.defaults.color=chartText();Chart.defaults.borderColor=chartBorder();}
+      syncThemePanel();
     }catch(e){}
   }
-  function ensurePalette(){ applyColor('smart-home'); }
+  function syncThemePanel(){
+    try{
+      var brand=currentBrand(), mode=currentMode();
+      document.querySelectorAll('.ssc-theme-color').forEach(function(btn){btn.classList.toggle('active',btn.dataset.brand===brand);btn.setAttribute('aria-pressed',btn.dataset.brand===brand?'true':'false');});
+      var label=$('sscThemeModeLabel'), icon=$('sscThemeModeIcon'), toggle=$('sscThemeToggle');
+      if(label) label.textContent=mode==='dark'?'Dark':'Light';
+      if(icon) icon.innerHTML=mode==='dark'?'☾':'☼';
+      if(toggle) toggle.setAttribute('aria-pressed',mode==='dark'?'true':'false');
+    }catch(e){}
+  }
+  function ensureThemeControls(){
+    var bottom=getBottom(); if(!bottom) return;
+    var card=$('sscThemeControls');
+    if(!card){
+      card=document.createElement('div');
+      card.id='sscThemeControls';
+      card.className='ssc-theme-controls';
+      card.innerHTML='<button type="button" id="sscThemeToggle" class="ssc-theme-toggle" aria-label="Toggle light or dark mode"><span>Theme</span><span class="ssc-theme-toggle-state"><b id="sscThemeModeLabel">Light</b><span id="sscThemeModeIcon" class="ssc-theme-icon">☼</span></span></button><div class="ssc-theme-title">Color theme</div><div class="ssc-theme-colors" role="group" aria-label="Color theme"><button type="button" class="ssc-theme-color purple" data-brand="purple" aria-label="Purple color theme"></button><button type="button" class="ssc-theme-color blue" data-brand="blue" aria-label="Blue color theme"></button><button type="button" class="ssc-theme-color teal" data-brand="teal" aria-label="Teal color theme"></button><button type="button" class="ssc-theme-color orange" data-brand="orange" aria-label="Orange color theme"></button><button type="button" class="ssc-theme-color pink" data-brand="pink" aria-label="Pink color theme"></button></div>';
+      var refresh=$('codexGithubRefreshBtn');
+      if(refresh&&refresh.parentNode===bottom) bottom.insertBefore(card,refresh); else bottom.appendChild(card);
+    }
+    var toggle=$('sscThemeToggle');
+    if(toggle&&!toggle.dataset.bound){
+      toggle.dataset.bound='1';
+      toggle.onclick=function(){var next=currentMode()==='dark'?'light':'dark';applySmartHomeTheme(currentBrand(),next,true);rerenderVisible();};
+    }
+    card.querySelectorAll('.ssc-theme-color').forEach(function(btn){
+      if(!btn.dataset.bound){
+        btn.dataset.bound='1';
+        btn.onclick=function(){applySmartHomeTheme(safeBrand(btn.dataset.brand),currentMode(),true);rerenderVisible();};
+      }
+    });
+    syncThemePanel();
+  }
+  function ensurePalette(){ applySmartHomeTheme(currentBrand(),currentMode(),false); }
+  window.setSmartHomeTheme=function(brand,mode){applySmartHomeTheme(brand,mode,true);rerenderVisible();};
   async function runGithubRefresh(tab,manual){
     var t=tab||visibleTab();
     if(t==='cashTarget'){ if(manual) alert('Cash & Target is manual only. Use the manual update/upload controls.'); return false; }
@@ -7078,10 +7148,10 @@ window.addEventListener('beforeunload', function() {
       if(t==='dashboard'&&typeof window.renderDashboardTables==='function') window.renderDashboardTables();
     }catch(e){}},80);
   }
-  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();}
+  function boot(){ensureTooltips();ensurePalette();ensureRefreshButton();ensureThemeControls();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
   window.addEventListener('load',function(){setTimeout(boot,500);});
-  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
+  try{var timer=null;new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(function(){ensureTooltips();ensurePalette();ensureRefreshButton();ensureThemeControls();},160);}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}catch(e){}
 })();
 
 
@@ -7143,16 +7213,18 @@ window.addEventListener('beforeunload', function() {
 /* --- codex-chart-readable-colors-final-script --- */
 
 (function(){
+  function textColor(){return document.documentElement.classList.contains('dark')?'#f8fafc':'#111827';}
+  function gridColor(){return document.documentElement.classList.contains('dark')?'rgba(248,250,252,.18)':'rgba(17,24,39,.16)';}
   function tuneChart(chart){
     if(!chart || !chart.options) return;
     try {
-      var opts = chart.options;
-      if(opts.plugins && opts.plugins.legend && opts.plugins.legend.labels) opts.plugins.legend.labels.color = '#111827';
+      var c=textColor(), g=gridColor(), opts = chart.options;
+      if(opts.plugins && opts.plugins.legend && opts.plugins.legend.labels) opts.plugins.legend.labels.color = c;
       if(opts.scales){
         Object.keys(opts.scales).forEach(function(k){
           var s=opts.scales[k];
-          if(s.ticks) s.ticks.color = '#111827';
-          if(s.grid) s.grid.color = 'rgba(17,24,39,.16)';
+          if(s.ticks) s.ticks.color = c;
+          if(s.grid) s.grid.color = g;
         });
       }
       chart.update('none');
@@ -7160,7 +7232,7 @@ window.addEventListener('beforeunload', function() {
   }
   function tuneAll(){
     try {
-      if(window.Chart){ Chart.defaults.color = '#111827'; Chart.defaults.borderColor = 'rgba(17,24,39,.16)'; }
+      if(window.Chart){ Chart.defaults.color = textColor(); Chart.defaults.borderColor = gridColor(); }
       if(window.dashboardCharts) Object.keys(window.dashboardCharts).forEach(function(id){ tuneChart(window.dashboardCharts[id]); });
     } catch(e) {}
   }

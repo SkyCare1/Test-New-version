@@ -380,3 +380,47 @@ tr:hover td{background:color-mix(in oklab,var(--brand) 5%,transparent)!important
   .charts-grid,.grid{grid-template-columns:1fr!important}
 }
 @media (max-width:560px){.cards,.security-cards{grid-template-columns:1fr!important}header h1{font-size:20px!important}}
+/* ============================================================
+   Smart Home theme controls and dark mode
+   ============================================================ */
+html[data-brand="purple"]{--brand:oklch(0.61 0.24 300);--brand-rgb:124,58,237}
+html[data-brand="blue"]{--brand:oklch(0.65 0.17 240);--brand-rgb:37,99,235}
+html[data-brand="teal"]{--brand:oklch(0.70 0.12 180);--brand-rgb:20,184,166}
+html[data-brand="orange"]{--brand:oklch(0.73 0.19 60);--brand-rgb:255,136,0}
+html[data-brand="pink"]{--brand:oklch(0.71 0.28 360);--brand-rgb:224,91,183}
+html.dark{
+  --background:oklch(0.145 0 0);
+  --foreground:oklch(0.985 0 0);
+  --card:oklch(0.205 0 0);
+  --card-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.269 0 0);
+  --muted-foreground:oklch(0.708 0 0);
+  --border:oklch(0.28 0 0);
+  --input:oklch(0.34 0 0);
+  --ring:oklch(0.439 0 0);
+  --bg:var(--background);
+  --text:var(--foreground);
+  --brand-2:color-mix(in oklab,var(--brand) 80%,black 20%);
+}
+html:not(.dark){--brand-2:color-mix(in oklab,var(--brand) 85%,white 15%)}
+html.dark body::before{background:var(--background)!important}
+html.dark .page-shell,html.dark main,html.dark .security-wrap{background:var(--muted)!important;color:var(--foreground)!important}
+html.dark header{background:color-mix(in oklab,var(--background) 84%,transparent)!important;border-bottom-color:var(--border)!important;color:var(--foreground)!important}
+html.dark .filters,html.dark .service-v2-update-notice,html.dark .upload-progress-wrap,html.dark .card,html.dark section,html.dark .chart-card,html.dark .security-section,html.dark .security-table-card,html.dark .um-panel{background:var(--card)!important;color:var(--foreground)!important;border-color:var(--border)!important}
+html.dark section h2,html.dark .chart-card h2,html.dark .security-section h2{background:var(--card)!important;color:var(--foreground)!important;border-color:var(--border)!important}
+html.dark select,html.dark input,html.dark textarea,html.dark .excel-filter-button,html.dark .gspn-v50-btn,html.dark .rd-filter-btn{background:var(--background)!important;color:var(--foreground)!important;border-color:var(--input)!important;color-scheme:dark}
+html.dark table,html.dark th,html.dark td{background:var(--card)!important;color:var(--foreground)!important;border-color:var(--border)!important}
+html.dark th,html.dark .security-table th,html.dark .um-table th{background:var(--muted)!important;color:var(--foreground)!important}
+html.dark tr:hover td{background:color-mix(in oklab,var(--brand) 16%,transparent)!important}
+html.dark .logo-box{background:var(--card)!important;border-color:var(--border)!important}
+html.dark .btn-light,html.dark .rd-btn.light{background:var(--background)!important;color:var(--foreground)!important;border-color:var(--border)!important}
+html.dark .excel-filter-panel,html.dark .gspn-v50-panel,html.dark .rd-filter-menu{background:var(--card)!important;color:var(--foreground)!important;border-color:var(--border)!important}
+html.dark .excel-filter-list,html.dark .gspn-v50-list,html.dark .rd-filter-list{background:var(--card)!important}
+html.dark .excel-filter-option:hover,html.dark .gspn-v50-option:hover,html.dark .rd-filter-option:hover{background:var(--muted)!important}
+.ssc-theme-controls{width:100%!important;border-radius:18px!important;background:rgba(255,255,255,.96)!important;color:#111827!important;padding:10px!important;box-shadow:0 1px 3px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.06)!important;display:flex!important;flex-direction:column!important;gap:9px!important}
+.ssc-theme-toggle{width:100%!important;min-height:42px!important;border:1px solid rgba(17,24,39,.10)!important;border-radius:9px!important;background:#fff!important;color:#111827!important;padding:8px 10px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;font-size:15px!important;font-weight:500!important;cursor:pointer!important;box-shadow:none!important}
+.ssc-theme-toggle:hover{background:#f8fafc!important}.ssc-theme-toggle-state{display:inline-flex!important;align-items:center!important;gap:8px!important;color:#111827!important}.ssc-theme-toggle-state b{font-weight:500!important}.ssc-theme-icon{font-size:20px!important;line-height:1!important;color:#111827!important}.ssc-theme-title{font-size:12px!important;line-height:1!important;color:#737373!important;font-weight:500!important;margin-top:1px!important}.ssc-theme-colors{display:flex!important;align-items:center!important;gap:9px!important}.ssc-theme-color{width:28px!important;height:28px!important;border-radius:9999px!important;border:0!important;padding:0!important;cursor:pointer!important;box-shadow:none!important;outline:none!important;position:relative!important;transition:box-shadow .16s ease,transform .16s ease!important}.ssc-theme-color:hover{transform:translateY(-1px)!important}.ssc-theme-color.active{box-shadow:0 0 0 2px #9ca3af!important}.ssc-theme-color.purple{background:hsl(262,83%,58%)!important}.ssc-theme-color.blue{background:hsl(220,90%,56%)!important}.ssc-theme-color.teal{background:hsl(174,63%,45%)!important}.ssc-theme-color.orange{background:hsl(32,100%,50%)!important}.ssc-theme-color.pink{background:hsl(320,72%,66%)!important}
+html.dark .ssc-theme-controls{background:var(--card)!important;color:var(--foreground)!important;border:1px solid var(--border)!important}html.dark .ssc-theme-toggle{background:var(--background)!important;color:var(--foreground)!important;border-color:var(--border)!important}html.dark .ssc-theme-toggle-state,html.dark .ssc-theme-icon{color:var(--foreground)!important}html.dark .ssc-theme-title{color:var(--muted-foreground)!important}html.dark .ssc-theme-color.active{box-shadow:0 0 0 2px var(--foreground)!important}
+body.menu-collapsed #codexSidebarBottom .ssc-theme-controls{display:none!important}
+@media(max-width:900px){.ssc-theme-controls{max-width:280px!important}}
+
