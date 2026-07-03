@@ -25,16 +25,17 @@
 })();
 </script>
 <style id="critical-first-paint-css">
-html{font-family:Inter,Arial,Helvetica,sans-serif;--sidebar-width:208px;--sidebar-collapsed:80px;--initial-sidebar-width:208px;background:#fff;color:#111}
+html{font-family:Inter,Arial,Helvetica,sans-serif;--sidebar-width:208px;--sidebar-collapsed:80px;--initial-sidebar-width:208px;--pre-bg:#f3efe6;--pre-fg:#111827;background:var(--pre-bg);color:var(--pre-fg)}
+html.dark{--pre-bg:#0b0b0c;--pre-fg:#f5f5f4;color-scheme:dark}
 html.prepaint-menu-collapsed{--initial-sidebar-width:80px}
-body{margin:0;background:#fff;color:#111827}
+body{margin:0;background:var(--pre-bg);color:var(--pre-fg)}
 body.no-first-transition *,body.no-first-transition *::before,body.no-first-transition *::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
 .side-menu{width:var(--initial-sidebar-width)!important;min-width:var(--initial-sidebar-width)!important;max-width:var(--initial-sidebar-width)!important;height:calc(100vh - 24px);position:fixed;left:12px;top:12px;bottom:12px;overflow:hidden;contain:layout paint style}
 .page-shell{margin-left:calc(var(--initial-sidebar-width) + 12px)!important;min-height:calc(100vh - 24px)}
 html.prepaint-menu-collapsed .side-label{opacity:0!important;width:0!important;max-width:0!important;overflow:hidden!important;white-space:nowrap!important;pointer-events:none!important}
 .side-label{display:inline-block;min-width:0;white-space:nowrap}
-img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-visibility:auto;contain-intrinsic-size:1px 420px}:focus-visible{outline:3px solid oklch(0.61 0.24 300);outline-offset:2px}
-</style><link href="assets/dashboard.min.css?v=20260703-smart-home-theme-controls" rel="stylesheet"/>
+img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-visibility:auto;contain-intrinsic-size:1px 420px}:focus-visible{outline:3px solid var(--brand,#7c3aed);outline-offset:2px}
+</style><link href="assets/dashboard.min.css?v=20260703-smart-home-theme-deep-dark-v1" rel="stylesheet"/>
 <link crossorigin="" href="https://www.gstatic.com" rel="preconnect"/>
 <link crossorigin="" href="https://firestore.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://identitytoolkit.googleapis.com" rel="preconnect"/>
@@ -57,10 +58,17 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <script id="apply-initial-body-state">
 (function(){
   try {
+    var root = document.documentElement;
     var b = document.body;
     var collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
+    var allowedBrands = { purple:1, blue:1, teal:1, orange:1, pink:1 };
+    var brand = localStorage.getItem("sscSmartHomeBrand") || localStorage.getItem("brand") || "purple";
+    var theme = localStorage.getItem("sscSmartHomeTheme") || localStorage.getItem("theme") || "light";
+    if(!allowedBrands[brand]) brand = "purple";
+    root.setAttribute("data-brand", brand);
+    root.classList.toggle("dark", theme === "dark");
     Array.from(b.classList).forEach(function(c){ if(/^theme-/.test(c)||c==='color-black') b.classList.remove(c); });
-    b.removeAttribute("data-"+"page-color");
+    b.removeAttribute("data-page-color");
     b.classList.toggle("menu-collapsed", collapsed);
     requestAnimationFrame(function(){ requestAnimationFrame(function(){ b.classList.remove("no-first-transition"); }); });
   } catch(e) {}
@@ -680,5 +688,5 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 </div>
 </main>
 </div>
-<script defer="" src="assets/dashboard.js?v=20260703-smart-home-theme-controls"></script></body>
+<script defer="" src="assets/dashboard.js?v=20260703-smart-home-theme-deep-dark-v1"></script></body>
 </html>
