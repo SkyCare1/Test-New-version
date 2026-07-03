@@ -1,3 +1,4 @@
+function __sscClearOldVisualState(el){try{Array.from((el||document.body).classList||[]).forEach(function(c){if(/^theme-/.test(c)||c==='color-black')(el||document.body).classList.remove(c);}); if(el&&el.removeAttribute)el.removeAttribute('data-'+'page-color');}catch(e){}}
 /*
   Service Support Center — cleaned build
   Generated from dashboard(19).js.
@@ -343,7 +344,7 @@ window.debounce = window.debounce || function(fn, delay) {
 
     function wireEvents() {
       document.getElementById("fileInput").addEventListener("change", handleFile);
-      ["branchFilter", "techFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
+      ["branchFilter", "stageFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener("change", () => onMultiFilterChange(id));
@@ -409,22 +410,27 @@ window.debounce = window.debounce || function(fn, delay) {
 
     async function setRows(rawRows) {
       allRows = rawRows.map(normalizeRow).filter(r => r["SO NO#"] || r.Job_Number || r["GSPN Serial"]);
+      window.allRows = allRows;
       resetFiltersToAll();
       refreshFilterLists();
       render();
       await saveRowsToBrowser(rawRows);
     }
+    window.setRows = setRows;
+    window.setGspnRows = setRows;
 
     async function loadSavedRows() {
       try {
         const rawRows = await loadRowsFromBrowser();
         if (rawRows && Array.isArray(rawRows)) {
           allRows = rawRows.map(normalizeRow).filter(r => r["SO NO#"] || r.Job_Number || r["GSPN Serial"]);
+          window.allRows = allRows;
           setUploadProgress(100, "Saved data loaded", `${allRows.length} saved rows were restored from this browser.`, true);
         }
       } catch (err) {
 
         allRows = [];
+        window.allRows = allRows;
       }
       refreshFilterLists();
     }
@@ -656,6 +662,7 @@ window.debounce = window.debounce || function(fn, delay) {
       refreshFilterLists();
       const rows = getFilteredRows();
       currentFilteredRows = rows;
+      window.currentFilteredRows = currentFilteredRows;
 
       const total = rows.length;
       const openRows = rows.filter(r => r.StatusFinal === "Open");
@@ -698,13 +705,14 @@ window.debounce = window.debounce || function(fn, delay) {
           Number(a.DaysRemaining || 999) - Number(b.DaysRemaining || 999) ||
           Number(b.AgingDays || 0) - Number(a.AgingDays || 0)
         );
+      window.currentUrgentRows = currentUrgentRows;
+      window.currentFilteredRows = currentFilteredRows;
 
       renderTable("casesTable", rows.slice(0, 800), ALL_CASE_COLUMNS, true);
       renderTable("urgentTable", currentUrgentRows.slice(0, 100), URGENT_COLUMNS, true);
       renderPerformance("bestBranches", rows, "GSPN_Branch", true);
       renderPerformance("worstBranches", rows, "GSPN_Branch", false);
       renderPerformance("bestTechs", rows, "GSPN Assigned_To", true, true);
-      renderPerformance("worstTechs", rows, "GSPN Assigned_To", false, true);
     }
 
     function updateCharts(rows) {
@@ -772,11 +780,8 @@ window.debounce = window.debounce || function(fn, delay) {
           responsive: true,
           maintainAspectRatio: false,
           indexAxis: horizontal ? "y" : "x",
-          onClick: (event, elements) => {
-            if (!onLabelClick || !elements.length) return;
-            const index = elements[0].index;
-            onLabelClick(labels[index]);
-          },
+          // Static chart: display data only. Card/table filters remain the only navigation controls.
+          onClick: null,
           plugins: {
             legend: { display: isDoughnut, position: "bottom" },
             tooltip: {
@@ -880,6 +885,8 @@ window.debounce = window.debounce || function(fn, delay) {
 
     function renderTable(tableId, rows, columns, badges = false, htmlKeys = []) {
       const table = document.getElementById(tableId);
+      if (!table) return;
+      rows = Array.isArray(rows) ? rows : [];
       if (!rows.length) {
         table.innerHTML = `<tr><td>No data available</td></tr>`;
         return;
@@ -908,27 +915,26 @@ window.debounce = window.debounce || function(fn, delay) {
       refreshingFilters = true;
 
       const selectedBranches = getSelectedValues("branchFilter");
-      const selectedTechs = getSelectedValues("techFilter");
+      const selectedStages = getSelectedValues("stageFilter");
       const selectedWarranties = getSelectedValues("warrantyFilter");
       const selectedAlerts = getSelectedValues("alertFilter");
       const selectedJobTypes = getSelectedValues("jobTypeFilter");
 
       fillSelect("branchFilter", unique(allRows.map(r => r.GSPN_Branch)), selectedBranches, "All Branches");
-      const branchScope = selectedBranches.length && !selectedBranches.includes(ALL_VALUE)
-        ? allRows.filter(r => selectedBranches.includes(r.GSPN_Branch))
-        : allRows;
-      fillSelect("techFilter", unique(branchScope.map(r => r["GSPN Assigned_To"]).filter(v => v && v !== "-")), selectedTechs, "All Technicians");
+      fillSelect("stageFilter", unique(allRows.map(r => r.Stage || r.GSPN_Stage || r["GSPN Stage"])), selectedStages, "All Stages");
       fillSelect("warrantyFilter", unique(allRows.map(r => r["GSPN Warranty"])), selectedWarranties, "All GSPN Warranty");
       if (document.getElementById("jobTypeFilter")) {
         fillSelect("jobTypeFilter", unique(allRows.map(r => r["GSPN JobType"] || r.JobType || r["Job Type"])), selectedJobTypes, "All GSPN JobType");
       }
       fillSelect("alertFilter", ["Failed - LTP", "Failed - TAT", "Fix Today", "Watch", "On Track", "Review", "Excluded", "Done"], selectedAlerts, "All KPI Alerts");
+      if (typeof window.refreshGspnFilterWidgets === "function") window.refreshGspnFilterWidgets();
 
       refreshingFilters = false;
     }
 
     function fillSelect(id, values, selectedValues = [], allText = "All") {
       const select = document.getElementById(id);
+      if (!select) return;
       const safeSelected = selectedValues.length ? selectedValues : [ALL_VALUE];
       const options = [`<option value="${ALL_VALUE}" ${safeSelected.includes(ALL_VALUE) ? "selected" : ""}>${escapeHtml(allText)}</option>`]
         .concat(values.map(v => {
@@ -941,7 +947,8 @@ window.debounce = window.debounce || function(fn, delay) {
     function onMultiFilterChange(id) {
       if (refreshingFilters) return;
       const select = document.getElementById(id);
-      const selectedRaw = Array.from(select.selectedOptions).map(o => o.value);
+      if (!select) return;
+      const selectedRaw = Array.from(select.selectedOptions || []).map(o => o.value);
 
       if (selectedRaw.length === 0) {
         Array.from(select.options).forEach(o => o.selected = o.value === ALL_VALUE);
@@ -954,7 +961,7 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function resetFiltersToAll() {
-      ["branchFilter", "techFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
+      ["branchFilter", "stageFilter", "warrantyFilter", "alertFilter", "jobTypeFilter"].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         Array.from(el.options).forEach(o => o.selected = o.value === ALL_VALUE);
@@ -968,14 +975,16 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function getSelectedValues(id) {
-      const values = Array.from(document.getElementById(id).selectedOptions).map(o => o.value);
+      const el = document.getElementById(id);
+      if (!el) return [];
+      const values = Array.from(el.selectedOptions || []).map(o => o.value);
       if (!values.length || values.includes(ALL_VALUE)) return [];
       return values;
     }
 
     function getFilteredRows() {
       const branches = getSelectedValues("branchFilter");
-      const techs = getSelectedValues("techFilter");
+      const stages = getSelectedValues("stageFilter");
       const warranties = getSelectedValues("warrantyFilter");
       const alerts = getSelectedValues("alertFilter");
       const jobTypes = getSelectedValues("jobTypeFilter");
@@ -985,7 +994,7 @@ window.debounce = window.debounce || function(fn, delay) {
 
       return allRows.filter(r => {
         if (branches.length && !branches.includes(r.GSPN_Branch)) return false;
-        if (techs.length && !techs.includes(r["GSPN Assigned_To"])) return false;
+        if (stages.length && !stages.includes(String(r.Stage || r.GSPN_Stage || r["GSPN Stage"] || "").trim())) return false;
         if (warranties.length && !warranties.includes(r["GSPN Warranty"])) return false;
         if (alerts.length && !alerts.includes(r.KPIAlert)) return false;
         if (jobTypes.length && !jobTypes.includes(String(r["GSPN JobType"] || r.JobType || r["Job Type"] || "").trim())) return false;
@@ -1060,10 +1069,9 @@ window.debounce = window.debounce || function(fn, delay) {
 
     function loadLayoutPreferences() {
       const collapsed = localStorage.getItem("serviceEyeMenuCollapsed") === "1";
-      const design = localStorage.getItem("serviceEyeDesign") || "volta";
       document.documentElement.classList.remove("prepaint-menu-collapsed");
+      __sscClearOldVisualState(document.body);
       document.body.classList.toggle("menu-collapsed", collapsed);
-      setDesign(design, false);
       requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-first-transition")));
     }
 
@@ -1075,10 +1083,7 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function setDesign(design, save = true) {
-      const safeDesign = ["pro", "glass", "fresh", "volta"].includes(design) ? design : "volta";
-      document.body.classList.remove("theme-pro", "theme-glass", "theme-fresh", "theme-volta");
-      document.body.classList.add(`theme-${safeDesign}`);
-      if (save) localStorage.setItem("serviceEyeDesign", safeDesign);
+      __sscClearOldVisualState(document.body);
       if (save) {
         setTimeout(() => {
           if (currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows);
@@ -1087,15 +1092,17 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function switchTab(tab) {
-      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases", "receivedDelivered"].includes(tab) ? tab : "gspn" // FIX: added cashTarget + userManagement;
+      const safeTab = ["gspn", "sky", "profit", "cashTarget", "userManagement", "dashboard", "preBooking", "returnCases", "receivedDelivered", "repairEfficiency", "security"].includes(tab) ? tab : "gspn";
       localStorage.setItem("serviceEyeActiveTab", safeTab);
-      document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; el.classList.toggle("active", oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
-      const gspnPage = document.getElementById("gspnPage"); const skyPage = document.getElementById("skyPage"); const profitPage = document.getElementById("profitPage");
-      if (gspnPage) gspnPage.style.display = safeTab === "gspn" ? "block" : "none";
-      if (skyPage) skyPage.style.display = safeTab === "sky" ? "block" : "none";
-      if (profitPage) profitPage.style.display = safeTab === "profit" ? "block" : "none";
-      applyTabDesign(safeTab, false);
-      setTimeout(() => { if (safeTab === "gspn" && typeof currentFilteredRows !== "undefined" && currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows); if (safeTab === "sky") renderSky(); if (safeTab === "profit") renderProfit(); }, 80);
+      document.querySelectorAll(".side-tab").forEach(el => { const oc = el.getAttribute("onclick") || ""; const key = el.getAttribute("data-pb-tab") || el.getAttribute("data-fb-tab-key") || ""; el.classList.toggle("active", key === safeTab || oc.includes("'" + safeTab + "'") || oc.includes('"' + safeTab + '"')); });
+      const pageMap = {
+        gspn:"gspnPage", sky:"skyPage", profit:"profitPage", cashTarget:"cashTargetPage", userManagement:"userManagementPage",
+        dashboard:"dashboardPage", preBooking:"preBookingPage", returnCases:"returnCasesPage", receivedDelivered:"receivedDeliveredPage",
+        repairEfficiency:"repairEfficiencyPage", security:"securityPage"
+      };
+      Object.keys(pageMap).forEach(key => { const page = document.getElementById(pageMap[key]); if(page) page.style.display = key === safeTab ? "block" : "none"; });
+      if (typeof applyTabDesign === "function") applyTabDesign(safeTab, false);
+      setTimeout(() => { if (safeTab === "gspn" && typeof currentFilteredRows !== "undefined" && currentFilteredRows && currentFilteredRows.length) updateCharts(currentFilteredRows); if (safeTab === "sky" && typeof renderSky === "function") renderSky(); if (safeTab === "profit" && typeof renderProfit === "function") renderProfit(); }, 80);
     }
 
     function exportDashboardExcel() {
@@ -1314,7 +1321,7 @@ window.debounce = window.debounce || function(fn, delay) {
     function wireSkyEvents() {
       const skyFile = document.getElementById("skyFileInput");
       if (skyFile) skyFile.addEventListener("change", handleSkyFile);
-      ["skyBranchFilter", "skyQueueFilter", "skyBrandFilter", "skyStageFilter", "skyJobTypeFilter", "skySearchBox"].forEach(id => {
+      ["skyBranchFilter", "skyQueueFilter", "skyBrandFilter", "skyStageFilter", "skyAgingDaysGroupFilter", "skySearchBox"].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener("change", debounce(renderSky, 120));
@@ -1407,7 +1414,7 @@ window.debounce = window.debounce || function(fn, delay) {
     }
 
     function resetSkyFiltersToAll() {
-      ["skyBranchFilter", "skyStageFilter", "skyJobTypeFilter"].forEach(id => {
+      ["skyBranchFilter", "skyStageFilter", "skyAgingDaysGroupFilter"].forEach(id => {
         const el = document.getElementById(id);
         if (el) [...el.options].forEach(opt => opt.selected = opt.value === ALL_VALUE);
       });
@@ -1419,7 +1426,7 @@ window.debounce = window.debounce || function(fn, delay) {
     function refreshSkyFilters() {
       fillSkyMultiSelect("skyBranchFilter", unique(skyRows.map(r => r.Branch)), "All Branches");
       fillSkyMultiSelect("skyStageFilter", unique(skyRows.map(r => r.Stage)), "All Stages");
-      fillSkyMultiSelect("skyJobTypeFilter", unique(skyRows.map(r => r.JobType)), "All Job Types");
+      fillSkyMultiSelect("skyAgingDaysGroupFilter", unique(skyRows.map(r => r["Aging Days Group"] || r.Aging_Days_Group)), "All Aging Days Groups");
       fillSimpleOptions("skyQueueFilter", unique(skyRows.map(r => r.Queue)), "All Queue", ["Open_Cases", "Closed_Cases"]);
       fillSimpleOptions("skyBrandFilter", unique(skyRows.map(r => r.Brand)), "All Brands", ["Samsung", "Apple"]);
     }
@@ -1445,14 +1452,14 @@ window.debounce = window.debounce || function(fn, delay) {
     function getSkyFilteredRows() {
       const branches = getSelectedValues("skyBranchFilter");
       const stages = getSelectedValues("skyStageFilter");
-      const jobTypes = getSelectedValues("skyJobTypeFilter");
+      const agingGroups = getSelectedValues("skyAgingDaysGroupFilter");
       const queue = document.getElementById("skyQueueFilter")?.value || "";
       const brand = document.getElementById("skyBrandFilter")?.value || "";
       const q = (document.getElementById("skySearchBox")?.value || "").toLowerCase().trim();
       return skyRows.filter(r => {
         if (branches.length && !branches.includes(ALL_VALUE) && !branches.includes(r.Branch)) return false;
         if (stages.length && !stages.includes(ALL_VALUE) && !stages.includes(r.Stage)) return false;
-        if (jobTypes.length && !jobTypes.includes(ALL_VALUE) && !jobTypes.includes(r.JobType)) return false;
+        if (agingGroups.length && !agingGroups.includes(ALL_VALUE) && !agingGroups.includes(r["Aging Days Group"] || r.Aging_Days_Group)) return false;
         if (queue && r.Queue !== queue) return false;
         if (brand && r.Brand !== brand) return false;
         if (q) {
@@ -1597,14 +1604,14 @@ window.debounce = window.debounce || function(fn, delay) {
     function refreshSkyFilters() {
       fillSkyMultiSelect("skyBranchFilter", unique(skyRows.map(r => r.Branch)), "(Select All)");
       fillSkyMultiSelect("skyStageFilter", unique(skyRows.map(r => r.Stage)), "(Select All)");
-      fillSkyMultiSelect("skyJobTypeFilter", unique(skyRows.map(r => r.JobType)), "(Select All)");
+      fillSkyMultiSelect("skyAgingDaysGroupFilter", unique(skyRows.map(r => r["Aging Days Group"] || r.Aging_Days_Group)), "(Select All)");
       fillSimpleOptions("skyQueueFilter", unique(skyRows.map(r => r.Queue)), "(Select All)", SKY_QUEUE_VALUES);
       fillSimpleOptions("skyBrandFilter", unique(skyRows.map(r => r.Brand)), "(Select All)", ["Samsung", "Apple"]);
       requestAnimationFrame(refreshSkyExcelFilterWidgets);
     }
 
     function resetSkyFiltersToAll() {
-      ["skyBranchFilter", "skyStageFilter", "skyJobTypeFilter"].forEach(id => {
+      ["skyBranchFilter", "skyStageFilter", "skyAgingDaysGroupFilter"].forEach(id => {
         const el = document.getElementById(id);
         if (el) [...el.options].forEach(opt => opt.selected = opt.value === ALL_VALUE);
       });
@@ -1617,14 +1624,14 @@ window.debounce = window.debounce || function(fn, delay) {
     function getSkyFilteredRows() {
       const branches = getSelectedValues("skyBranchFilter");
       const stages = getSelectedValues("skyStageFilter");
-      const jobTypes = getSelectedValues("skyJobTypeFilter");
+      const agingGroups = getSelectedValues("skyAgingDaysGroupFilter");
       const queue = document.getElementById("skyQueueFilter")?.value || "";
       const brand = document.getElementById("skyBrandFilter")?.value || "";
       const q = (document.getElementById("skySearchBox")?.value || "").toLowerCase().trim();
       return skyRows.filter(r => {
         if (branches.length && !branches.includes(ALL_VALUE) && !branches.includes(r.Branch)) return false;
         if (stages.length && !stages.includes(ALL_VALUE) && !stages.includes(r.Stage)) return false;
-        if (jobTypes.length && !jobTypes.includes(ALL_VALUE) && !jobTypes.includes(r.JobType)) return false;
+        if (agingGroups.length && !agingGroups.includes(ALL_VALUE) && !agingGroups.includes(r["Aging Days Group"] || r.Aging_Days_Group)) return false;
         if (queue && r.Queue !== queue) return false;
         if (brand && r.Brand !== brand) return false;
         if (q) {
@@ -1725,7 +1732,7 @@ window.debounce = window.debounce || function(fn, delay) {
         { id: "skyQueueFilter", multiple: false },
         { id: "skyBrandFilter", multiple: false },
         { id: "skyStageFilter", multiple: true },
-        { id: "skyJobTypeFilter", multiple: true }
+        { id: "skyAgingDaysGroupFilter", multiple: false }
       ];
       configs.forEach(createOrUpdateExcelFilter);
     }
@@ -1825,7 +1832,7 @@ window.debounce = window.debounce || function(fn, delay) {
     /* ================= SKY v19 final fixes ================= */
     (function(){
       const SKY_QUEUE_V19 = ["Open_Cases", "Ready For Delivery Cases"];
-      const SKY_FILTER_IDS_V19 = ["skyBranchFilter","skyQueueFilter","skyBrandFilter","skyStageFilter","skyJobTypeFilter"];
+      const SKY_FILTER_IDS_V19 = ["skyBranchFilter","skyQueueFilter","skyBrandFilter","skyStageFilter","skyAgingDaysGroupFilter"];
       const SKY_CHART_FILTERS_V19 = ["skyQueueChartBrandFilter","skyBrandChartQueueFilter","skyStageChartBranchFilter","skyBranchChartStageFilter","skyReadyAgingBrandFilter"];
 
       function normText(v){ return String(v ?? "").trim(); }
@@ -1910,6 +1917,10 @@ const d = safeParseDate(out.Open_Date);
         let aging = Number(String(agingRaw).replace(/[^0-9.-]/g,""));
         if (!Number.isFinite(aging) && out.Open_Date_Value) aging = Math.max(0, Math.round((new Date().setHours(0,0,0,0)-new Date(out.Open_Date_Value).setHours(0,0,0,0))/86400000));
         out.Aging_Days = Number.isFinite(aging) ? aging : "";
+        const existingGroup = normText(row["Aging Days Group"] || row.Aging_Days_Group || row.AgingDaysGroup);
+        const calculatedGroup = Number.isFinite(aging) ? (aging <= 3 ? "From 0 to 3 Days" : aging <= 10 ? "From 4 to 10 Days" : "More than 10 Days") : "";
+        out.Aging_Days_Group = existingGroup || calculatedGroup;
+        out["Aging Days Group"] = out.Aging_Days_Group;
         return out;
       };
 
@@ -1918,7 +1929,7 @@ const d = safeParseDate(out.Open_Date);
         fillSelectV19("skyQueueFilter", SKY_QUEUE_V19, false);
         fillSelectV19("skyBrandFilter", ["Samsung","Apple"], false);
         fillSelectV19("skyStageFilter", [...new Set((skyRows||[]).map(r=>r.Stage).filter(Boolean))].sort(), true);
-        fillSelectV19("skyJobTypeFilter", [...new Set((skyRows||[]).map(r=>r.JobType).filter(Boolean))].sort(), true);
+        fillSelectV19("skyAgingDaysGroupFilter", [...new Set((skyRows||[]).map(r=>r["Aging Days Group"]||r.Aging_Days_Group).filter(Boolean))].sort(), false);
         fillChartFilterV19("skyQueueChartBrandFilter", ["Samsung","Apple"], "All Brands");
         fillChartFilterV19("skyBrandChartQueueFilter", SKY_QUEUE_V19, "All Queues");
         fillChartFilterV19("skyStageChartBranchFilter", [...new Set((skyRows||[]).map(r=>r.Branch).filter(Boolean))].sort(), "All Branches");
@@ -1943,14 +1954,14 @@ const d = safeParseDate(out.Open_Date);
       }
 
       window.getSkyFilteredRows = function(){
-        const branches=getSel("skyBranchFilter"), queues=getSel("skyQueueFilter"), brands=getSel("skyBrandFilter"), stages=getSel("skyStageFilter"), jobs=getSel("skyJobTypeFilter");
+        const branches=getSel("skyBranchFilter"), queues=getSel("skyQueueFilter"), brands=getSel("skyBrandFilter"), stages=getSel("skyStageFilter"), agingGroups=getSel("skyAgingDaysGroupFilter");
         const q = (document.getElementById("skySearchBox")?.value || "").toLowerCase().trim();
         return (skyRows||[]).filter(r=>{
           if(branches.length && !branches.includes(r.Branch)) return false;
           if(queues.length && !queues.includes(r.Queue)) return false;
           if(brands.length && !brands.includes(r.Brand)) return false;
           if(stages.length && !stages.includes(r.Stage)) return false;
-          if(jobs.length && !jobs.includes(r.JobType)) return false;
+          if(agingGroups.length && !agingGroups.includes(r["Aging Days Group"] || r.Aging_Days_Group)) return false;
           if(q){
             const hay=[r.Job_Number,r.IMEI,r.SerialNumber,r.Customer_Mobile,r.Customer_phone].join(" ").toLowerCase();
             if(!hay.includes(q)) return false;
@@ -2030,9 +2041,9 @@ const d = safeParseDate(out.Open_Date);
       function buildExcelFiltersV19(){ SKY_FILTER_IDS_V19.forEach(id=>buildOneExcelFilterV19(id)); }
       function buildOneExcelFilterV19(id){
         const select=document.getElementById(id); if(!select) return; select.style.display="none";
-        let wrap=document.getElementById(id+"_excel"); if(!wrap){ wrap=document.createElement("div"); wrap.className="excel-filter-container v19"; wrap.id=id+"_excel"; select.insertAdjacentElement("afterend",wrap); }
+        let wrap=document.getElementById(id+"_excel"); if(!wrap){ wrap=document.createElement("div"); wrap.className="excel-filter-container sky-filter-widget v19"; wrap.id=id+"_excel"; select.insertAdjacentElement("afterend",wrap); }
         const opts=optionList(id); const selected=getSel(id); const summaryText=selected.length ? (selected.length>2?`${selected.length} selected`:selected.map(v=>opts.find(o=>o.value===v)?.text||v).join(", ")) : "(Select All)";
-        wrap.innerHTML=`<button type="button" class="excel-filter-button">${escapeHtml(summaryText)}</button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search"/><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="clear">Clear</button></div></div>`;
+        wrap.innerHTML=`<button type="button" class="excel-filter-button">${escapeHtml(summaryText)}</button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search"/><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel clear">Clear</button></div></div>`;
         const btn=wrap.querySelector(".excel-filter-button"), panel=wrap.querySelector(".excel-filter-panel"), search=wrap.querySelector(".excel-filter-search"), list=wrap.querySelector(".excel-filter-list");
         btn.onclick=(e)=>{ e.stopPropagation(); document.querySelectorAll(".excel-filter-container.open").forEach(x=>{if(x!==wrap)x.classList.remove("open")}); wrap.classList.toggle("open"); setTimeout(()=>search.focus(),0); };
         panel.onclick=e=>e.stopPropagation(); wrap.querySelector(".ok").onclick=()=>wrap.classList.remove("open"); wrap.querySelector(".clear").onclick=()=>{ if(select.multiple){[...select.options].forEach((o,i)=>o.selected=i===0)} else select.value=""; window.renderSky(); wrap.classList.remove("open"); };
@@ -2045,14 +2056,11 @@ const d = safeParseDate(out.Open_Date);
       }
 
       window.setDesign = function(design){
-        const tab = (document.getElementById("skyPage") && document.getElementById("skyPage").style.display !== "none") ? "sky" : "gspn";
-        localStorage.setItem(tab+"Design", design);
-        applyTabDesignV19(tab, design);
+        __sscClearOldVisualState(document.body);
       };
       window.applyTabDesignV19 = function(tab, design){
         const page=document.getElementById(tab==="sky"?"skyPage":"gspnPage"); if(!page) return;
-        page.classList.remove("theme-pro","theme-glass","theme-fresh","theme-volta");
-        page.classList.add("theme-"+(design||"volta"));
+        __sscClearOldVisualState(page);
       };
       const oldSwitch = window.switchTab;
       function updateSkyTimestampV19(){
@@ -2064,7 +2072,7 @@ const d = safeParseDate(out.Open_Date);
       const oldHandleSky = window.handleSkyFile;
       window.handleSkyFile = function(e){ localStorage.setItem("skyLastUploadTime", new Date().toLocaleString()); updateSkyTimestampV19(); return oldHandleSky ? oldHandleSky(e) : null; };
       document.addEventListener("DOMContentLoaded",()=>{
-        setTimeout(()=>{ refreshSkyFilterOptionsV19(); updateSkyTimestampV19(); applyTabDesignV19("gspn", localStorage.getItem("gspnDesign")||"volta"); applyTabDesignV19("sky", localStorage.getItem("skyDesign")||"volta"); window.renderSky && window._scheduleRender && window._scheduleRender('init-sky', window.renderSky, 100); },800);
+        setTimeout(()=>{ refreshSkyFilterOptionsV19(); updateSkyTimestampV19(); window.renderSky && window._scheduleRender && window._scheduleRender('init-sky', window.renderSky, 100); },800);
       });
       document.addEventListener("click",()=>document.querySelectorAll(".excel-filter-container.open").forEach(x=>x.classList.remove("open")));
     })();
@@ -2422,6 +2430,75 @@ const d = safeParseDate(out.Open_Date);
   const ALL = (typeof window.ALL_VALUE !== 'undefined' ? window.ALL_VALUE : '__ALL__');
   function byId(id){ return document.getElementById(id); }
   function text(v){ return String(v ?? '').trim(); }
+
+  function buildGspnFilterWidget(id){
+    const select = byId(id);
+    const gspn = byId('gspnPage');
+    if(!gspn || !select) return;
+    select.setAttribute('multiple','multiple');
+    select.multiple = true;
+    select.style.display = 'none';
+    let wrap = byId(id + '_v50');
+    if(!wrap){
+      wrap = document.createElement('div');
+      wrap.id = id + '_v50';
+      wrap.className = 'gspn-v50-filter';
+      wrap.innerHTML = '<button type="button" class="gspn-v50-btn"></button><div class="gspn-v50-panel"></div>';
+      select.insertAdjacentElement('afterend', wrap);
+    }
+    const btn = wrap.querySelector('.gspn-v50-btn');
+    const panel = wrap.querySelector('.gspn-v50-panel');
+    if(!btn || !panel) return;
+    const selected = [...select.selectedOptions].map(o=>o.value).filter(v=>v && v!==ALL);
+    const selectedText = selected.length ? (selected.length > 2 ? `${selected.length} selected` : selected.join(', ')) : '(Select All)';
+    btn.textContent = selectedText;
+    btn.title = selectedText;
+    function escLocal(v){ return text(v).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s])); }
+    function drawPanel(){
+      const opts = [...select.options].map(o => ({value:o.value, text:o.textContent, selected:o.selected}));
+      let temp = new Set(opts.filter(o=>o.selected).map(o=>o.value));
+      if(![...temp].filter(v=>v && v!==ALL).length) temp = new Set([ALL]);
+      panel.innerHTML = '<input class="gspn-v50-search" placeholder="Search" autocomplete="off" />' +
+        '<div class="gspn-v50-list"></div>' +
+        '<div class="gspn-v50-actions"><button type="button" class="gspn-v50-cancel">Cancel</button><button type="button" class="gspn-v50-ok">OK</button></div>';
+      const search = panel.querySelector('.gspn-v50-search');
+      const list = panel.querySelector('.gspn-v50-list');
+      function redraw(){
+        const term = text(search.value).toLowerCase();
+        list.innerHTML = opts.filter(o => !term || text(o.text).toLowerCase().includes(term)).map(o =>
+          `<label class="gspn-v50-option"><input type="checkbox" data-value="${escLocal(o.value)}" ${temp.has(o.value)?'checked':''}> <span>${escLocal(o.text)}</span></label>`
+        ).join('');
+        list.querySelectorAll('input').forEach(cb => {
+          cb.onchange = function(){
+            const v = cb.getAttribute('data-value');
+            if(v === ALL){ temp = cb.checked ? new Set([ALL]) : new Set(); }
+            else { temp.delete(ALL); cb.checked ? temp.add(v) : temp.delete(v); if(!temp.size) temp.add(ALL); }
+            redraw();
+          };
+        });
+      }
+      search.oninput = redraw;
+      panel.querySelector('.gspn-v50-cancel').onclick = () => wrap.classList.remove('open');
+      panel.querySelector('.gspn-v50-ok').onclick = function(){
+        const real = [...temp].filter(v => v && v !== ALL);
+        [...select.options].forEach((o,i) => { o.selected = real.length ? real.includes(o.value) : (o.value === ALL || i === 0); });
+        wrap.classList.remove('open');
+        buildGspnFilterWidget(id);
+        try{ if(typeof window.onMultiFilterChange === 'function') window.onMultiFilterChange(id); else if(typeof window.render === 'function') window.render(); }catch(e){ try{ if(typeof render === 'function') render(); }catch(_e){} }
+      };
+      redraw();
+      setTimeout(()=>search.focus(),0);
+    }
+    btn.onclick = function(e){
+      e.preventDefault(); e.stopPropagation();
+      document.querySelectorAll('#gspnPage .gspn-v50-filter.open').forEach(w => { if(w !== wrap) w.classList.remove('open'); });
+      if(wrap.classList.contains('open')){ wrap.classList.remove('open'); return; }
+      drawPanel(); wrap.classList.add('open');
+    };
+  }
+  window.refreshGspnFilterWidgets = function(){
+    ['branchFilter','stageFilter','warrantyFilter','jobTypeFilter','alertFilter'].forEach(buildGspnFilterWidget);
+  };
 
   function ensureOneStageDropdown(){
     const gspn = byId('gspnPage');
@@ -2849,17 +2926,30 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
   }
   function normalize(row) {
     const out = Object.assign({}, row || {});
-    out.Queue = clean(val(out, 'Queue'));
-    out.Brand = clean(val(out, 'Brand'));
+    const rawQueue = clean(val(out, 'Queue'));
+    const queueLower = rawQueue.toLowerCase().replace(/_/g, ' ');
+    if (queueLower.includes('ready') && queueLower.includes('delivery')) out.Queue = 'Ready For Delivery Cases';
+    else if (queueLower.includes('open')) out.Queue = 'Open_Cases';
+    else out.Queue = rawQueue;
+    const rawBrand = clean(val(out, 'Brand'));
+    const brandLower = rawBrand.toLowerCase();
+    out.Brand = brandLower.includes('samsung') ? 'Samsung' : ((brandLower.includes('apple') || brandLower.includes('iphone')) ? 'Apple' : rawBrand);
     out.Branch = clean(val(out, 'Branch'));
     out.Job_Number = clean(val(out, 'Job_Number'));
     out.Status = clean(val(out, 'Status'));
     out.Stage = clean(val(out, 'Stage'));
-    out.Open_Date = val(out, 'Open_Date');
-    out.Open_Date_Display = clean(out.Open_Date_Display) || formatDate(out.Open_Date);
-    out.Open_Date_Stamp = out.Open_Date_Stamp ?? dateStamp(out.Open_Date);
-    out['Aging Days'] = val(out, 'Aging Days');
-    const normalizedAgingDays = skyAgingDaysNumber(out);
+    out.Open_Date = val(out, 'Open_Date') || val(out, 'Open Date') || val(out, 'Open Case Date');
+    out.Open_Date_Display = formatDate(out.Open_Date) || clean(out.Open_Date_Display);
+    out.Open_Date_Stamp = dateStamp(out.Open_Date);
+    const openedDate = toDateObject(out.Open_Date);
+    const todayDate = new Date();
+    const todayOnly = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+    let calculatedAgingDays = null;
+    if (openedDate && !Number.isNaN(openedDate.getTime())) {
+      calculatedAgingDays = Math.max(0, Math.floor((todayOnly.getTime() - openedDate.getTime()) / 86400000));
+    }
+    out['Aging Days'] = calculatedAgingDays !== null ? calculatedAgingDays : val(out, 'Aging Days');
+    const normalizedAgingDays = calculatedAgingDays !== null ? calculatedAgingDays : skyAgingDaysNumber(out);
     if (normalizedAgingDays !== null) out['Aging Days'] = normalizedAgingDays;
     out.Aging_Days = out['Aging Days'];
     let group = clean(val(out, 'Aging Days Group'));
@@ -2941,6 +3031,85 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
     fillSelect('skyBranchFilter', rows.map(function(row){ return row.Branch; }), 'All Branches', true);
     fillSelect('skyStageFilter', rows.map(function(row){ return row.Stage; }), 'All Stages', true);
     fillSelect('skyAgingDaysGroupFilter', rows.map(function(row){ return val(row, 'Aging Days Group'); }), 'All Aging Days Groups', false);
+    refreshSkyFilterWidgets();
+  }
+  function refreshSkyFilterWidgets(){
+    [
+      {id:'skyBranchFilter', multi:true, all:'__ALL__'},
+      {id:'skyQueueFilter', multi:false, all:''},
+      {id:'skyBrandFilter', multi:false, all:''},
+      {id:'skyStageFilter', multi:true, all:'__ALL__'},
+      {id:'skyAgingDaysGroupFilter', multi:false, all:''}
+    ].forEach(buildSkyFilterWidget);
+  }
+  function buildSkyFilterWidget(cfg){
+    const select = byId(cfg.id);
+    if(!select) return;
+    select.style.display = 'none';
+    let wrap = byId(cfg.id + '_excel');
+    if(!wrap){
+      wrap = document.createElement('div');
+      wrap.id = cfg.id + '_excel';
+      select.insertAdjacentElement('afterend', wrap);
+    }
+    wrap.className = 'excel-filter-container sky-filter-widget';
+    // Keep the active SKY filter widget visible even if older deprecated global
+    // filter styles are still present in the stylesheet.
+    wrap.style.setProperty('display', 'block', 'important');
+    wrap.style.setProperty('visibility', 'visible', 'important');
+    wrap.style.setProperty('pointer-events', 'auto', 'important');
+    wrap.style.setProperty('opacity', '1', 'important');
+    if(!wrap.querySelector('.excel-filter-button') || !wrap.querySelector('.excel-filter-panel') || !wrap.querySelector('.excel-filter-list')){
+      wrap.innerHTML = '<button type="button" class="excel-filter-button"></button><div class="excel-filter-panel"><input class="excel-filter-search" placeholder="Search" autocomplete="off"><div class="excel-filter-list"></div><div class="excel-filter-actions"><button type="button" class="ok">OK</button><button type="button" class="cancel">Cancel</button></div></div>';
+    }
+    const options = Array.from(select.options).map(function(o, idx){
+      const optionValue = clean(o.value);
+      let optionText = clean(o.textContent || o.label || o.innerText || optionValue);
+      if ((idx === 0 || optionValue === cfg.all || optionValue === '') && (!optionText || /^(all|select all|\(select all\))/i.test(optionText))) optionText = '(Select All)';
+      return { value: optionValue, text: optionText, selected: o.selected };
+    });
+    const selectedValues = cfg.multi ? options.filter(function(o){ return o.selected && o.value !== cfg.all && o.value !== ''; }).map(function(o){ return o.text; }) : [];
+    const current = cfg.multi ? (selectedValues.length ? (selectedValues.length > 2 ? selectedValues.length + ' selected' : selectedValues.join(', ')) : '(Select All)') : (select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : '(Select All)');
+    const btn = wrap.querySelector('.excel-filter-button'), panel = wrap.querySelector('.excel-filter-panel'), list = wrap.querySelector('.excel-filter-list'), search = wrap.querySelector('.excel-filter-search');
+    btn.textContent = current || '(Select All)';
+    btn.title = btn.textContent;
+    let temp = cfg.multi ? new Set(options.filter(function(o){ return o.selected; }).map(function(o){ return o.value; })) : new Set([select.value || '']);
+    if(cfg.multi && (!Array.from(temp).filter(function(v){ return v && v !== cfg.all; }).length)) temp = new Set([cfg.all]);
+    function draw(){
+      const q = clean(search.value).toLowerCase();
+      const visible = options.filter(function(o){ return !q || clean(o.text).toLowerCase().includes(q); });
+      list.innerHTML = visible.map(function(o){
+        const optionValue = clean(o.value);
+        let optionText = clean(o.text) || optionValue || '(Select All)';
+        if ((optionValue === cfg.all || optionValue === '') && (!clean(o.text) || /all/i.test(clean(o.text)))) optionText = '(Select All)';
+        return '<label class="excel-filter-option sky-filter-option" title="'+esc(optionText)+'"><input class="sky-filter-checkbox" type="checkbox" data-value="'+esc(o.value)+'" '+(temp.has(o.value)?'checked':'')+'> <span class="sky-filter-option-text">'+esc(optionText)+'</span></label>';
+      }).join('');
+      list.querySelectorAll('input').forEach(function(cb){ cb.onchange = function(){
+        const v = cb.getAttribute('data-value');
+        if(cfg.multi){
+          if(v === cfg.all){ temp = cb.checked ? new Set([cfg.all]) : new Set(); }
+          else { temp.delete(cfg.all); cb.checked ? temp.add(v) : temp.delete(v); if(!temp.size) temp.add(cfg.all); }
+          draw();
+        } else { temp = new Set([cb.checked ? v : '']); list.querySelectorAll('input').forEach(function(x){ if(x!==cb) x.checked=false; }); }
+      }; });
+    }
+    btn.onclick = function(e){ e.preventDefault(); e.stopPropagation(); document.querySelectorAll('.excel-filter-container.open').forEach(function(x){ if(x!==wrap)x.classList.remove('open'); }); wrap.classList.toggle('open'); draw(); setTimeout(function(){ search.focus(); },0); };
+    panel.onclick = function(e){ e.stopPropagation(); };
+    wrap.querySelector('.cancel').onclick = function(){ wrap.classList.remove('open'); };
+    wrap.querySelector('.ok').onclick = function(){
+      if(cfg.multi){ Array.from(select.options).forEach(function(o){ o.selected = temp.has(o.value); }); }
+      else { select.value = Array.from(temp)[0] || ''; }
+      wrap.classList.remove('open');
+      const appliedOptions = Array.from(select.options);
+      const appliedNames = cfg.multi ? appliedOptions.filter(function(o){ return o.selected && o.value !== cfg.all && o.value !== ''; }).map(function(o){ return o.textContent; }) : [];
+      const appliedText = cfg.multi ? (appliedNames.length ? (appliedNames.length > 2 ? appliedNames.length + ' selected' : appliedNames.join(', ')) : '(Select All)') : (select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : '(Select All)');
+      btn.textContent = appliedText || '(Select All)';
+      btn.title = btn.textContent;
+      window.__skyOpen4PlusOnly = false;
+      renderSkyFinal();
+    };
+    search.oninput = draw;
+    draw();
   }
   function filteredRows(rows) {
     const branches = selectedMulti('skyBranchFilter');
@@ -2959,8 +3128,8 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
       if (isOpen4PlusModeActive() && !isOpen4Plus(row)) return false;
       if (brand && row.Brand !== brand) return false;
       if (aging && val(row, 'Aging Days Group') !== aging) return false;
-      if (from !== null && row.Open_Date_Stamp !== null && row.Open_Date_Stamp < from) return false;
-      if (to !== null && row.Open_Date_Stamp !== null && row.Open_Date_Stamp > to) return false;
+      if (from !== null && (row.Open_Date_Stamp === null || row.Open_Date_Stamp < from)) return false;
+      if (to !== null && (row.Open_Date_Stamp === null || row.Open_Date_Stamp > to)) return false;
       if (search) {
         const hay = ['Job_Number','IMEI','SerialNumber','Customer_Mobile','Customer_Phone','Queue','Stage','Status','Branch','Aging Days Group','Item English Name']
           .map(function(field){ return clean(val(row, field)); }).join(' ').toLowerCase();
@@ -2969,17 +3138,53 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
       return true;
     });
   }
+  const skyTableState = window.__skyTableState || (window.__skyTableState = { cols: TABLE_COLS.slice(), sortKey: 'Open_Date_Display', sortDir: -1 });
+  function skyCompare(a, b, col) {
+    const keyName = col && col[0];
+    let av = keyName === 'Open_Date_Display' ? a.Open_Date_Stamp : val(a, keyName);
+    let bv = keyName === 'Open_Date_Display' ? b.Open_Date_Stamp : val(b, keyName);
+    if (keyName === 'Aging Days' || keyName === 'Price') { av = numberFrom(av) || 0; bv = numberFrom(bv) || 0; }
+    if (typeof av === 'number' || typeof bv === 'number') return (Number(av || 0) - Number(bv || 0));
+    return clean(av).localeCompare(clean(bv));
+  }
   function renderTable(rows) {
     const table = byId('skyCasesTable');
     if (!table) return;
-    if (!rows.length) {
-      table.innerHTML = '<tr><td>No data available</td></tr>';
+    const cols = skyTableState.cols && skyTableState.cols.length ? skyTableState.cols : TABLE_COLS.slice();
+    const sortIndex = cols.findIndex(function(col){ return col[0] === skyTableState.sortKey || col[1] === skyTableState.sortKey; });
+    const sorted = rows.slice();
+    if (sortIndex >= 0) {
+      const col = cols[sortIndex];
+      sorted.sort(function(a,b){ const c = skyCompare(a,b,col); return c === 0 ? clean(a.Job_Number).localeCompare(clean(b.Job_Number)) : c * skyTableState.sortDir; });
+    }
+    if (!sorted.length) {
+      table.innerHTML = '<thead><tr>' + cols.map(function(col,i){ return '<th draggable="true" data-index="'+i+'" data-key="'+esc(col[0])+'">' + esc(col[1]) + '</th>'; }).join('') + '</tr></thead><tbody><tr><td colspan="'+cols.length+'">No data available</td></tr></tbody>';
       return;
     }
-    table.innerHTML = '<thead><tr>' + TABLE_COLS.map(function(col){ return '<th>' + esc(col[1]) + '</th>'; }).join('') + '</tr></thead>' +
-      '<tbody>' + rows.map(function(row){
-        return '<tr>' + TABLE_COLS.map(function(col){ return '<td>' + esc(val(row, col[0])) + '</td>'; }).join('') + '</tr>';
+    table.innerHTML = '<thead><tr>' + cols.map(function(col,i){
+      const arrow = skyTableState.sortKey === col[0] ? (skyTableState.sortDir > 0 ? ' ▲' : ' ▼') : '';
+      return '<th draggable="true" data-index="'+i+'" data-key="'+esc(col[0])+'" title="Click to sort, drag to reorder">' + esc(col[1]) + arrow + '</th>';
+    }).join('') + '</tr></thead>' +
+      '<tbody>' + sorted.map(function(row){
+        return '<tr>' + cols.map(function(col){ return '<td>' + esc(val(row, col[0])) + '</td>'; }).join('') + '</tr>';
       }).join('') + '</tbody>';
+    table.querySelectorAll('th').forEach(function(th){
+      th.onclick = function(){
+        const idx = Number(th.dataset.index), col = cols[idx];
+        if(!col) return;
+        if(skyTableState.sortKey === col[0]) skyTableState.sortDir *= -1;
+        else { skyTableState.sortKey = col[0]; skyTableState.sortDir = col[0] === 'Open_Date_Display' ? -1 : 1; }
+        renderTable(sorted);
+      };
+      th.ondragstart = function(e){ e.dataTransfer.setData('text/plain', th.dataset.index); };
+      th.ondragover = function(e){ e.preventDefault(); };
+      th.ondrop = function(e){
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData('text/plain')), to = Number(th.dataset.index);
+        if(Number.isNaN(from) || Number.isNaN(to) || from === to) return;
+        const moved = cols.splice(from,1)[0]; cols.splice(to,0,moved); skyTableState.cols = cols; renderTable(sorted);
+      };
+    });
   }
   function setText(id, value) {
     const el = byId(id);
@@ -3017,8 +3222,42 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
   function summary(id, items, total) {
     const el = byId(id);
     if (!el) return;
-    el.innerHTML = items.map(function(item){ return '<span class="sky-chart-chip">' + esc(item[0]) + ': ' + item[1] + ' (' + pct(item[1], total) + '%)</span>'; }).join('');
+    el.innerHTML = '';
+    el.style.display = 'none';
   }
+  const skyInlineValueLabels = {
+    id: 'skyInlineValueLabels',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      const total = chart.data.datasets.reduce(function(sum, ds){ return sum + (ds.data || []).reduce(function(a,b){ return a + Number(b || 0); }, 0); }, 0);
+      const horizontal = chart.options && chart.options.indexAxis === 'y';
+      ctx.save();
+      ctx.font = 'bold 12px Calibri, Arial, sans-serif';
+      ctx.textBaseline = 'middle';
+      chart.data.datasets.forEach(function(ds, datasetIndex){
+        const meta = chart.getDatasetMeta(datasetIndex);
+        meta.data.forEach(function(bar, i){
+          const value = Number(ds.data[i] || 0);
+          if(!value) return;
+          const label = value.toLocaleString();
+          const props = bar.getProps ? bar.getProps(['x','y','base'], true) : bar;
+          ctx.fillStyle = '#ffffff';
+          if(horizontal){
+            ctx.textAlign = 'right';
+            let x = Math.max(props.base + 36, props.x - 8);
+            if(props.x - props.base < 54){ ctx.fillStyle = '#111827'; ctx.textAlign = 'left'; x = props.x + 8; }
+            ctx.fillText(label, x, props.y);
+          } else {
+            ctx.textAlign = 'center';
+            let y = props.y + 14;
+            if(props.base - props.y < 32){ ctx.fillStyle = '#111827'; y = props.y - 10; }
+            ctx.fillText(label, props.x, y);
+          }
+        });
+      });
+      ctx.restore();
+    }
+  };
   function clearLabelPlugins() {
     if (!window.Chart || !Chart.registry || !Chart.registry.plugins) return;
     LABEL_PLUGINS.forEach(function(id){
@@ -3041,24 +3280,31 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
     const fresh = canvas.cloneNode(false);
     canvas.parentNode.replaceChild(fresh, canvas);
     const total = items.reduce(function(sum,item){ return sum + item[1]; }, 0);
-    const labels = items.map(function(item){ return item[0] + ' (' + pct(item[1], total) + '%)'; });
+    const labels = items.map(function(item){ return item[0]; });
     const values = items.map(function(item){ return item[1]; });
     const max = Math.max.apply(null, values.concat([0]));
     const colors = window.COLORS || ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+    const box = fresh.closest('.chart-box');
+    if (box) {
+      const h = horizontal ? Math.max(330, labels.length * 32 + 80) : Math.max(330, Math.min(520, labels.length * 26 + 170));
+      box.style.height = h + 'px';
+      box.style.padding = '14px 18px 10px';
+    }
     window.dashboardCharts = window.dashboardCharts || {};
     window.dashboardCharts[canvasId] = __safeNewChart(fresh, {
       type: 'bar',
       data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: values.map(function(_,i){ return colors[i % colors.length]; }), borderColor: values.map(function(_,i){ return colors[i % colors.length]; }), borderWidth: 1, borderRadius: horizontal ? 6 : 5, maxBarThickness: horizontal ? 24 : 52 }] },
+      plugins: [skyInlineValueLabels],
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
         indexAxis: horizontal ? 'y' : 'x',
-        layout: { padding: { top: 18, right: 24, bottom: 18, left: 8 } },
-        plugins: Object.assign({ legend: { display:false }, tooltip: { callbacks: { label: function(ctx){ return label + ': ' + ctx.raw + ' (' + pct(ctx.raw, total) + '%)'; } } } }, LABEL_PLUGINS.reduce(function(acc,id){ acc[id] = false; return acc; }, {})),
+        layout: { padding: { top: horizontal ? 8 : 24, right: horizontal ? 46 : 20, bottom: 12, left: 8 } },
+        plugins: Object.assign({ legend: { display:false }, tooltip: { callbacks: { label: function(ctx){ return label + ': ' + Number(ctx.raw || 0).toLocaleString(); } } } }, LABEL_PLUGINS.reduce(function(acc,id){ acc[id] = false; return acc; }, {})),
         scales: {
-          x: { beginAtZero:true, suggestedMax: horizontal ? max * 1.2 + 1 : undefined, ticks:{ autoSkip:false, precision:0, maxRotation: horizontal ? 0 : 25, minRotation:0, color:'#111827', font:{weight:'700'} }, grid:{color:'rgba(17,24,39,.18)'} },
-          y: { beginAtZero:!horizontal, suggestedMax: horizontal ? undefined : max * 1.2 + 1, afterFit:function(scale){ if(horizontal) scale.width = Math.min(340, Math.max(160, ...labels.map(function(label){ return label.length * 6.6; }))); }, ticks:{ autoSkip:false, precision:0, color:'#111827', font:{weight:'700'}, callback:function(v){ const label = this.getLabelForValue ? this.getLabelForValue(v) : v; return horizontal && String(label).length > 50 ? String(label).slice(0,49) + '...' : label; } }, grid:{color:'rgba(17,24,39,.18)'} }
+          x: { beginAtZero:true, suggestedMax: horizontal ? max * 1.18 + 1 : undefined, ticks:{ autoSkip:false, precision:0, maxRotation: horizontal ? 0 : 30, minRotation:0, color:'#111827', font:{weight:'700'} }, grid:{color:'rgba(17,24,39,.18)'} },
+          y: { beginAtZero:!horizontal, suggestedMax: horizontal ? undefined : max * 1.18 + 1, afterFit:function(scale){ if(horizontal) scale.width = Math.min(360, Math.max(170, ...labels.map(function(label){ return label.length * 6.7; }))); }, ticks:{ autoSkip:false, precision:0, color:'#111827', font:{weight:'700'}, callback:function(v){ const label = this.getLabelForValue ? this.getLabelForValue(v) : v; return horizontal && String(label).length > 54 ? String(label).slice(0,53) + '...' : label; } }, grid:{color:'rgba(17,24,39,.18)'} }
         }
       }
     });
@@ -3094,6 +3340,11 @@ async function autoLoadSKYFromGitHub(forceRefresh = false) {
   }
   window.getSkyFilteredRows = function(){ return filteredRows(setRows(currentRowsRaw())); };
   window.renderSky = function(){ return renderSkyFinal(); };
+  window.applySkyDateFilter = function(){
+    window.__skyOpen4PlusOnly = false;
+    renderSkyFinal();
+    if (typeof scrollToElement === 'function') scrollToElement('skyCasesTable');
+  };
   window.setSkyOpen4PlusCases = function(){
     window.__skyOpen4PlusOnly = true;
     const queueEl = byId('skyQueueFilter');
@@ -4859,9 +5110,24 @@ window.addEventListener('beforeunload', function() {
     try{
       if(!v) return '';
       const d = v.toDate ? v.toDate() : new Date(Number(v) || v);
-      return isNaN(d) ? '' : d.toLocaleString();
+      return isNaN(d) ? '' : d.toLocaleString('en-GB', {year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
     }catch(e){ return ''; }
   }
+  function securityGeneratedTime(v){
+    try{
+      if(!v) return '';
+      const d = v.toDate ? v.toDate() : new Date(v);
+      return isNaN(d) ? String(v) : d.toLocaleString('en-GB', {year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    }catch(e){ return String(v || ''); }
+  }
+  window.sscScrollToSecurityTarget = function(id){
+    const el = document.getElementById(id);
+    if(!el) return;
+    const section = el.closest ? (el.closest('.security-section') || el) : el;
+    section.scrollIntoView({behavior:'smooth', block:'start'});
+    section.classList.add('security-section-highlight');
+    setTimeout(()=>section.classList.remove('security-section-highlight'), 1400);
+  };
   function securityJsonRowCount(data){
     try{
       if(Array.isArray(data)) return data.length;
@@ -4967,7 +5233,7 @@ window.addEventListener('beforeunload', function() {
       tbl.innerHTML = '<thead><tr><th>Source</th><th>JSON</th><th>Excel fallback</th><th>Rows</th><th>Generated at</th><th>Source file</th></tr></thead><tbody>' + rows.map(r=>{
         const cls = r.jsonStatus === 'OK' ? 'ok' : 'bad';
         const exCls = r.excelStatus === 'OK' ? 'ok' : 'warn';
-        return '<tr><td>'+esc(r.src.name)+'</td><td><span class="sec-pill '+cls+'">'+esc(r.jsonStatus)+'</span></td><td><span class="sec-pill '+exCls+'">'+esc(r.excelStatus)+'</span></td><td>'+esc(r.rowCount)+'</td><td>'+esc(r.generated)+'</td><td>'+esc(r.source)+'</td></tr>';
+        return '<tr><td>'+esc(r.src.name)+'</td><td><span class="sec-pill '+cls+'">'+esc(r.jsonStatus)+'</span></td><td><span class="sec-pill '+exCls+'">'+esc(r.excelStatus)+'</span></td><td>'+esc(r.rowCount)+'</td><td>'+esc(securityGeneratedTime(r.generated))+'</td><td>'+esc(r.source)+'</td></tr>';
       }).join('') + '</tbody>';
     }
     logSecurityActivity('Security health checked', okCount + '/' + SECURITY_DATA_SOURCES.length + ' JSON files OK');
@@ -5022,6 +5288,16 @@ window.addEventListener('beforeunload', function() {
     add('Current Admin Session', isAdmin() ? 'OK' : 'Error', currentProfile ? ((currentProfile.email||currentProfile.username||'')+' / '+(currentProfile.role||'')) : 'No profile loaded');
     add('Maintenance Mode', currentMaintenanceState && currentMaintenanceState.enabled ? 'Warning' : 'OK', currentMaintenanceState && currentMaintenanceState.enabled ? 'Maintenance is currently ON' : 'Maintenance is OFF');
     try{ const r=await fetch('data/gspn.json?v='+Date.now(),{cache:'no-store'}); add('JSON Fetch Test', r.ok?'OK':'Warning', 'data/gspn.json HTTP '+r.status); }catch(e){ add('JSON Fetch Test','Error',String(e&&e.message||e)); }
+    [
+      ['GSPN page','gspnPage','render'], ['SKY page','skyPage','renderSky'], ['Received & Delivered page','receivedDeliveredPage','renderReceivedDelivered'],
+      ['Return Cases page','returnCasesPage','renderReturnCases'], ['Repair Efficiency page','repairEfficiencyPage','renderRepairEfficiency'], ['User Management page','userManagementPage','renderUserManagement'], ['Security page','securityPage','renderSecurityPage']
+    ].forEach(function(item){
+      const pageOk = !!$(item[1]);
+      const fnOk = typeof window[item[2]] === 'function' || item[2] === 'render';
+      add(item[0], pageOk && fnOk ? 'OK' : 'Warning', (pageOk?'Page ready':'Page element missing') + ' / ' + (fnOk?'Function ready':'Function not exposed'));
+    });
+    add('XLSX Library', !!window.XLSX ? 'OK' : 'Warning', window.XLSX ? 'Workbook parser loaded' : 'XLSX not loaded yet');
+    add('Chart.js Library', !!window.Chart ? 'OK' : 'Warning', window.Chart ? 'Chart renderer loaded' : 'Chart.js not loaded yet');
     const bad=checks.filter(x=>x.state==='Error').length, warn=checks.filter(x=>x.state==='Warning').length;
     if(status) status.textContent = bad ? 'Error' : (warn ? 'Warning' : 'OK');
     if(note) note.textContent = bad ? bad+' critical issue(s)' : (warn ? warn+' warning(s)' : 'All core services ready');
@@ -5099,6 +5375,58 @@ window.addEventListener('beforeunload', function() {
   let securityBroadcastLastAppliedKey = '';
   let securityBroadcastLastPayloadSignature = '';
   let securityAckRefreshTimer = null;
+  let securityBroadcastUsers = [];
+  let securityBroadcastRecipientsLoaded = false;
+
+  function audienceUserKey(user){ return userAckId(user); }
+  function profileInBroadcastAudience(profile, state){
+    const audience = state && state.audience;
+    if(!audience || audience.all === true) return true;
+    const ids = Array.isArray(audience.userIds) ? audience.userIds.map(x=>String(x).toLowerCase()) : [];
+    const emails = Array.isArray(audience.emails) ? audience.emails.map(x=>String(x).toLowerCase()) : [];
+    const p = profile || {};
+    const key = audienceUserKey(p).toLowerCase();
+    const email = String(p.email || '').toLowerCase();
+    return ids.includes(key) || (email && emails.includes(email));
+  }
+
+  function renderBroadcastRecipients(users){
+    const box = $('securityBroadcastRecipients');
+    if(!box) return;
+    securityBroadcastUsers = (users || []).filter(u => u.active !== false && String(u.role || '').toUpperCase() !== 'ADMIN')
+      .sort((a,b)=>String(a.username||a.email||'').localeCompare(String(b.username||b.email||'')));
+    if(!securityBroadcastUsers.length){ box.innerHTML = '<span>No active non-admin users found.</span>'; return; }
+    const existing = new Set(Array.from(box.querySelectorAll('input[type=checkbox]:checked')).map(x=>x.value));
+    const firstRender = !securityBroadcastRecipientsLoaded;
+    securityBroadcastRecipientsLoaded = true;
+    box.innerHTML = securityBroadcastUsers.map(u => {
+      const key = audienceUserKey(u);
+      const checked = firstRender || existing.has(key);
+      const label = (u.username || u.email || key) + (u.email && u.username ? ' — ' + u.email : '');
+      return '<label class="security-recipient-option"><input type="checkbox" value="'+esc(key)+'" data-email="'+esc(u.email||'')+'" '+(checked?'checked':'')+'> <span>'+esc(label)+'</span></label>';
+    }).join('');
+  }
+
+  async function loadBroadcastRecipients(){
+    try{
+      if(!isAdmin() || !db) return;
+      const snap = await db.collection('users').get();
+      const users = [];
+      snap.forEach(doc => users.push(Object.assign({id:doc.id}, doc.data() || {})));
+      renderBroadcastRecipients(users);
+    }catch(e){ const box=$('securityBroadcastRecipients'); if(box) box.innerHTML='<span>Could not load users: '+esc(e&&e.message||e)+'</span>'; }
+  }
+
+  function selectedBroadcastAudience(){
+    const inputs = Array.from(document.querySelectorAll('#securityBroadcastRecipients input[type=checkbox]'));
+    if(!inputs.length) return {all:true,userIds:[],emails:[]};
+    const checked = inputs.filter(x=>x.checked);
+    return {
+      all: checked.length === inputs.length,
+      userIds: checked.map(x=>String(x.value||'').toLowerCase()).filter(Boolean),
+      emails: checked.map(x=>String(x.getAttribute('data-email')||'').toLowerCase()).filter(Boolean)
+    };
+  }
 
   function broadcastAckKey(state){
     const st = state || {};
@@ -5122,7 +5450,7 @@ window.addEventListener('beforeunload', function() {
 
   function broadcastPayloadSignature(state){
     const st = state || {};
-    return [st.id || st.messageId || '', st.enabled ? '1' : '0', (st.requireAck || st.forceAck || st.forcedAcknowledgement) ? '1' : '0', st.title || '', st.body || '', st.updatedAt || ''].join('|');
+    return [st.id || st.messageId || '', st.enabled ? '1' : '0', (st.requireAck || st.forceAck || st.forcedAcknowledgement) ? '1' : '0', st.title || '', st.body || '', JSON.stringify(st.audience || {}), st.updatedAt || ''].join('|');
   }
 
   function scheduleAdminAcknowledgementRefresh(){
@@ -5147,7 +5475,8 @@ window.addEventListener('beforeunload', function() {
       id: incoming.id || incoming.messageId || '',
       messageId: incoming.messageId || incoming.id || '',
       updatedAt: incoming.updatedAt || '',
-      updatedBy: incoming.updatedBy || ''
+      updatedBy: incoming.updatedBy || '',
+      audience: incoming.audience || null
     };
     const currentKey = broadcastAckKey(securityBroadcastState);
     const currentSignature = broadcastPayloadSignature(securityBroadcastState);
@@ -5284,6 +5613,11 @@ window.addEventListener('beforeunload', function() {
       if(!en.checked && req) req.checked = false;
       setBroadcastActionMessage(en.checked ? '' : 'Broadcast is disabled. Use Save Broadcast to publish an active message, or Clear Broadcast to remove it.', true);
     });
+    const allBtn = $('securityBroadcastSelectAll');
+    const clearBtn = $('securityBroadcastClearAll');
+    if(allBtn) allBtn.onclick = function(){ document.querySelectorAll('#securityBroadcastRecipients input[type=checkbox]').forEach(x=>x.checked=true); };
+    if(clearBtn) clearBtn.onclick = function(){ document.querySelectorAll('#securityBroadcastRecipients input[type=checkbox]').forEach(x=>x.checked=false); };
+    loadBroadcastRecipients();
   }
 
   function renderBroadcastOverlay(){
@@ -5301,7 +5635,7 @@ window.addEventListener('beforeunload', function() {
     const localDismissed = localStorage.getItem('sscBroadcastDismiss_' + key) === '1';
     const remoteAcked = isForced && securityBroadcastAckState.key === key && securityBroadcastAckState.loaded && securityBroadcastAckState.acknowledged;
     const waitingForAckStatus = isForced && currentProfile && !isAdmin() && (!securityBroadcastAckState.loaded || securityBroadcastAckState.key !== key);
-    const show = !!(currentProfile && st.enabled && !isAdmin() && (isForced ? !remoteAcked : !localDismissed));
+    const show = !!(currentProfile && st.enabled && !isAdmin() && profileInBroadcastAudience(currentProfile, st) && (isForced ? !remoteAcked : !localDismissed));
     const tt = document.getElementById('securityBroadcastOverlayTitle');
     const bb = document.getElementById('securityBroadcastOverlayBody');
     const note = document.getElementById('securityBroadcastOverlayNote');
@@ -5352,6 +5686,11 @@ window.addEventListener('beforeunload', function() {
     if(requireAck && reqBox) reqBox.checked = true;
     const title = ($('securityBroadcastTitle') && $('securityBroadcastTitle').value.trim()) || 'Required Action';
     const body = ($('securityBroadcastBody') && $('securityBroadcastBody').value.trim()) || 'Please review the dashboard message.';
+    const audience = selectedBroadcastAudience();
+    if(!audience.all && !audience.userIds.length){
+      setBroadcastActionMessage('Select at least one user to receive this alert.', false);
+      return;
+    }
     const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
     const localNow = Date.now();
     const payload = {
@@ -5363,6 +5702,7 @@ window.addEventListener('beforeunload', function() {
       forcedAcknowledgement: requireAck,
       title: title,
       body: body,
+      audience: audience,
       createdAt: firebase.database.ServerValue.TIMESTAMP,
       updatedAt: firebase.database.ServerValue.TIMESTAMP,
       updatedBy: currentProfile.email || currentProfile.username || 'ADMIN'
@@ -5407,6 +5747,7 @@ window.addEventListener('beforeunload', function() {
           body:'',
           id:'',
           messageId:'',
+          audience:null,
           updatedAt: firebase.database.ServerValue.TIMESTAMP,
           updatedBy: currentProfile.email || currentProfile.username || 'ADMIN'
         },
@@ -5451,12 +5792,12 @@ window.addEventListener('beforeunload', function() {
       const ackSnap = await rtdb.ref('security/acknowledgements/' + key).once('value');
       const ack = ackSnap.val() || {};
       const active = users
-        .filter(u => u.active !== false && String(u.role || '').toUpperCase() !== 'ADMIN')
+        .filter(u => u.active !== false && String(u.role || '').toUpperCase() !== 'ADMIN' && profileInBroadcastAudience(u, liveBroadcast))
         .sort((a,b)=>String(a.username||a.email||'').localeCompare(String(b.username||b.email||'')));
       const pending = active.filter(u => !ack[userAckId(u)]);
       if(kpi) kpi.textContent = pending.length;
       if(tbl){
-        const emptyRow = '<tr><td colspan="6">Forced acknowledgement is active. No non-admin active users were found to acknowledge this message.</td></tr>';
+        const emptyRow = '<tr><td colspan="6">Forced acknowledgement is active. No selected active non-admin users were found for this message.</td></tr>';
         tbl.innerHTML = '<thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Time</th><th>Message ID</th></tr></thead><tbody>' + (active.length ? active.map(u => {
           const a = ack[userAckId(u)];
           return '<tr><td>'+esc(u.username||'')+'</td><td>'+esc(u.email||'')+'</td><td>'+esc(u.role||'')+'</td><td>'+secStatusPill(a?'Acknowledged':'Pending',a?'ok':'warn')+'</td><td>'+esc(a?securityTime(a.ts):'')+'</td><td>'+esc(key)+'</td></tr>';
@@ -5512,6 +5853,7 @@ window.addEventListener('beforeunload', function() {
   window.renderSecurityPage = function(){
     if(!isAdmin()) return false;
     wireBroadcastForm();
+    loadBroadcastRecipients();
     renderSecurityMaintenanceCard();
     window.refreshSystemHealth();
     window.refreshSecurityHealth();
@@ -5714,13 +6056,20 @@ window.addEventListener('beforeunload', function() {
       sec.onclick=()=>showTab('security');
       const um=document.querySelector('.side-tab.firebase-user-management-tab');
       if(um&&um.parentNode) um.parentNode.insertBefore(sec,um.nextSibling); else side.appendChild(sec);
+    } else {
+      sec.setAttribute('data-fb-tab-key','security');
+      sec.setAttribute('data-pb-tab','security');
+      sec.setAttribute('onclick', "switchTab('security')");
+      const um=document.querySelector('.side-tab.firebase-user-management-tab');
+      if(um&&um.parentNode&&sec.previousElementSibling!==um) um.parentNode.insertBefore(sec,um.nextSibling);
     }
   }
   function ensureUserWidget(){
     const side=document.querySelector('.side-menu'); if(!side||!currentProfile) return;
     let box=$('firebaseUserWidget');
     if(!box){ box=document.createElement('div'); box.id='firebaseUserWidget'; box.className='fb-user-box'; const head=side.querySelector('.side-head'); if(head&&head.parentNode) head.parentNode.insertBefore(box,head.nextSibling); else side.insertBefore(box,side.firstChild); }
-    box.innerHTML='<div>'+esc(currentProfile.username||currentProfile.email)+'</div><div class="muted">'+esc(currentProfile.role)+'</div><button class="fb-logout-btn" type="button" id="firebaseLogoutBtn">Logout</button>';
+    box.innerHTML='<div>'+esc(currentProfile.username||currentProfile.email)+'</div><div class="muted">'+esc(currentProfile.role)+'</div><button class="fb-password-btn" type="button" id="firebaseChangePasswordBtn">Change Password</button><button class="fb-logout-btn" type="button" id="firebaseLogoutBtn">Logout</button>';
+    const pwdBtn=$('firebaseChangePasswordBtn'); if(pwdBtn) pwdBtn.onclick=showSelfPasswordModal;
     const btn=$('firebaseLogoutBtn'); if(btn) btn.onclick=()=>auth.signOut();
   }
   function setPageVisible(key){
@@ -5771,6 +6120,10 @@ window.addEventListener('beforeunload', function() {
       else{ try{ if(p.style.display==='none') p.style.removeProperty('display'); }catch(e){} }
     });
   }
+  window.sscApplyPermissions = function(skipRedirect){ return applyPermissions(!!skipRedirect); };
+  window.sscCanOpenTab = function(key){ return canOpen(key); };
+  window.sscShowTab = function(key){ return showTab(key); };
+
   function hookNavigation(){
     document.addEventListener('click',function(ev){
       const el=ev.target&&ev.target.closest?ev.target.closest('.side-tab'):null;
@@ -5912,6 +6265,41 @@ window.addEventListener('beforeunload', function() {
       finally{ saveBtn.disabled=false; saveBtn.textContent='Save Password'; }
     };
     pwdInput.focus();
+  }
+
+  function showSelfPasswordModal(){
+    const user = auth && auth.currentUser;
+    const email = user && user.email || currentProfile && currentProfile.email || '';
+    ['selfPasswordModal','umPasswordModal'].forEach(function(id){ const old=document.getElementById(id); if(old) old.remove(); });
+    const modal=document.createElement('div'); modal.id='umPasswordModal'; modal.className='self-password-modal';
+    modal.innerHTML=`<div class="um-modal-backdrop"></div><div class="um-modal-card"><h3>Change Your Password</h3><p class="um-modal-email">${esc(email)}</p><div class="um-field"><label>Current Password</label><input id="selfCurrentPassword" type="password" autocomplete="current-password"></div><div class="um-field"><label>New Password</label><input id="selfNewPassword" type="password" minlength="6" placeholder="Min 6 characters" autocomplete="new-password"></div><div class="um-field"><label>Confirm New Password</label><input id="selfConfirmPassword" type="password" minlength="6" autocomplete="new-password"></div><div class="um-modal-msg" id="selfPasswordMsg"></div><div class="um-modal-actions"><button class="um-primary" id="selfPasswordSaveBtn" type="button">Update Password</button><button class="um-secondary" id="selfPasswordCancelBtn" type="button">Cancel</button></div></div>`;
+    document.body.appendChild(modal);
+    const currentInput=$('selfCurrentPassword'), pwdInput=$('selfNewPassword'), confInput=$('selfConfirmPassword'), msgEl=$('selfPasswordMsg'), saveBtn=$('selfPasswordSaveBtn'), cancelBtn=$('selfPasswordCancelBtn');
+    function close(){ modal.remove(); }
+    cancelBtn.onclick=close; modal.querySelector('.um-modal-backdrop').onclick=close;
+    saveBtn.onclick=async()=>{
+      const currentPwd=currentInput.value, newPwd=pwdInput.value, confPwd=confInput.value;
+      msgEl.className='um-modal-msg'; msgEl.textContent='';
+      if(!user || !email){ msgEl.className='um-modal-msg err'; msgEl.textContent='Current user session is not available.'; return; }
+      if(!currentPwd){ msgEl.className='um-modal-msg err'; msgEl.textContent='Enter your current password.'; return; }
+      if(newPwd.length<6){ msgEl.className='um-modal-msg err'; msgEl.textContent='Password must be at least 6 characters.'; return; }
+      if(newPwd!==confPwd){ msgEl.className='um-modal-msg err'; msgEl.textContent='Passwords do not match.'; return; }
+      saveBtn.disabled=true; saveBtn.textContent='Updating...';
+      try{
+        const credential=firebase.auth.EmailAuthProvider.credential(email,currentPwd);
+        await user.reauthenticateWithCredential(credential);
+        await user.updatePassword(newPwd);
+        if(currentProfile && currentProfile.id && db) await db.collection('users').doc(currentProfile.id).update({passwordChangedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        logSecurityActivity('Password changed','User changed own password');
+        msgEl.className='um-modal-msg ok'; msgEl.textContent='Password updated successfully.';
+        setTimeout(close,1500);
+      }catch(ex){
+        const code=ex&&ex.code||'';
+        msgEl.className='um-modal-msg err';
+        msgEl.textContent=code==='auth/wrong-password'||code==='auth/invalid-credential'?'Current password is incorrect.':(ex.message||String(ex));
+      }finally{ saveBtn.disabled=false; saveBtn.textContent='Update Password'; }
+    };
+    currentInput.focus();
   }
 
   async function applyPendingPasswordChange(user,profile){
@@ -6172,24 +6560,11 @@ window.addEventListener('beforeunload', function() {
       if(el){ side.insertBefore(el, bottom || null); }
     });
     if(bottom && bottom.parentNode===side) side.appendChild(bottom);
-    var colorBlock=$('v25ColorOptions');
-    if(colorBlock && colorBlock.parentElement && bottom && colorBlock.parentElement.parentNode===side) bottom.appendChild(colorBlock.parentElement);
-    var design=side.querySelector('.design-options');
-    if(design && bottom){
-      Array.from(bottom.querySelectorAll('.codex-sidebar-design-wrap')).forEach(function(w){
-        if(!w.querySelector('.design-options') && !(w.textContent||'').trim()) w.remove();
-      });
-      var wrap=bottom.querySelector('.codex-sidebar-design-wrap');
-      if(!wrap){ wrap=document.createElement('div'); wrap.className='codex-sidebar-design-wrap'; bottom.appendChild(wrap); }
-      var title=design.previousElementSibling;
-      if(title && title.classList && title.classList.contains('side-section-title') && title.parentNode!==wrap) wrap.insertBefore(title, wrap.firstChild);
-      if(design.parentNode!==wrap) wrap.appendChild(design);
-      bottom.appendChild(wrap);
-    }
     var refresh=$('codexGithubRefreshBtn'); if(refresh && bottom && refresh.parentNode!==bottom) bottom.insertBefore(refresh,bottom.firstChild);
     if(document.body.classList.contains('firebase-admin') || document.documentElement.classList.contains('admin')){
       side.querySelectorAll('[data-pb-tab="dashboard"],[data-pb-tab="preBooking"]').forEach(function(el){ el.classList.remove('fb-tab-denied'); el.style.display=''; el.style.visibility=''; });
     }
+    if(typeof window.sscApplyPermissions === 'function') window.sscApplyPermissions(true);
   }
   function ensureTabs(){ document.querySelectorAll('.side-tab').forEach(function(t){ if(/analyses dashboard/i.test(t.textContent||'')) t.remove(); }); var ap=document.getElementById('analysisPage'); if(ap) ap.remove();
     var side=$('sideMenu')||document.querySelector('.side-menu,.sidebar,.side-nav');
@@ -6332,8 +6707,11 @@ window.addEventListener('beforeunload', function() {
   var oldSwitch=window.switchTab;
   window.switchTab=function(tab){
     ensureTabs();
+    if((tab==='preBooking'||tab==='dashboard') && typeof window.sscShowTab === 'function'){
+      return window.sscShowTab(tab);
+    }
     if(tab==='preBooking'||tab==='dashboard'){
-      ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','returnCasesPage','dashboardPage','repairEfficiencyPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id===(tab+'Page')?'block':'none');});
+      ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','securityPage','preBookingPage','returnCasesPage','receivedDeliveredPage','dashboardPage','repairEfficiencyPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id===(tab+'Page')?'block':'none');});
       document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active', sideKey(el)===tab);});
       localStorage.setItem('serviceEyeActiveTab',tab);
       if(tab==='preBooking'){
@@ -6346,11 +6724,12 @@ window.addEventListener('beforeunload', function() {
         if((!Array.isArray(window.skyRows) || !window.skyRows.length) && typeof window.autoLoadSKYFromGitHub==='function') setTimeout(function(){ window.autoLoadSKYFromGitHub(); },250);
         if((!Array.isArray(window.allRows) || !window.allRows.length) && typeof window.autoLoadGSPNFromGitHub==='function') setTimeout(function(){ window.autoLoadGSPNFromGitHub(); },500);
       }
+      if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true);
       return;
     }
     if(typeof oldSwitch==='function'){
       var r=oldSwitch.apply(this,arguments);
-      setTimeout(orderSideTabs,50);
+      setTimeout(function(){ orderSideTabs(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true); },50);
       return r;
     }
   };
@@ -6419,7 +6798,7 @@ window.addEventListener('beforeunload', function() {
   window.rcDownloadFiltered=function(){var rows=rcFiltered.map(function(r){var o={}; rcCols.forEach(function(c){o[c]=(c==='Open_Date'||c==='CloseDate'||c==='Close Date')?fmtDate(r[c]):r[c];}); return o;}); writeXlsx(rows,'Return Cases','Return_Cases_Filtered.xlsx');};
   window.rcDownloadTechTable=function(){writeXlsx((window.rcTechRows||[]).map(function(x){return {'(Assigned_To)':x.tech,'Count Cases':x.count,'Branch':x.branch,'Count Cases for Branch':x.branchCount};}),'By Technician','Return_Cases_by_Branch_and_Technician.xlsx');};
   window.rcDownloadModelTable=function(){writeXlsx((window.rcModelRows||[]).map(function(x){return {'Model':x.model,'Count cases':x.count};}),'By Model','Return_Cases_by_Model.xlsx');};
-  var oldSwitch=window.switchTab; window.switchTab=function(tab){ensureSide(); ensurePage(); if(tab==='returnCases'){['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','preBookingPage','returnCasesPage','dashboardPage','repairEfficiencyPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id==='returnCasesPage'?'block':'none');}); document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active',keyOf(el)==='returnCases');}); try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){} if(!rcRows.length)loadReturnCases(false); else render(); return;} return typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined;};
+  var oldSwitch=window.switchTab; window.switchTab=function(tab){ensureSide(); ensurePage(); if(tab==='returnCases'){ if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') return window.sscShowTab('returnCases'); ['gspnPage','skyPage','profitPage','cashTargetPage','userManagementPage','securityPage','preBookingPage','returnCasesPage','receivedDeliveredPage','dashboardPage','repairEfficiencyPage'].forEach(function(id){var e=$(id); if(e)e.style.display=(id==='returnCasesPage'?'block':'none');}); document.querySelectorAll('.side-tab').forEach(function(el){el.classList.toggle('active',keyOf(el)==='returnCases');}); try{localStorage.setItem('serviceEyeActiveTab','returnCases');}catch(e){} if(!rcRows.length)loadReturnCases(false); else render(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true); return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; if(typeof window.sscApplyPermissions==='function') setTimeout(function(){window.sscApplyPermissions(true);},0); return r;};
   window.loadReturnCases=loadReturnCases; window.renderReturnCases=render;
   function boot(){ensureSide(); ensurePage(); normalizeNotice(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='returnCases')window.switchTab('returnCases'); else setTimeout(function(){ if(!rcRows.length) loadReturnCases(false); },900);}
   document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,850); setInterval(function(){try{loadReturnCases(false);}catch(e){}},3*60*60*1000);});
@@ -6473,8 +6852,8 @@ window.addEventListener('beforeunload', function() {
   function normaliseMonth(v){if(v instanceof Date){var names=['January','February','March','April','May','June','July','August','September','October','November','December']; return v.getFullYear()+'-'+names[v.getMonth()];} return txt(v).replace(/\s+/g,'-');}
   function normaliseRaw(rows){var out=[]; (rows||[]).forEach(function(r){var branch=txt(r.Branch||r.branch), emp=txt(r.Employee||r.employee), month=normaliseMonth(r.Month||r.month), rec=num(r.Received||r.received), del=num(r.Delivered||r.delivered), total=(r.Total!==undefined&&r.Total!=='')?num(r.Total):(rec+del), pctVal=(r['% of Branch']!==undefined?r['% of Branch']:(r.PercentBranch!==undefined?r.PercentBranch:r['%'])); if(branch&&emp&&month){out.push({Branch:branch,Employee:emp,Month:month,Received:rec,Delivered:del,Total:total,'% of Branch':pctVal}); return;} var months=Object.keys(r).filter(function(k){return /^\d{4}[-\s_][A-Za-z]+$/i.test(k);}); var type=txt(r.Type||r.type); if(branch&&emp&&type&&months.length){months.forEach(function(m){var val=num(r[m]); var row={Branch:branch,Employee:emp,Month:normaliseMonth(m),Received:0,Delivered:0,Total:0,'% of Branch':''}; if(/^received$/i.test(type))row.Received=val; else if(/^delivered$/i.test(type))row.Delivered=val; row.Total=row.Received+row.Delivered; out.push(row);});}}); return out.filter(function(r){return r.Branch||r.Employee||r.Month;});}
   function selected(id){var b=$(id); return b&&b.__selected?b.__selected.slice():[];}
-  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
-    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); b.classList.remove('open'); render();}; draw();}
+  function buildFilter(id,values){var b=$(id); if(!b)return; var title=b.getAttribute('data-title')||id, selectedVals=b.__selected||[], all=uniq(values); selectedVals=selectedVals.filter(function(v){return all.indexOf(v)>=0;}); b.__selected=selectedVals; b.classList.toggle('has-selection', selectedVals.length>0); var label=selectedVals.length?((selectedVals.length>2?selectedVals.length+' selected':selectedVals.join(', '))):'(Select All)'; b.innerHTML='<div class="rd-filter-label">'+esc(title)+'</div><button type="button" class="rd-filter-btn">'+esc(label)+'</button><div class="rd-filter-menu"><input class="rd-filter-search" placeholder="Search"><div class="rd-filter-list"></div><div class="rd-filter-actions-menu"><button type="button" class="rd-btn ok">OK</button><button type="button" class="rd-btn light cancel">Cancel</button></div></div>'; var btn=b.querySelector('.rd-filter-btn'), menu=b.querySelector('.rd-filter-menu'), list=b.querySelector('.rd-filter-list'), search=b.querySelector('.rd-filter-search'); var temp=selectedVals.slice(); function draw(){var q=txt(search.value).toLowerCase(); var vals=all.filter(function(v){return !q||v.toLowerCase().indexOf(q)>=0;}); list.innerHTML='<label class="rd-filter-option"><input type="checkbox" data-all="1" '+(!temp.length?'checked':'')+'> <span>(Select All)</span></label>'+vals.map(function(v){return '<label class="rd-filter-option"><input type="checkbox" value="'+esc(v)+'" '+(temp.indexOf(v)>=0?'checked':'')+'> <span>'+esc(v)+'</span></label>';}).join(''); list.querySelectorAll('input').forEach(function(cb){cb.onchange=function(){if(cb.getAttribute('data-all')){temp=[];}else{var v=cb.value, i=temp.indexOf(v); if(cb.checked&&i<0)temp.push(v); if(!cb.checked&&i>=0)temp.splice(i,1);} draw();};});}
+    btn.onclick=function(e){e.stopPropagation(); document.querySelectorAll('.rd-filter-box.open').forEach(function(x){if(x!==b)x.classList.remove('open');}); b.classList.toggle('open'); draw();}; menu.onclick=function(e){e.stopPropagation();}; search.oninput=draw; b.querySelector('.cancel').onclick=function(){b.classList.remove('open');}; b.querySelector('.ok').onclick=function(){b.__selected=temp.slice(); b.classList.toggle('has-selection', b.__selected.length>0); var chosen=b.__selected; var shown=chosen.length?((chosen.length>2?chosen.length+' selected':chosen.join(', '))):'(Select All)'; if(btn){btn.textContent=shown;btn.title=shown;} b.classList.remove('open'); render();}; draw();}
   function initFilters(){buildFilter('rdBranchFilter',rdRows.map(function(r){return r.Branch;})); buildFilter('rdEmployeeFilter',rdRows.map(function(r){return r.Employee;})); buildFilter('rdMonthFilter',rdRows.map(function(r){return r.Month;})); document.querySelectorAll('#receivedDeliveredPage .rd-card[data-card]').forEach(function(c){ if(!c.__rd){c.__rd=true;c.onclick=function(){var type=c.dataset.card, value=c.dataset.value||''; rdCardFilter=(rdCardFilter.type===type&&rdCardFilter.value===value)?{type:'',value:''}:{type:type,value:value}; render();};} });}
   function filterRows(){var br=selected('rdBranchFilter'), emp=selected('rdEmployeeFilter'), mon=selected('rdMonthFilter'); return rdRows.filter(function(r){if(br.length&&br.indexOf(r.Branch)<0)return false;if(emp.length&&emp.indexOf(r.Employee)<0)return false;if(mon.length&&mon.indexOf(r.Month)<0)return false;if(rdCardFilter.type==='branch'&&r.Branch!==rdCardFilter.value)return false;if(rdCardFilter.type==='employee'&&r.Employee!==rdCardFilter.value)return false;if(rdCardFilter.type==='month'&&r.Month!==rdCardFilter.value)return false;return true;});}
   function aggregate(rows,dims,includePct){var map={}; rows.forEach(function(r){var key=dims.map(function(d){return r[d];}).join('||'); if(!map[key]){map[key]={}; dims.forEach(function(d){map[key][d]=r[d];}); map[key].Received=0; map[key].Delivered=0; map[key].Total=0; map[key]._pctSum=0; map[key]._pctCount=0;} map[key].Received+=num(r.Received); map[key].Delivered+=num(r.Delivered); map[key].Total+=num(r.Total||(num(r.Received)+num(r.Delivered))); if(r['% of Branch']!==''&&r['% of Branch']!=null){map[key]._pctSum+=num(r['% of Branch']); map[key]._pctCount++;}}); return Object.keys(map).map(function(k){var x=map[k]; if(includePct)x['% of Branch']=x._pctCount?x._pctSum/x._pctCount:''; delete x._pctSum; delete x._pctCount; return x;});}
@@ -6484,7 +6863,7 @@ window.addEventListener('beforeunload', function() {
   function branchRows(rows){return aggregate(rows,['Branch','Month'],false);}
   function employeeRows(rows){return aggregate(rows,['Employee','Month'],true);}
   function sortRows(rows,kind){var s=rdSort[kind], main=kind==='employee'?'Employee':'Branch'; rows.sort(function(a,b){var av=a[s.col],bv=b[s.col], c=0; if(s.col==='Month')c=monthIndex(av)-monthIndex(bv); else c=(typeof av==='number'||typeof bv==='number'||s.col==='% of Branch')?(num(av)-num(bv)):txt(av).localeCompare(txt(bv)); if(c===0)c=txt(a[main]).localeCompare(txt(b[main]))||monthIndex(a.Month)-monthIndex(b.Month); return c*s.dir;}); return rows;}
-  function renderTable(id,rows,cols,kind){rows=sortRows(rows.slice(),kind); var tbl=$(id), main=kind==='employee'?'Employee':'Branch'; if(!tbl)return; tbl.innerHTML='<thead><tr>'+cols.map(function(c,i){return '<th draggable="true" data-col="'+esc(c)+'" data-kind="'+kind+'" data-idx="'+i+'">'+esc(c)+' '+(rdSort[kind].col===c?(rdSort[kind].dir>0?'▲':'▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c], display=(c==='% of Branch')?pct(v):(typeof v==='number'?fmt(v):v), cls='', html=esc(display), link=(c===main||c==='Month'||c==='Received'||c==='Delivered'||c==='Total'||c==='% of Branch'); if(c===main){cls=' group-cell'; html='<span class="rd-group-toggle">⊟</span>'+esc(display);} var attrs=link?' class="rd-link'+cls+'" data-kind="'+kind+'" data-col="'+esc(c)+'" data-value="'+esc(v)+'" data-main="'+esc(r[main]||'')+'" data-month="'+esc(r.Month||'')+'"':' class="'+cls+'"'; return '<td'+attrs+'>'+html+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>'; tbl.querySelectorAll('th').forEach(function(th){th.onclick=function(){var k=th.dataset.kind,c=th.dataset.col; if(rdSort[k].col===c)rdSort[k].dir*=-1; else rdSort[k]={col:c,dir:1}; render();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',th.dataset.idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault();var from=Number(e.dataTransfer.getData('text/plain')), to=Number(th.dataset.idx), k=th.dataset.kind, arr=rdCols[k]; if(isNaN(from)||isNaN(to)||from===to)return; arr.splice(to,0,arr.splice(from,1)[0]); render();};}); tbl.querySelectorAll('.rd-link').forEach(function(td){td.onclick=function(){drill(td.dataset.kind,td.dataset.col,td.dataset.value,td.dataset);};});}
+  function renderTable(id,rows,cols,kind){rows=sortRows(rows.slice(),kind); var tbl=$(id), main=kind==='employee'?'Employee':'Branch'; if(!tbl)return; var totals={Received:0,Delivered:0,Total:0}; rows.forEach(function(r){totals.Received+=num(r.Received);totals.Delivered+=num(r.Delivered);totals.Total+=num(r.Total||(num(r.Received)+num(r.Delivered)));}); var totalRow='<tr class="rd-total-row">'+cols.map(function(c,i){var display=''; if(i===0)display='Total'; else if(c==='Received')display=fmt(totals.Received); else if(c==='Delivered')display=fmt(totals.Delivered); else if(c==='Total')display=fmt(totals.Total); else if(c==='% of Branch')display='100%'; return '<td>'+esc(display)+'</td>';}).join('')+'</tr>'; tbl.innerHTML='<thead><tr>'+cols.map(function(c,i){return '<th draggable="true" data-col="'+esc(c)+'" data-kind="'+kind+'" data-idx="'+i+'">'+esc(c)+' '+(rdSort[kind].col===c?(rdSort[kind].dir>0?'▲':'▼'):'')+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c], display=(c==='% of Branch')?pct(v):(typeof v==='number'?fmt(v):v), cls='', html=esc(display), link=(c===main||c==='Month'||c==='Received'||c==='Delivered'||c==='Total'||c==='% of Branch'); if(c===main){cls=' group-cell'; html='<span class="rd-group-toggle">⊟</span>'+esc(display);} var attrs=link?' class="rd-link'+cls+'" data-kind="'+kind+'" data-col="'+esc(c)+'" data-value="'+esc(v)+'" data-main="'+esc(r[main]||'')+'" data-month="'+esc(r.Month||'')+'"':' class="'+cls+'"'; return '<td'+attrs+'>'+html+'</td>';}).join('')+'</tr>';}).join('')+'</tbody><tfoot>'+totalRow+'</tfoot>'; tbl.querySelectorAll('th').forEach(function(th){th.onclick=function(){var k=th.dataset.kind,c=th.dataset.col; if(rdSort[k].col===c)rdSort[k].dir*=-1; else rdSort[k]={col:c,dir:1}; render();}; th.ondragstart=function(e){e.dataTransfer.setData('text/plain',th.dataset.idx);}; th.ondragover=function(e){e.preventDefault();}; th.ondrop=function(e){e.preventDefault();var from=Number(e.dataTransfer.getData('text/plain')), to=Number(th.dataset.idx), k=th.dataset.kind, arr=rdCols[k]; if(isNaN(from)||isNaN(to)||from===to)return; arr.splice(to,0,arr.splice(from,1)[0]); render();};}); tbl.querySelectorAll('.rd-link').forEach(function(td){td.onclick=function(){drill(td.dataset.kind,td.dataset.col,td.dataset.value,td.dataset);};});}
   function drill(kind,col,value,ctx){ctx=ctx||{}; var main=kind==='employee'?'Employee':'Branch'; var rows=rdFiltered.filter(function(r){ if(ctx.main&&r[main]!==ctx.main)return false; if(ctx.month&&r.Month!==ctx.month)return false; return true;}); rdDrillRows=rows; if($('rdDrillTitle'))$('rdDrillTitle').textContent='Details - '+col+': '+value; renderDetail('rdDrillTable',rows); if($('rdDrill'))$('rdDrill').style.display='block';}
   function renderDetail(id,rows){var cols=['Branch','Employee','Month','Received','Delivered','Total','% of Branch']; var tbl=$(id); tbl.innerHTML='<thead><tr>'+cols.map(function(c){return '<th>'+esc(c)+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c]; return '<td>'+esc(c==='% of Branch'?pct(v):(typeof v==='number'?fmt(v):v))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>';}
   function render(){rdFiltered=filterRows(); renderCards(rdFiltered); rdCols.branch=rdCols.branch.length?rdCols.branch:['Branch','Month','Received','Delivered','Total']; rdCols.employee=rdCols.employee.length?rdCols.employee:['Employee','Month','Received','Delivered','Total','% of Branch']; renderTable('rdBranchTable',branchRows(rdFiltered),rdCols.branch,'branch'); renderTable('rdEmployeeTable',employeeRows(rdFiltered),rdCols.employee,'employee'); notice('Data updated','Auto Sync',rdRows.length,'Fresh data loaded by Auto sync');}
@@ -6494,10 +6873,10 @@ window.addEventListener('beforeunload', function() {
   window.rdDownloadDrill=function(){toXlsx(rdDrillRows,'Received Delivered Details');};
   window.rdClearFilters=function(){['rdBranchFilter','rdEmployeeFilter','rdMonthFilter'].forEach(function(id){var b=$(id); if(b)b.__selected=[];}); rdCardFilter={type:'',value:''}; initFilters(); render();};
   window.loadReceivedDelivered=async function(manual){makePage(); ensureSide(); notice('Updating now','Auto Sync',rdRows.length,'Loading data...'); try{var result=await fetchRows(!!manual); rdRows=normaliseRaw(result.rows); window.receivedDeliveredRows=rdRows; initFilters(); render(); notice('Data updated','GitHub: '+(result.file||'Received_Delivered.xlsx'),rdRows.length,'Fresh data loaded by Auto sync'); try{localStorage.setItem('serviceV2Last_receivedDelivered',JSON.stringify({state:'success',source:'GitHub: '+(result.file||'Received_Delivered.xlsx'),rows:rdRows.length,time:new Date().toLocaleString(),msg:'Fresh data loaded by Auto sync'}));}catch(_e){} return rdRows;}catch(e){console.error(e); window.receivedDeliveredRows=rdRows; initFilters(); if(rdRows.length){render(); notice('Data updated','Auto Sync',rdRows.length,'GitHub not reachable — existing data kept'); return rdRows;} render(); notice('Waiting for data','Auto Sync',0,e&&e.message?e.message:'Load failed'); return [];}};
-  function hideAllShow(){['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage','repairEfficiencyPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='receivedDelivered');}); try{localStorage.setItem('serviceEyeActiveTab','receivedDelivered');}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab('receivedDelivered'); }catch(e){}}
+  function hideAllShow(){['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','profitPage','cashTargetPage','userManagementPage','repairEfficiencyPage','securityPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)==='receivedDelivered');}); try{localStorage.setItem('serviceEyeActiveTab','receivedDelivered');}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab('receivedDelivered'); }catch(e){}}
   function show(){makePage(); ensureSide(); hideAllShow(); if(!rdRows.length)window.loadReceivedDelivered(false); else render();}
-  var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab==='receivedDelivered'){show();return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='none'; setTimeout(ensureSide,80); return r; };
-  document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&keyOf(tab)==='receivedDelivered'){e.preventDefault();e.stopImmediatePropagation();show();}},true);
+  var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab==='receivedDelivered'){ if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') return window.sscShowTab('receivedDelivered'); show(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true); return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$('receivedDeliveredPage'); if(pg)pg.style.display='none'; setTimeout(function(){ensureSide(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true);},80); return r; };
+  document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&keyOf(tab)==='receivedDelivered'){e.preventDefault();e.stopImmediatePropagation(); if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') window.sscShowTab('receivedDelivered'); else show();}},true);
   document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.rd-filter-box'))document.querySelectorAll('.rd-filter-box.open').forEach(function(x){x.classList.remove('open');});});
   function boot(){makePage(); ensureSide(); var a=''; try{a=localStorage.getItem('serviceEyeActiveTab')||'';}catch(e){} if(a==='receivedDelivered')show();}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot(); window.addEventListener('load',function(){setTimeout(boot,100);setTimeout(ensureSide,800);});
@@ -6509,83 +6888,27 @@ window.addEventListener('beforeunload', function() {
    Shared UX
    ============================================================ */
 
-/* --- codex-page-color-full-page-final-script --- */
+/* --- smart-home-single-theme-chart-readability --- */
 
 (function(){
-  function isDarkMode(){
-    if(!document.body) return false;
-    var pageColor = document.body.dataset.pageColor || '';
-    return pageColor === 'dark' || (!pageColor && document.body.classList.contains('theme-glass'));
-  }
   function applyChartReadability(){
     try{
-      var dark = isDarkMode();
       if(window.Chart){
-        Chart.defaults.color = dark ? '#e5e7eb' : '#111827';
-        Chart.defaults.borderColor = dark ? 'rgba(148,163,184,.22)' : 'rgba(17,24,39,.16)';
+        Chart.defaults.color = '#111827';
+        Chart.defaults.borderColor = 'rgba(17,24,39,.12)';
       }
-      if(window.dashboardCharts){
-        Object.keys(window.dashboardCharts).forEach(function(id){
-          var ch = window.dashboardCharts[id];
-          if(!ch || !ch.options) return;
-          if(ch.options.plugins && ch.options.plugins.legend && ch.options.plugins.legend.labels){
-            ch.options.plugins.legend.labels.color = dark ? '#e5e7eb' : '#111827';
-          }
-          if(ch.options.scales){
-            Object.keys(ch.options.scales).forEach(function(k){
-              var sc = ch.options.scales[k];
-              if(sc.ticks) sc.ticks.color = dark ? '#e5e7eb' : '#111827';
-              if(sc.grid) sc.grid.color = dark ? 'rgba(148,163,184,.22)' : 'rgba(17,24,39,.16)';
-            });
-          }
-          try{ ch.update('none'); }catch(e){}
-        });
-      }
+      window.COLORS = ['#a855f7','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'];
     }catch(e){}
   }
-  function applyStoredColor(){
-    try{
-      var key = localStorage.getItem('serviceEyePageColor_v2') || document.body.dataset.pageColor || 'coral';
-      document.body.dataset.pageColor = key;
-      if(key !== 'dark'){
-        document.body.classList.remove('theme-glass','color-black');
-        try{ if(localStorage.getItem('serviceEyeColor_sky') === 'black') localStorage.removeItem('serviceEyeColor_sky'); }catch(_e){}
-        try{ if(localStorage.getItem('serviceEyeColor_gspn') === 'black') localStorage.removeItem('serviceEyeColor_gspn'); }catch(_e){}
-      }
-      document.querySelectorAll('.codex-color-swatch').forEach(function(btn){ btn.classList.toggle('active', btn.dataset.color === key); });
-      applyChartReadability();
-    }catch(e){}
+  function boot(){
+    if(document.body){
+      __sscClearOldVisualState(document.body);
+    }
+    applyChartReadability();
   }
-  function ensureDarkSwatch(){
-    var box = document.querySelector('#codexPageColorPanel .codex-page-color-swatches');
-    if(!box || box.querySelector('[data-color="dark"]')) return;
-    var btn=document.createElement('button');
-    btn.type='button'; btn.className='codex-color-swatch'; btn.dataset.color='dark'; btn.title='Dark Mode'; btn.style.background='linear-gradient(135deg,#020617,#334155)';
-    btn.onclick=function(){ if(window.setPageColor) window.setPageColor('dark'); else { localStorage.setItem('serviceEyePageColor_v2','dark'); document.body.dataset.pageColor='dark'; applyStoredColor(); } };
-    box.appendChild(btn);
-    applyStoredColor();
-  }
-  function patchSetPageColor(){
-    if(!window.setPageColor || window.setPageColor.__fullPageColorPatch) return;
-    var original = window.setPageColor;
-    window.setPageColor = function(color){
-      var key = color || 'coral';
-      try { localStorage.setItem('serviceEyePageColor_v2', key); } catch(e) {}
-      document.body.dataset.pageColor = key;
-      var r = original.apply(this, arguments);
-      applyStoredColor();
-      setTimeout(applyChartReadability, 80);
-      return r;
-    };
-    window.setPageColor.__fullPageColorPatch = true;
-  }
-  function boot(){ patchSetPageColor(); ensureDarkSwatch(); applyStoredColor(); setTimeout(applyChartReadability, 120); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  window.addEventListener('load', function(){ setTimeout(boot,300); setTimeout(boot,1000); });
-  try{ new MutationObserver(function(){ clearTimeout(window.__pageColorFullTimer); window.__pageColorFullTimer=setTimeout(boot,120); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
+  window.addEventListener('load', function(){ setTimeout(boot,120); });
 })();
-
-
 
 /* ============================================================
    Cash & Target
@@ -6690,14 +7013,7 @@ window.addEventListener('beforeunload', function() {
 
 (function(){
   'use strict';
-  var COLORS={
-    coral:{label:'Coral',value:'#ff4d2e',chart:['#ff4d2e','#0f172a','#f97316','#14b8a6','#7c3aed','#16a34a','#eab308']},
-    blue:{label:'Blue',value:'#2563eb',chart:['#2563eb','#0f766e','#f97316','#7c3aed','#16a34a','#e11d48','#0891b2']},
-    green:{label:'Green',value:'#16a34a',chart:['#16a34a','#2563eb','#f97316','#7c3aed','#0f766e','#e11d48','#eab308']},
-    purple:{label:'Purple',value:'#7c3aed',chart:['#7c3aed','#2563eb','#16a34a','#f97316','#0f766e','#e11d48','#eab308']},
-    teal:{label:'Teal',value:'#0f766e',chart:['#0f766e','#2563eb','#f97316','#7c3aed','#16a34a','#e11d48','#eab308']},
-    dark:{label:'Dark Mode',value:'#020617',chart:['#60a5fa','#34d399','#f97316','#a78bfa','#22d3ee','#facc15','#fb7185']}
-  };
+  var SMART_HOME_CHART_COLORS=['#a855f7','#7c3aed','#2563eb','#14b8a6','#f97316','#16a34a','#eab308'];
   var GITHUB_TABS=['gspn','sky','profit','preBooking','returnCases','receivedDelivered','dashboard'];
   var refreshInFlight=false;
   function $(id){return document.getElementById(id);}
@@ -6718,30 +7034,14 @@ window.addEventListener('beforeunload', function() {
   }
   function ensureTooltips(){document.querySelectorAll('.side-tab').forEach(function(el){var label=el.querySelector('.side-label');var t=text(label?label.textContent:el.textContent);if(t){el.dataset.tip=t;el.title=t;}});}
   function applyColor(color){
-    var key=COLORS[color]?color:'coral', cfg=COLORS[key];
-    try{localStorage.setItem('serviceEyePageColor_v2',key);}catch(e){}
-    document.body.dataset.pageColor=key;
-    document.documentElement.style.setProperty('--codex-accent',cfg.value);
     try{
-      if(window.Chart){var d=key==='dark';Chart.defaults.color=d?'#e5e7eb':'#111827';Chart.defaults.borderColor=d?'rgba(255,255,255,.18)':'rgba(17,24,39,.16)';}
-      window.COLORS=cfg.chart.slice();
+      __sscClearOldVisualState(document.body);
+      document.documentElement.style.setProperty('--codex-accent','oklch(0.61 0.24 300)');
+      if(window.Chart){Chart.defaults.color='#111827';Chart.defaults.borderColor='rgba(17,24,39,.12)';}
+      window.COLORS=SMART_HOME_CHART_COLORS.slice();
     }catch(e){}
-    document.querySelectorAll('.codex-color-swatch').forEach(function(btn){btn.classList.toggle('active',btn.dataset.color===key);});
-    if(window.setPageColor&&window.setPageColor!==applyColor){try{window.setPageColor(key);}catch(e){}}
-    rerenderVisible();
   }
-  function ensurePalette(){
-    var bottom=getBottom(); if(!bottom) return;
-    var panel=$('codexPageColorPanel');
-    if(!panel){panel=document.createElement('div');panel.id='codexPageColorPanel';panel.className='codex-page-color-panel';panel.innerHTML='<div class="codex-page-color-title">Page Color</div><div class="codex-page-color-swatches"></div>';bottom.insertBefore(panel,bottom.firstChild);}
-    var swatches=panel.querySelector('.codex-page-color-swatches'); if(!swatches) return;
-    Object.keys(COLORS).forEach(function(key){
-      var btn=swatches.querySelector('[data-color="'+key+'"]');
-      if(!btn){btn=document.createElement('button');btn.type='button';btn.className='codex-color-swatch';btn.dataset.color=key;btn.title=COLORS[key].label;btn.style.background= key==='dark'?'linear-gradient(135deg,#020617,#334155)':COLORS[key].value;swatches.appendChild(btn);}
-      btn.onclick=function(){applyColor(key);};
-    });
-    applyColor(localStorage.getItem('serviceEyePageColor_v2')||document.body.dataset.pageColor||'coral');
-  }
+  function ensurePalette(){ applyColor('smart-home'); }
   async function runGithubRefresh(tab,manual){
     var t=tab||visibleTab();
     if(t==='cashTarget'){ if(manual) alert('Cash & Target is manual only. Use the manual update/upload controls.'); return false; }
@@ -6866,7 +7166,6 @@ window.addEventListener('beforeunload', function() {
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', tuneAll); else tuneAll();
   window.addEventListener('load', function(){ setTimeout(tuneAll, 400); });
-  document.addEventListener('click', function(e){ if(e.target && e.target.closest && e.target.closest('.codex-color-swatch')) setTimeout(tuneAll, 220); }, true);
 })();
 
 
@@ -7207,10 +7506,10 @@ window.addEventListener('beforeunload', function() {
   window.loadRepairEfficiency=async function(manual){makePage(); ensureSide(); notice('Updating now','Auto Sync',reRows.length,'Loading data...'); try{var result=await fetchRows(!!manual); reRows=normaliseRaw(result.rows); window.repairEfficiencyRows=reRows; initFilters(); render(); notice('Data updated','GitHub: '+result.file,reRows.length,'Fresh data loaded by Auto sync'); return reRows;}catch(e){console.error(e); window.repairEfficiencyRows=reRows; initFilters(); if(reRows.length){render(); notice('Data updated','Auto Sync',reRows.length,'GitHub not reachable — existing data kept'); return reRows;} render(); notice('Waiting for data','Auto Sync',0,e&&e.message?e.message:'Load failed'); return [];} };
   function allowedRepair(){var p=window.currentFirebaseUserProfile; if(!p)return true; var role=txt(p.role).toUpperCase(); if(role==='ADMIN')return true; var tabs=Array.isArray(p.allowedTabs)?p.allowedTabs:[]; if(role==='MANAGER'&&!tabs.length)return true; return tabs.indexOf(KEY)>=0||tabs.indexOf(TITLE)>=0;}
   function enforceRepairPermission(){var side=$('sideMenu')||document; var tabs=Array.prototype.slice.call(side.querySelectorAll('.side-tab')).filter(function(el){return keyOf(el)===KEY||(el.textContent||'').toLowerCase().indexOf('repair efficiency')>=0;}); var ok=allowedRepair(); tabs.forEach(function(el){el.classList.toggle('fb-tab-denied',!ok); el.setAttribute('aria-hidden',ok?'false':'true'); if(!ok){el.style.setProperty('display','none','important'); el.style.setProperty('visibility','hidden','important');} else {el.style.removeProperty('display'); el.style.removeProperty('visibility'); el.style.removeProperty('opacity');}}); var p=$(PAGE); if(p&&!ok)p.style.setProperty('display','none','important'); return ok;}
-  function hideAllShow(){if(!enforceRepairPermission())return false; ['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','receivedDeliveredPage','profitPage','cashTargetPage','userManagementPage','repairEfficiencyPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$(PAGE); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)===KEY);}); try{localStorage.setItem('serviceEyeActiveTab',KEY);}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab(TITLE); }catch(e){} return true;}
+  function hideAllShow(){if(!enforceRepairPermission())return false; ['dashboardPage','gspnPage','skyPage','preBookingPage','returnCasesPage','receivedDeliveredPage','profitPage','cashTargetPage','userManagementPage','securityPage','repairEfficiencyPage'].forEach(function(id){var p=$(id); if(p)p.style.display='none';}); var pg=$(PAGE); if(pg)pg.style.display='block'; Array.prototype.slice.call(document.querySelectorAll('.side-tab')).forEach(function(el){el.classList.toggle('active',keyOf(el)===KEY);}); try{localStorage.setItem('serviceEyeActiveTab',KEY);}catch(e){} try{ if(typeof window.sscUpdatePresenceTab==='function') window.sscUpdatePresenceTab(TITLE); }catch(e){} if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true); return true;}
   function show(){makePage(); ensureSide(); if(!hideAllShow())return; if(!reRows.length)window.loadRepairEfficiency(false); else render();}
-  var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab===KEY){show();return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$(PAGE); if(pg)pg.style.display='none'; setTimeout(ensureSide,80); return r; };
-  document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&(keyOf(tab)===KEY||(tab.textContent||'').toLowerCase().indexOf('repair efficiency')>=0)){e.preventDefault();e.stopImmediatePropagation();show();}},true);
+  var oldSwitch=window.switchTab; window.switchTab=function(tab){ if(tab===KEY){ if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') return window.sscShowTab(KEY); show(); return;} var r=typeof oldSwitch==='function'?oldSwitch.apply(this,arguments):undefined; var pg=$(PAGE); if(pg)pg.style.display='none'; setTimeout(function(){ensureSide(); if(typeof window.sscApplyPermissions==='function') window.sscApplyPermissions(true);},80); return r; };
+  document.addEventListener('click',function(e){var tab=e.target&&e.target.closest?e.target.closest('.side-tab'):null; if(tab&&(keyOf(tab)===KEY||(tab.textContent||'').toLowerCase().indexOf('repair efficiency')>=0)){e.preventDefault();e.stopImmediatePropagation(); if(window.currentFirebaseUserProfile && typeof window.sscShowTab==='function') window.sscShowTab(KEY); else show();}},true);
   document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.re-filter-box'))document.querySelectorAll('.re-filter-box.open').forEach(function(x){x.classList.remove('open');});});
   function patchUserManagementCheckboxes(){var addBox=$('umAllowedTabsBox'); if(addBox&&!addBox.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')) addBox.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'">'+TITLE+'</label>'); document.querySelectorAll('#umUsersTable .um-row-tabs').forEach(function(box){if(!box.querySelector('input[value="'+TITLE+'"],input[value="'+KEY+'"]')){var edit=box.querySelector('.um-tabs-edit')||box; edit.insertAdjacentHTML('beforeend','<label><input type="checkbox" value="'+KEY+'" disabled>'+TITLE+'</label>');}});}
   function installUserManagementPatch(){if(window.__repairEfficiencyUmPatchInstalled)return; window.__repairEfficiencyUmPatchInstalled=true; document.addEventListener('click',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('um-edit'))setTimeout(patchUserManagementCheckboxes,60);},true); try{new MutationObserver(function(){patchUserManagementCheckboxes(); enforceRepairPermission();}).observe(document.body,{childList:true,subtree:true});}catch(e){} setInterval(function(){patchUserManagementCheckboxes(); enforceRepairPermission();},3000);}
@@ -7283,9 +7582,11 @@ window.addEventListener('beforeunload', function() {
       el.setAttribute('onclick', "switchTab('" + k + "')");
       el.style.order = String(20 + ORDER.indexOf(k));
       if(k === 'repairEfficiency' || k === 'returnCases' || k === 'receivedDelivered'){
-        el.style.display = 'flex'; el.style.visibility = 'visible'; el.style.opacity = '1'; el.style.pointerEvents = 'auto';
+        var denied = window.currentFirebaseUserProfile && typeof window.sscCanOpenTab === 'function' && !window.sscCanOpenTab(k);
+        if(!denied){ el.style.display = 'flex'; el.style.visibility = 'visible'; el.style.opacity = '1'; el.style.pointerEvents = 'auto'; }
       }
     });
+    if(typeof window.sscApplyPermissions === 'function') window.sscApplyPermissions(true);
   }
   function ensurePageFor(key){
     try{
@@ -7297,6 +7598,11 @@ window.addEventListener('beforeunload', function() {
   }
   function applyOnly(key){
     key = norm(key);
+    if(window.currentFirebaseUserProfile && typeof window.sscCanOpenTab === 'function' && !window.sscCanOpenTab(key)){
+      if(typeof window.sscApplyPermissions === 'function') window.sscApplyPermissions(true);
+      if(typeof window.sscShowTab === 'function') return window.sscShowTab(key);
+      return false;
+    }
     ensureSidebar();
     ensurePageFor(key);
     Object.keys(PAGE).forEach(function(k){ var p = $(PAGE[k]); if(p) p.style.display = (k === key ? 'block' : 'none'); });
@@ -7324,12 +7630,14 @@ window.addEventListener('beforeunload', function() {
           if(typeof window.renderSecurityPage === 'function') window.renderSecurityPage();
         }
       }catch(e){ console.error('Final tab apply error', key, e); }
+      if(typeof window.sscApplyPermissions === 'function') window.sscApplyPermissions(true);
     }, 120);
   }
 
   var previousSwitchTab = window.switchTab;
   window.switchTab = function(tab){
     var key = norm(tab);
+    if(window.currentFirebaseUserProfile && typeof window.sscShowTab === 'function' && PAGE[key]) return window.sscShowTab(key);
     if(key === 'security' && !(typeof window.isAdmin === 'function' && window.isAdmin())) return false;
     if(PAGE[key]){
       if(['gspn','sky','profit','cashTarget','userManagement'].indexOf(key) >= 0 && typeof previousSwitchTab === 'function'){
@@ -7348,6 +7656,11 @@ window.addEventListener('beforeunload', function() {
     var key = keyOf(tab);
     if(!PAGE[key]) return;
     /* This listener is intentionally not capture; older capture handlers may call window.switchTab, which now routes here. */
+    if(window.currentFirebaseUserProfile && typeof window.sscShowTab === 'function'){
+      setTimeout(function(){ window.sscShowTab(key); }, 0);
+      setTimeout(function(){ if(typeof window.sscApplyPermissions === 'function') window.sscApplyPermissions(true); }, 180);
+      return;
+    }
     setTimeout(function(){ applyOnly(key); }, 0);
     setTimeout(function(){ applyOnly(key); }, 180);
   }, false);
@@ -7356,7 +7669,10 @@ window.addEventListener('beforeunload', function() {
     ensureSidebar();
     var active = 'gspn';
     try{ active = norm(localStorage.getItem('serviceEyeActiveTab') || 'gspn'); }catch(e){}
-    if(PAGE[active]) applyOnly(active);
+    if(PAGE[active]){
+      if(window.currentFirebaseUserProfile && typeof window.sscShowTab === 'function') window.sscShowTab(active);
+      else applyOnly(active);
+    }
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   window.addEventListener('load', function(){ setTimeout(boot, 250); setTimeout(ensureSidebar, 1000); });
