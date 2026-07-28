@@ -1,0 +1,23 @@
+.mx-tcs-page main{padding:24px}
+.mx-tcs-status{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 18px;padding:12px 16px;border:1px solid var(--border,#dbe1ea);border-radius:14px;background:var(--card,#fff)}
+.mx-tcs-status-dot{width:10px;height:10px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,.14)}
+.mx-tcs-status.is-live .mx-tcs-status-dot{background:#10b981;box-shadow:0 0 0 4px rgba(16,185,129,.14)}
+.mx-tcs-status.is-error .mx-tcs-status-dot{background:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.14)}
+.mx-tcs-status small{color:var(--muted-foreground,#64748b)}
+.mx-tcs-filters{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.mx-tcs-filters label{display:grid;gap:6px;font-weight:700;font-size:13px}
+.mx-tcs-filters select,.mx-tcs-filters input{min-height:42px;padding:8px 11px;border:1px solid var(--border,#cbd5e1);border-radius:10px;background:var(--card,#fff);color:inherit}
+.mx-tcs-cards{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:14px;margin-bottom:18px}
+.mx-tcs-card{padding:17px;border:1px solid var(--border,#dbe1ea);border-radius:16px;background:var(--card,#fff);box-shadow:0 8px 24px rgba(15,23,42,.05)}
+.mx-tcs-card span{display:block;color:var(--muted-foreground,#64748b);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.mx-tcs-card strong{display:block;margin-top:7px;font-size:26px}
+.mx-tcs-table-wrap{overflow:auto;border:1px solid var(--border,#dbe1ea);border-radius:16px;background:var(--card,#fff)}
+.mx-tcs-table{width:100%;border-collapse:collapse;min-width:1050px}
+.mx-tcs-table th,.mx-tcs-table td{padding:12px 13px;border-bottom:1px solid var(--border,#e2e8f0);text-align:left;white-space:nowrap}
+.mx-tcs-table th{position:sticky;top:0;z-index:1;background:var(--card,#fff);font-size:12px;text-transform:uppercase;color:var(--muted-foreground,#64748b)}
+.mx-tcs-score{font-weight:900;font-variant-numeric:tabular-nums}
+.mx-tcs-rank{display:inline-flex;min-width:34px;height:28px;align-items:center;justify-content:center;border-radius:999px;background:rgba(117,105,154,.12);font-weight:900}
+.mx-tcs-empty{padding:40px;text-align:center;color:var(--muted-foreground,#64748b)}
+.dark .mx-tcs-status,.dark .mx-tcs-card,.dark .mx-tcs-table-wrap,.dark .mx-tcs-filters select,.dark .mx-tcs-filters input,.dark .mx-tcs-table th{background:#171923;border-color:#313646}
+@media(max-width:1000px){.mx-tcs-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.mx-tcs-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.mx-tcs-page main{padding:14px}.mx-tcs-filters,.mx-tcs-cards{grid-template-columns:1fr}}
