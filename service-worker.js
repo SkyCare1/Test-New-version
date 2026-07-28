@@ -1,7 +1,7 @@
 /* Service Support Center PWA service worker — v56 */
 'use strict';
 
-const VERSION = '20260728-mx-tcs-navigation-v4';
+const VERSION = '20260728-mx-tcs-isolated-nav-v5';
 const STATIC_CACHE = 'ssc-static-' + VERSION;
 const PAGE_CACHE = 'ssc-pages-' + VERSION;
 
