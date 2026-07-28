@@ -118,6 +118,47 @@
     var values = list.map(function (row) { return row[key]; }).filter(Number.isFinite);
     return values.length ? values.reduce(function (sum, value) { return sum + value; }, 0) / values.length : null;
   }
+  function renderCompanyMonthMatrix(list) {
+    var head = document.getElementById("mxTcsMatrixHead");
+    var body = document.getElementById("mxTcsMatrixBody");
+    if (!head || !body) return;
+    var monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    head.innerHTML = "<tr><th>Company / Branch</th>" + monthNames.map(function (month) {
+      return "<th>" + month + "</th>";
+    }).join("") + "<th>Average</th><th>Quarter Rank</th></tr>";
+    var groups = new Map();
+    list.forEach(function (row) {
+      var company = row.region || row.name || row.code || "Unspecified";
+      if (!groups.has(company)) groups.set(company, []);
+      groups.get(company).push(row);
+    });
+    var companies = Array.from(groups.entries()).map(function (entry) {
+      var companyRows = entry[1];
+      return {
+        name: entry[0],
+        rows: companyRows,
+        average: average(companyRows, "tcs"),
+        rank: companyRows.map(function (row) { return row.quarterlyRank; }).filter(Number.isFinite).sort(function (a, b) { return a - b; })[0] || null
+      };
+    }).sort(function (a, b) {
+      return (a.rank || 999999) - (b.rank || 999999) || (b.average || 0) - (a.average || 0) || a.name.localeCompare(b.name);
+    });
+    body.innerHTML = companies.length ? companies.map(function (company) {
+      var monthCells = monthNames.map(function (_name, index) {
+        var monthRows = company.rows.filter(function (row) { return row.month === index + 1; });
+        var value = average(monthRows, "tcs");
+        var bestRank = monthRows.map(function (row) { return row.monthlyRank; }).filter(Number.isFinite).sort(function (a, b) { return a - b; })[0] || null;
+        return value == null ? '<td class="mx-tcs-month-empty">—</td>' :
+          '<td><span class="mx-tcs-month-score' + (bestRank && bestRank <= 3 ? " is-top" : "") + '" title="' +
+          escapeHtml(bestRank ? "Monthly rank #" + bestRank : "TCS score") + '">' + score(value) + "</span></td>";
+      }).join("");
+      var roles = Array.from(new Set(company.rows.map(function (row) { return row.role; }))).join(" · ");
+      return '<tr><td><span class="mx-tcs-company"><strong>' + escapeHtml(company.name) + "</strong><small>" +
+        escapeHtml(roles) + "</small></span></td>" + monthCells +
+        '<td class="mx-tcs-score">' + score(company.average) + '</td><td><span class="mx-tcs-rank">' +
+        escapeHtml(company.rank || "—") + "</span></td></tr>";
+    }).join("") : '<tr><td colspan="15" class="mx-tcs-empty">No company data matches the selected filters.</td></tr>';
+  }
   function render() {
     var list = filteredRows();
     var cards = {
@@ -131,6 +172,7 @@
       var element = document.getElementById(id);
       if (element) element.textContent = cards[id];
     });
+    renderCompanyMonthMatrix(list);
     var body = document.getElementById("mxTcsTableBody");
     if (!body) return;
     body.innerHTML = list.length ? list.map(function (row) {
@@ -198,10 +240,15 @@
     });
   }
   function buildPage() {
-    var page = document.getElementById("partnerQualityPage");
-    if (!page) return;
+    var partnerPage = document.getElementById("partnerQualityPage");
+    if (!partnerPage || document.getElementById("tcsMxPage")) return;
+    var page = document.createElement("div");
+    page.id = "tcsMxPage";
+    page.className = "page-shell mx-tcs-page";
+    page.style.display = "none";
+    page.setAttribute("data-service-page", "tcsMx");
+    partnerPage.insertAdjacentElement("afterend", page);
     page.classList.add("mx-tcs-page");
-    page.setAttribute("data-service-page", "partnerQuality");
     page.innerHTML =
       '<header><div class="brand"><div class="logo-box"><img alt="SKY Distribution Logo" data-site-logo="1" src="assets/SKY.PNG"></div>' +
       '<div><h1>Service Support Center</h1><div class="sub">MX TCS Performance</div></div></div></header>' +
@@ -216,10 +263,25 @@
       '<div class="mx-tcs-card"><span>Average KPI</span><strong id="mxKpiAvg">—</strong></div>' +
       '<div class="mx-tcs-card"><span>Average Exam</span><strong id="mxExamAvg">—</strong></div>' +
       '<div class="mx-tcs-card"><span>Average DRNPS</span><strong id="mxDrnpsAvg">—</strong></div></div>' +
+      '<div class="mx-tcs-section-title"><h2>Company performance by month</h2><span>Companies are ordered by quarterly rank, then average TCS · January to December</span></div>' +
+      '<div class="mx-tcs-table-wrap"><table class="mx-tcs-matrix"><thead id="mxTcsMatrixHead"></thead><tbody id="mxTcsMatrixBody"></tbody></table></div>' +
+      '<div class="mx-tcs-section-title"><h2>Detailed MX results</h2><span>TCS, KPI, Exam, DRNPS and monthly/quarterly ranking</span></div>' +
       '<div class="mx-tcs-table-wrap"><table class="mx-tcs-table"><thead><tr><th>Name</th><th>Code</th><th>MX Role</th><th>Region / Branch</th><th>Period</th><th>TCS</th><th>KPI</th><th>Exam</th><th>DRNPS</th><th>Monthly Rank</th><th>Quarterly Rank</th></tr></thead><tbody id="mxTcsTableBody"></tbody></table></div></main>';
-    document.querySelectorAll('[data-fb-tab-key="partnerQuality"] .side-label').forEach(function (label) {
-      label.textContent = "MX TCS Performance";
-    });
+    var partnerTab = document.querySelector('[data-pb-tab="partnerQuality"]');
+    if (partnerTab) {
+      var tab = document.createElement("div");
+      tab.className = "side-tab side-sub-tab";
+      tab.setAttribute("data-fb-tab-key", "partnerQuality");
+      tab.setAttribute("data-pb-tab", "tcsMx");
+      tab.setAttribute("role", "button");
+      tab.setAttribute("tabindex", "0");
+      tab.innerHTML = '<span class="side-icon">📈</span><span class="side-label">MX TCS Performance</span>';
+      tab.addEventListener("click", openMxTcsTab);
+      tab.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openMxTcsTab(); }
+      });
+      partnerTab.insertAdjacentElement("afterend", tab);
+    }
     ["mxTcsRoleFilter", "mxTcsYearFilter", "mxTcsQuarterFilter", "mxTcsMonthFilter"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", render);
     });
@@ -228,6 +290,26 @@
     render();
     connect();
   }
+  function openMxTcsTab() {
+    document.querySelectorAll(".page-shell, #userManagementPage, #securityPage").forEach(function (candidate) {
+      candidate.style.display = candidate.id === "tcsMxPage" ? "" : "none";
+    });
+    document.querySelectorAll(".side-tab").forEach(function (tab) {
+      tab.classList.toggle("active", tab.getAttribute("data-pb-tab") === "tcsMx");
+    });
+    document.body.setAttribute("data-active-tab", "tcsMx");
+    try { localStorage.setItem("serviceEyeActiveTab", "partnerQuality"); } catch (_error) {}
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    render();
+  }
+  window.openMxTcsTab = openMxTcsTab;
+  document.addEventListener("click", function (event) {
+    var tab = event.target && event.target.closest ? event.target.closest(".side-tab") : null;
+    if (tab && tab.getAttribute("data-pb-tab") !== "tcsMx") {
+      var page = document.getElementById("tcsMxPage");
+      if (page) page.style.display = "none";
+    }
+  }, true);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", buildPage, { once: true });
   else buildPage();
   window.addEventListener("beforeunload", function () {
