@@ -297,7 +297,7 @@
     document.querySelectorAll(".page-shell, #userManagementPage, #securityPage").forEach(function (candidate) {
       candidate.style.display = candidate.id === "tcsMxPage" ? "" : "none";
     });
-    document.querySelectorAll(".side-tab").forEach(function (tab) {
+    document.querySelectorAll(".side-tab, .mx-tcs-nav-tab").forEach(function (tab) {
       tab.classList.toggle("active", tab.classList.contains("mx-tcs-nav-tab"));
     });
     document.body.setAttribute("data-active-tab", "tcsMx");
@@ -309,7 +309,7 @@
   window.openMxTcsTab = openMxTcsTab;
   document.addEventListener("click", function (event) {
     var tab = event.target && event.target.closest ? event.target.closest(".side-tab") : null;
-    if (tab && !tab.classList.contains("mx-tcs-nav-tab")) {
+    if (tab) {
       var page = document.getElementById("tcsMxPage");
       if (page) page.style.display = "none";
     }
