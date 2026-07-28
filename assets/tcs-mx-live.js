@@ -269,10 +269,21 @@
       '<div class="mx-tcs-table-wrap"><table class="mx-tcs-table"><thead><tr><th>Name</th><th>Code</th><th>MX Role</th><th>Region / Branch</th><th>Period</th><th>TCS</th><th>KPI</th><th>Exam</th><th>DRNPS</th><th>Monthly Rank</th><th>Quarterly Rank</th></tr></thead><tbody id="mxTcsTableBody"></tbody></table></div></main>';
     var tab = document.querySelector(".mx-tcs-nav-tab");
     if (tab) {
-      tab.addEventListener("click", openMxTcsTab);
+      tab.removeAttribute("onclick");
+      tab.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        openMxTcsTab();
+      }, true);
       tab.addEventListener("keydown", function (event) {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openMxTcsTab(); }
-      });
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          openMxTcsTab();
+        }
+      }, true);
     }
     ["mxTcsRoleFilter", "mxTcsYearFilter", "mxTcsQuarterFilter", "mxTcsMonthFilter"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", render);
@@ -290,6 +301,7 @@
       tab.classList.toggle("active", tab.classList.contains("mx-tcs-nav-tab"));
     });
     document.body.setAttribute("data-active-tab", "tcsMx");
+    window.__fbActiveTabKey = "dashboard";
     try { localStorage.setItem("serviceEyeActiveTab", "partnerQuality"); } catch (_error) {}
     window.scrollTo({ top: 0, behavior: "smooth" });
     render();
