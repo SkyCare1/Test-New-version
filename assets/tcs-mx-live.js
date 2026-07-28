@@ -18,6 +18,10 @@
   var rows = [];
   var unsubscribers = [];
   var collectionRows = Object.create(null);
+  var refreshTimer = null;
+  var refreshInFlight = null;
+  var SOURCE_ROOT = "https://firestore.googleapis.com/v1/projects/tcs-for-engineers/databases/(default)/documents";
+  var REFRESH_MS = 30000;
 
   function first(object, names, fallback) {
     for (var i = 0; i < names.length; i += 1) {
@@ -209,35 +213,86 @@
       }
     } catch (_error) {}
   }
-  function connect() {
-    Promise.resolve(window.__firebaseReady).then(function () {
-      if (!window.firebase || !firebase.firestore) throw new Error("Firebase library is unavailable.");
-      var sourceApp;
-      try { sourceApp = firebase.app("tcsMxSource"); }
-      catch (_error) { sourceApp = firebase.initializeApp(SOURCE_CONFIG, "tcsMxSource"); }
-      var sourceDb = sourceApp.firestore();
-      unsubscribers.forEach(function (unsubscribe) { try { unsubscribe(); } catch (_error) {} });
-      unsubscribers = [];
-      var received = 0;
-      COLLECTIONS.forEach(function (collection) {
-        var unsubscribe = sourceDb.collection(collection.id).onSnapshot(function (snapshot) {
-          collectionRows[collection.id] = snapshot.docs.map(function (document) {
-            return normalized(document.data() || {}, collection.role, document.id);
-          }).filter(Boolean);
-          received += 1;
-          refreshCombinedRows();
-          setStatus("live", "Live source connected · " + rows.length.toLocaleString() + " MX records");
-        }, function (error) {
-          console.error("MX TCS source listener failed:", collection.id, error);
-          setStatus("error", "Source connection failed · showing last loaded data");
-        });
-        unsubscribers.push(unsubscribe);
-      });
-      if (!received) setStatus("loading", "Connecting to the MX data source…");
-    }).catch(function (error) {
-      console.error(error);
-      setStatus("error", "Source connection failed · showing last loaded data");
+  function decodeFirestoreValue(value) {
+    if (!value || typeof value !== "object") return value;
+    if (Object.prototype.hasOwnProperty.call(value, "nullValue")) return null;
+    if (Object.prototype.hasOwnProperty.call(value, "stringValue")) return value.stringValue;
+    if (Object.prototype.hasOwnProperty.call(value, "booleanValue")) return value.booleanValue;
+    if (Object.prototype.hasOwnProperty.call(value, "integerValue")) return Number(value.integerValue);
+    if (Object.prototype.hasOwnProperty.call(value, "doubleValue")) return Number(value.doubleValue);
+    if (Object.prototype.hasOwnProperty.call(value, "timestampValue")) return value.timestampValue;
+    if (Object.prototype.hasOwnProperty.call(value, "referenceValue")) return value.referenceValue;
+    if (Object.prototype.hasOwnProperty.call(value, "geoPointValue")) return value.geoPointValue;
+    if (Object.prototype.hasOwnProperty.call(value, "bytesValue")) return value.bytesValue;
+    if (value.arrayValue) return (value.arrayValue.values || []).map(decodeFirestoreValue);
+    if (value.mapValue) return decodeFirestoreFields(value.mapValue.fields || {});
+    return value;
+  }
+  function decodeFirestoreFields(fields) {
+    var output = {};
+    Object.keys(fields || {}).forEach(function (key) {
+      output[key] = decodeFirestoreValue(fields[key]);
     });
+    return output;
+  }
+  async function fetchCollection(collectionId) {
+    var documents = [];
+    var pageToken = "";
+    do {
+      var url = SOURCE_ROOT + "/" + encodeURIComponent(collectionId) + "?pageSize=1000";
+      if (pageToken) url += "&pageToken=" + encodeURIComponent(pageToken);
+      var response = await fetch(url, {
+        method: "GET",
+        mode: "cors",
+        cache: "no-store",
+        credentials: "omit",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        var details = "";
+        try { details = (await response.json()).error.message || ""; } catch (_error) {}
+        throw new Error(collectionId + " returned HTTP " + response.status + (details ? ": " + details : ""));
+      }
+      var payload = await response.json();
+      documents = documents.concat(Array.isArray(payload.documents) ? payload.documents : []);
+      pageToken = payload.nextPageToken || "";
+    } while (pageToken);
+    return documents;
+  }
+  async function refreshFromRest(force) {
+    if (refreshInFlight && !force) return refreshInFlight;
+    refreshInFlight = (async function () {
+      setStatus("loading", rows.length ? "Checking the MX source for updates…" : "Loading MX data from the source…");
+      var results = await Promise.all(COLLECTIONS.map(async function (collection) {
+        var documents = await fetchCollection(collection.id);
+        var mapped = documents.map(function (document) {
+          var id = String(document.name || "").split("/").pop();
+          return normalized(decodeFirestoreFields(document.fields || {}), collection.role, id);
+        }).filter(Boolean);
+        return { collection: collection, rows: mapped, received: documents.length };
+      }));
+      results.forEach(function (result) {
+        collectionRows[result.collection.id] = result.rows;
+      });
+      refreshCombinedRows();
+      var received = results.reduce(function (total, result) { return total + result.received; }, 0);
+      setStatus("live", "Source updated · " + rows.length.toLocaleString() + " MX records (" + received.toLocaleString() + " read)");
+      return rows;
+    }()).catch(function (error) {
+      console.error("MX TCS REST refresh failed:", error);
+      setStatus("error", "Could not reach the source · showing " + rows.length.toLocaleString() + " saved records");
+      throw error;
+    }).finally(function () {
+      refreshInFlight = null;
+    });
+    return refreshInFlight;
+  }
+  function connect() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshFromRest(true).catch(function () {});
+    refreshTimer = setInterval(function () {
+      if (!document.hidden) refreshFromRest(false).catch(function () {});
+    }, REFRESH_MS);
   }
   function buildPage() {
     var partnerPage = document.getElementById("partnerQualityPage");
@@ -252,7 +307,7 @@
     page.innerHTML =
       '<header><div class="brand"><div class="logo-box"><img alt="SKY Distribution Logo" data-site-logo="1" src="assets/SKY.PNG"></div>' +
       '<div><h1>Service Support Center</h1><div class="sub">MX TCS Performance</div></div></div></header>' +
-      '<main><div id="mxTcsStatus" class="mx-tcs-status"><span class="mx-tcs-status-dot"></span><strong>Connecting to the MX data source…</strong><small>The saved copy will be used if the source is temporarily unavailable.</small></div>' +
+      '<main><div id="mxTcsStatus" class="mx-tcs-status"><span class="mx-tcs-status-dot"></span><strong>Connecting to the MX data source…</strong><small>The saved copy will be used if the source is temporarily unavailable.</small><button id="mxTcsRefreshButton" class="mx-tcs-refresh" type="button">Refresh now</button></div>' +
       '<div class="mx-tcs-filters"><label>MX Role<select id="mxTcsRoleFilter"><option value="">All MX roles</option></select></label>' +
       '<label>Year<select id="mxTcsYearFilter"><option value="">All years</option></select></label>' +
       '<label>Quarter<select id="mxTcsQuarterFilter"><option value="">All quarters</option></select></label>' +
@@ -289,6 +344,11 @@
       document.getElementById(id).addEventListener("change", render);
     });
     document.getElementById("mxTcsSearch").addEventListener("input", render);
+    document.getElementById("mxTcsRefreshButton").addEventListener("click", function () {
+      var button = this;
+      button.disabled = true;
+      refreshFromRest(true).catch(function () {}).finally(function () { button.disabled = false; });
+    });
     loadCached();
     render();
     connect();
@@ -318,5 +378,11 @@
   else buildPage();
   window.addEventListener("beforeunload", function () {
     unsubscribers.forEach(function (unsubscribe) { try { unsubscribe(); } catch (_error) {} });
+    if (refreshTimer) clearInterval(refreshTimer);
   });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refreshFromRest(false).catch(function () {});
+  });
+  window.addEventListener("online", function () { refreshFromRest(true).catch(function () {}); });
+  window.mxTcsRefreshNow = function () { return refreshFromRest(true); };
 }());
