@@ -299,7 +299,7 @@
     if (!partnerPage || document.getElementById("tcsMxPage")) return;
     var page = document.createElement("div");
     page.id = "tcsMxPage";
-    page.className = "page-shell mx-tcs-page";
+    page.className = "mx-tcs-page mx-tcs-standalone-page";
     page.style.display = "none";
     page.setAttribute("data-service-page", "tcsMx");
     partnerPage.insertAdjacentElement("afterend", page);
@@ -355,8 +355,20 @@
   }
   function openMxTcsTab() {
     document.querySelectorAll(".page-shell, #userManagementPage, #securityPage").forEach(function (candidate) {
-      candidate.style.display = candidate.id === "tcsMxPage" ? "" : "none";
+      candidate.style.setProperty("display", "none", "important");
     });
+    var mxPage = document.getElementById("tcsMxPage");
+    if (!mxPage) {
+      buildPage();
+      mxPage = document.getElementById("tcsMxPage");
+    }
+    if (mxPage) {
+      mxPage.classList.remove("fb-page-denied");
+      mxPage.removeAttribute("data-fb-page-key");
+      mxPage.removeAttribute("data-fb-permission");
+      mxPage.style.setProperty("display", "block", "important");
+      mxPage.setAttribute("aria-hidden", "false");
+    }
     document.querySelectorAll(".side-tab, .mx-tcs-nav-tab").forEach(function (tab) {
       tab.classList.toggle("active", tab.classList.contains("mx-tcs-nav-tab"));
     });
@@ -371,7 +383,10 @@
     var tab = event.target && event.target.closest ? event.target.closest(".side-tab") : null;
     if (tab) {
       var page = document.getElementById("tcsMxPage");
-      if (page) page.style.display = "none";
+      if (page) {
+        page.style.setProperty("display", "none", "important");
+        page.setAttribute("aria-hidden", "true");
+      }
     }
   }, true);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", buildPage, { once: true });

@@ -1,3 +1,6 @@
+.mx-tcs-page{margin-left:var(--sidebar-width,280px);min-height:100vh;width:auto;background:var(--background,#f4f6f9);color:inherit}
+.menu-collapsed .mx-tcs-page{margin-left:var(--sidebar-collapsed,78px)}
+.mx-tcs-page>header{position:relative}
 .mx-tcs-page main{padding:24px}
 .mx-tcs-nav-tab{display:flex;align-items:center;gap:12px;min-height:44px;margin:4px 10px;padding:9px 12px;border-radius:11px;color:inherit;cursor:pointer;user-select:none;transition:background .16s ease,color .16s ease,transform .16s ease}
 .mx-tcs-nav-tab:hover,.mx-tcs-nav-tab:focus-visible{background:rgba(117,105,154,.14);transform:translateX(2px)}
@@ -40,4 +43,4 @@
 .dark .mx-tcs-status,.dark .mx-tcs-card,.dark .mx-tcs-table-wrap,.dark .mx-tcs-filters select,.dark .mx-tcs-filters input,.dark .mx-tcs-table th,.dark .mx-tcs-matrix th,.dark .mx-tcs-matrix th:first-child,.dark .mx-tcs-matrix td:first-child{background:#171923;border-color:#313646}
 @media(max-width:1000px){.mx-tcs-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.mx-tcs-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.mx-tcs-page main{padding:14px}.mx-tcs-filters,.mx-tcs-cards{grid-template-columns:1fr}}
-@media(max-width:1100px){.menu-collapsed .mx-tcs-nav-tab .side-label,.prepaint-menu-collapsed .mx-tcs-nav-tab .side-label{opacity:1;width:auto}}
+@media(max-width:1100px){.mx-tcs-page,.menu-collapsed .mx-tcs-page{margin-left:0}.menu-collapsed .mx-tcs-nav-tab .side-label,.prepaint-menu-collapsed .mx-tcs-nav-tab .side-label{opacity:1;width:auto}}
