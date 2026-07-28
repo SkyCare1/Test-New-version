@@ -267,20 +267,12 @@
       '<div class="mx-tcs-table-wrap"><table class="mx-tcs-matrix"><thead id="mxTcsMatrixHead"></thead><tbody id="mxTcsMatrixBody"></tbody></table></div>' +
       '<div class="mx-tcs-section-title"><h2>Detailed MX results</h2><span>TCS, KPI, Exam, DRNPS and monthly/quarterly ranking</span></div>' +
       '<div class="mx-tcs-table-wrap"><table class="mx-tcs-table"><thead><tr><th>Name</th><th>Code</th><th>MX Role</th><th>Region / Branch</th><th>Period</th><th>TCS</th><th>KPI</th><th>Exam</th><th>DRNPS</th><th>Monthly Rank</th><th>Quarterly Rank</th></tr></thead><tbody id="mxTcsTableBody"></tbody></table></div></main>';
-    var partnerTab = document.querySelector('[data-pb-tab="partnerQuality"]');
-    if (partnerTab) {
-      var tab = document.createElement("div");
-      tab.className = "side-tab side-sub-tab";
-      tab.setAttribute("data-fb-tab-key", "partnerQuality");
-      tab.setAttribute("data-pb-tab", "tcsMx");
-      tab.setAttribute("role", "button");
-      tab.setAttribute("tabindex", "0");
-      tab.innerHTML = '<span class="side-icon">📈</span><span class="side-label">MX TCS Performance</span>';
+    var tab = document.querySelector(".mx-tcs-nav-tab");
+    if (tab) {
       tab.addEventListener("click", openMxTcsTab);
       tab.addEventListener("keydown", function (event) {
         if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openMxTcsTab(); }
       });
-      partnerTab.insertAdjacentElement("afterend", tab);
     }
     ["mxTcsRoleFilter", "mxTcsYearFilter", "mxTcsQuarterFilter", "mxTcsMonthFilter"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", render);
@@ -295,7 +287,7 @@
       candidate.style.display = candidate.id === "tcsMxPage" ? "" : "none";
     });
     document.querySelectorAll(".side-tab").forEach(function (tab) {
-      tab.classList.toggle("active", tab.getAttribute("data-pb-tab") === "tcsMx");
+      tab.classList.toggle("active", tab.classList.contains("mx-tcs-nav-tab"));
     });
     document.body.setAttribute("data-active-tab", "tcsMx");
     try { localStorage.setItem("serviceEyeActiveTab", "partnerQuality"); } catch (_error) {}
@@ -305,7 +297,7 @@
   window.openMxTcsTab = openMxTcsTab;
   document.addEventListener("click", function (event) {
     var tab = event.target && event.target.closest ? event.target.closest(".side-tab") : null;
-    if (tab && tab.getAttribute("data-pb-tab") !== "tcsMx") {
+    if (tab && !tab.classList.contains("mx-tcs-nav-tab")) {
       var page = document.getElementById("tcsMxPage");
       if (page) page.style.display = "none";
     }
