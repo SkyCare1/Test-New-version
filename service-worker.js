@@ -1,7 +1,7 @@
-/* Service Support Center PWA service worker — v56 */
+/* Service Support Center PWA service worker — v60 */
 'use strict';
 
-const VERSION = '20260728-mx-tcs-page-visible-v7';
+const VERSION = '20260828-v60-welcome-screen';
 const STATIC_CACHE = 'ssc-static-' + VERSION;
 const PAGE_CACHE = 'ssc-pages-' + VERSION;
 
@@ -14,8 +14,8 @@ const APP_SHELL = [
   './manifest.webmanifest',
   './assets/dashboard.min.css?v=' + VERSION,
   './assets/dashboard.js?v=' + VERSION,
-  './assets/tcs-mx-live.css?v=' + VERSION,
-  './assets/tcs-mx-live.js?v=' + VERSION,
+  './assets/welcome.css?v=' + VERSION,
+  './assets/welcome.js?v=' + VERSION,
   './icon-192.png',
   './icon-512.png',
   './icon-maskable-512.png'

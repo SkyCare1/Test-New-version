@@ -7,7 +7,7 @@
 <meta content="#75699a" name="theme-color"/>
 <title>Service Support Center</title>
 <!-- Installable desktop/mobile app (PWA) -->
-<link rel="manifest" href="./manifest.webmanifest?v=20260724-v58-sync-loader-contract-fix" />
+<link rel="manifest" href="./manifest.webmanifest?v=20260828-v60-welcome-screen" />
 <link rel="apple-touch-icon" href="./icon-192.png" />
 <meta name="application-name" content="Service Support Center" />
 <meta name="apple-mobile-web-app-title" content="SSC Dashboard" />
@@ -62,8 +62,8 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link as="style" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" onload="this.onload=null;this.rel='stylesheet'" rel="preload"/><noscript><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/></noscript>
-<link href="assets/dashboard.min.css?v=20260728-mx-tcs-page-visible-v7" rel="stylesheet"/>
-<link href="assets/tcs-mx-live.css?v=20260728-mx-tcs-page-visible-v7" rel="stylesheet"/>
+<link href="assets/dashboard.min.css?v=20260828-v60-welcome-screen" rel="stylesheet"/>
+<link href="assets/welcome.css?v=20260828-v60-welcome-screen" rel="stylesheet"/>
 <link crossorigin="" href="https://www.gstatic.com" rel="preconnect"/>
 <link crossorigin="" href="https://firestore.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://identitytoolkit.googleapis.com" rel="preconnect"/>
@@ -73,8 +73,8 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <link href="https://firestore.googleapis.com" rel="dns-prefetch"/>
 <link href="https://raw.githubusercontent.com" rel="dns-prefetch"/>
 <link href="assets/logo.png" rel="icon" type="image/jpeg"/>
-<script defer="" src="assets/dashboard.js?v=20260728-mx-tcs-page-visible-v7"></script>
-<script defer="" src="assets/tcs-mx-live.js?v=20260728-mx-tcs-page-visible-v7"></script>
+<script defer="" src="assets/dashboard.js?v=20260828-v60-welcome-screen"></script>
+<script defer="" src="assets/welcome.js?v=20260828-v60-welcome-screen"></script>
 <script data-src="data/cash_target.json" id="cashTargetEmbeddedData" type="application/json">{"cash":[],"target":[]}</script>
 </head>
 <body class="firebase-auth-pending no-first-transition">
@@ -126,7 +126,6 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <button aria-label="Performance Efficiency" aria-haspopup="true" class="side-group-toggle" data-side-group-toggle="performanceEfficiency" aria-expanded="false" type="button"><span class="side-icon">📈</span><span class="side-label">Performance Efficiency</span><span class="side-group-chevron" aria-hidden="true">⌄</span><span class="side-group-shortcut" aria-hidden="true">Performance</span></button>
 <div class="side-group-items" data-group-title="Performance Efficiency">
 <div class="side-tab side-sub-tab" data-fb-tab-key="partnerQuality" data-pb-tab="partnerQuality" onclick="switchTab('partnerQuality')" role="button" tabindex="0"><span class="side-icon">🏆</span><span class="side-label">Partner Quality Award</span></div>
-<div class="mx-tcs-nav-tab" role="button" tabindex="0" aria-label="MX TCS Performance"><span class="side-icon">📈</span><span class="side-label">MX TCS Performance</span></div>
 <div class="side-tab side-sub-tab" data-fb-tab-key="repairEfficiency" data-pb-tab="repairEfficiency" onclick="switchTab('repairEfficiency')" role="button" tabindex="0"><span class="side-icon">🛠️</span><span class="side-label">Repair Efficiency</span></div>
 <div class="side-tab side-sub-tab" data-fb-tab-key="qualityStageEfficiency" data-pb-tab="qualityStageEfficiency" onclick="switchTab('qualityStageEfficiency')" role="button" tabindex="0"><span class="side-icon">🧪</span><span class="side-label">Quality Stage Efficiency</span></div>
 <div class="side-tab side-sub-tab" data-fb-tab-key="returnCases" data-pb-tab="returnCases" onclick="switchTab('returnCases')" role="button" tabindex="0"><span class="side-icon returncases-side-icon">↩️</span><span class="side-label">Return Cases</span></div>
@@ -331,17 +330,22 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 <div><div class="filter-label">Actions</div><div class="filter-actions"><button class="btn btn-light" onclick="clearCashTargetFilters()" type="button">Clear Filters</button></div></div>
 </div>
 <div class="cash-target-summary">
-<div class="card blue"><div class="label">Total Revenue</div><div class="value" id="cashTotalRevenue">0</div><div class="percent">Filtered revenue</div></div>
-<div class="card purple"><div class="label">Total Target</div><div class="value" id="cashTotalTarget">0</div><div class="percent">Selected months</div></div>
-<div class="card green"><div class="label">Achievement %</div><div class="value" id="cashAchievement">0%</div><div class="percent">Revenue / Target</div></div>
-<div class="card amber"><div class="label">Remaining</div><div class="value" id="cashRemaining">0</div><div class="percent">To reach target</div></div>
+<div class="card blue"><div class="label">Total Revenue</div><div class="value" id="cashTotalRevenue">0</div><div class="percent">All filtered revenue</div></div>
+<div class="card green"><div class="label">Maintenance</div><div class="value" id="cashMaintenanceRevenue">0</div><div class="percent">Maintenance revenue</div></div>
+<div class="card purple"><div class="label">VIP</div><div class="value" id="cashVipRevenue">0</div><div class="percent">VIP revenue</div></div>
+<div class="card yellow"><div class="label">VIP Claim</div><div class="value" id="cashVipClaimRevenue">0</div><div class="percent">VIP claim revenue</div></div>
+<div class="card amber"><div class="label">Insurance</div><div class="value" id="cashInsuranceRevenue">0</div><div class="percent">Insurance revenue</div></div>
+<div class="card red cash-kpi-no-target"><div class="label">Revenue Without Target</div><div class="value" id="cashNoTargetRevenue">0</div><div class="percent" id="cashNoTargetNote">No uncovered months</div></div>
+<div class="card purple"><div class="label">Total Target</div><div class="value" id="cashTotalTarget">0</div><div class="percent" id="cashTargetCoverageNote">Target-covered months</div></div>
+<div class="card green"><div class="label">Achievement %</div><div class="value" id="cashAchievement">0%</div><div class="percent">Target-covered revenue / target</div></div>
+<div class="card amber"><div class="label">Remaining</div><div class="value" id="cashRemaining">0</div><div class="percent">To reach available target</div></div>
 <div class="card green"><div class="label">Best Branch</div><div class="value" id="cashBestBranch">-</div><div class="percent" id="cashBestBranchPct">0%</div></div>
 <div class="card red"><div class="label">Worst Branch</div><div class="value" id="cashWorstBranch">-</div><div class="percent" id="cashWorstBranchPct">0%</div></div>
-<div class="card yellow"><div class="label">Avg Revenue / Branch</div><div class="value" id="cashAvgRevenue">0</div><div class="percent">Active branches</div></div>
-<div class="card blue"><div class="label">Daily Average</div><div class="value" id="cashDailyRevenue">0</div><div class="percent">By selected dates</div></div>
+<div class="card blue"><div class="label">Daily Average</div><div class="value" id="cashDailyRevenue">0</div><div class="percent">All filtered revenue / active dates</div></div>
 </div>
 <div class="cash-target-grid">
 <section class="chart-card cash-chart-full"><h2>Revenue vs Target by Branch</h2><div class="chart-box"><canvas id="cashRevenueTargetChart"></canvas></div></section>
+<section class="chart-card cash-chart-full cash-category-chart"><h2>Revenue Mix by Month — Maintenance / VIP / VIP Claim / Insurance</h2><div class="chart-box"><canvas id="cashRevenueMixChart"></canvas></div></section>
 <section class="chart-card cash-chart-full cash-variance-chart"><h2>Monthly Cash vs Target Variance</h2><div class="cash-chart-filter-bar"><div><div class="filter-label">Branch</div><select id="cashVarianceBranchFilter" multiple=""></select></div></div><div class="chart-box"><canvas id="cashMonthlyVarianceChart"></canvas></div></section>
 <section class="chart-card"><h2>Monthly Revenue Trend</h2><div class="chart-box"><canvas id="cashMonthlyTrendChart"></canvas></div></section>
 <section class="chart-card"><h2>Top / Lowest Branches</h2><div class="chart-box"><canvas id="cashTopLowestChart"></canvas></div></section>
@@ -855,7 +859,7 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
 
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./service-worker.js?v=20260724-v58-sync-loader-contract-fix', { scope: './' })
+      navigator.serviceWorker.register('./service-worker.js?v=20260828-v60-welcome-screen', { scope: './' })
         .then(function (registration) {
           registration.update().catch(function () {});
         })
@@ -866,5 +870,153 @@ img{max-width:100%;height:auto}.chart-card,.table-wrap,.data-table-wrap{content-
   }
 })();
 </script>
+<!-- ===================== Pre-login welcome screen (Asme design) ===================== -->
+<div id="sscWelcome" aria-label="Welcome">
+
+  <section class="w-hero">
+    <video class="w-hero-video" muted autoplay playsinline preload="auto"
+      src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_074625_a81f018a-956b-43fb-9aee-4d1508e30e6a.mp4"></video>
+
+    <header class="w-nav">
+      <nav class="liquid-glass w-nav-pill">
+        <div class="w-nav-left">
+          <a class="w-brand" href="#" data-welcome-scroll=".w-hero">
+            <img src="assets/SKY.PNG" alt="" decoding="async">
+            <span>SKY Service Support</span>
+          </a>
+          <div class="w-nav-links">
+            <a href="#" data-welcome-scroll=".w-about">About</a>
+            <a href="#" data-welcome-scroll=".w-philo">Vision</a>
+            <a href="#" data-welcome-scroll=".w-services">What we do</a>
+          </div>
+        </div>
+        <div class="w-nav-right">
+          <button type="button" class="w-nav-text" data-welcome-login>Sign In</button>
+          <button type="button" class="liquid-glass w-pill w-nav-login" data-welcome-login>Login</button>
+        </div>
+      </nav>
+    </header>
+
+    <div class="w-hero-body">
+      <h1 class="w-h1">Know it <em>all</em>.</h1>
+
+      <form id="sscWelcomeForm" class="w-email" autocomplete="on">
+        <div class="liquid-glass w-email-pill">
+          <input id="sscWelcomeEmail" type="email" placeholder="Enter your email" autocomplete="email" aria-label="Email address">
+          <button type="submit" class="w-email-go" aria-label="Continue to sign in">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </button>
+        </div>
+      </form>
+
+      <p class="w-sub">Service tracking, quality, performance, profit and cash — one secure dashboard for the whole support network. Enter your email to continue to sign in.</p>
+
+      <button type="button" class="liquid-glass w-pill w-manifesto" data-welcome-scroll=".w-about">Manifesto</button>
+    </div>
+
+    <div class="w-social">
+      <a href="#" class="liquid-glass" aria-label="Instagram"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg></a>
+      <a href="#" class="liquid-glass" aria-label="Twitter"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg></a>
+      <a href="#" class="liquid-glass" aria-label="Website"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></a>
+    </div>
+  </section>
+
+  <section class="w-about">
+    <div class="w-glow-top"></div>
+    <div class="w-wrap" style="position:relative">
+      <span class="w-label w-reveal" style="--ry:20px">About Us</span>
+      <h2 class="w-reveal" style="--rd:.1s">
+        Pioneering <span class="w-serif-i">ideas</span> for
+        <br class="w-br">
+        <span class="w-serif-i">teams that track, repair, and deliver.</span>
+      </h2>
+    </div>
+  </section>
+
+  <section class="w-featured">
+    <div class="w-wrap">
+      <div class="w-featured-frame w-reveal" style="--ry:60px">
+        <video muted autoplay loop playsinline preload="auto"
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260402_054547_9875cfc5-155a-4229-8ec8-b7ba7125cbf8.mp4"></video>
+        <div class="w-featured-shade"></div>
+        <div class="w-featured-overlay">
+          <div class="liquid-glass w-approach">
+            <span class="w-label">Our Approach</span>
+            <p>We believe in the power of curiosity-driven exploration. Every case starts with a question, and every answer opens a new door to a better service.</p>
+          </div>
+          <button type="button" class="liquid-glass w-pill w-explore" data-welcome-scroll=".w-philo">Explore more</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="w-philo">
+    <div class="w-wrap">
+      <h2 class="w-reveal">Innovation <span class="w-serif-i">x</span> Vision</h2>
+      <div class="w-philo-grid">
+        <div class="w-philo-video w-reveal" style="--ry:0;--rx:-40px">
+          <video muted autoplay loop playsinline preload="auto"
+            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260307_083826_e938b29f-a43a-41ec-a153-3d4730578ab8.mp4"></video>
+        </div>
+        <div class="w-philo-text w-reveal" style="--ry:0;--rx:40px">
+          <div>
+            <span class="w-label">Choose your space</span>
+            <p>Every meaningful breakthrough begins at the intersection of disciplined strategy and remarkable creative vision. We operate at that crossroads, turning bold thinking into tangible outcomes that move people and reshape service.</p>
+          </div>
+          <div class="w-divider"></div>
+          <div>
+            <span class="w-label">Shape the future</span>
+            <p>We believe that the best work emerges when curiosity meets conviction. Our process is designed to uncover hidden opportunities and translate them into experiences that resonate long after the first impression.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="w-services">
+    <div class="w-glow-center"></div>
+    <div class="w-wrap" style="position:relative">
+      <div class="w-services-head w-reveal" style="--ry:30px">
+        <h2>What we do</h2>
+        <span>Our services</span>
+      </div>
+      <div class="w-cards">
+        <article class="liquid-glass w-card w-reveal" style="--ry:50px">
+          <div class="w-card-media">
+            <video muted autoplay loop playsinline preload="auto"
+              src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260314_131748_f2ca2a28-fed7-44c8-b9a9-bd9acdd5ec31.mp4"></video>
+            <div class="w-card-shade"></div>
+          </div>
+          <div class="w-card-body">
+            <div class="w-card-top">
+              <span class="w-label">Strategy</span>
+              <span class="liquid-glass w-card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></span>
+            </div>
+            <h3>Research &amp; Insight</h3>
+            <p>We dig deep into data, culture, and human behavior to surface the insights that drive meaningful, lasting change.</p>
+          </div>
+        </article>
+        <article class="liquid-glass w-card w-reveal" style="--ry:50px;--rd:.15s">
+          <div class="w-card-media">
+            <video muted autoplay loop playsinline preload="auto"
+              src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260324_151826_c7218672-6e92-402c-9e45-f1e0f454bdc4.mp4"></video>
+            <div class="w-card-shade"></div>
+          </div>
+          <div class="w-card-body">
+            <div class="w-card-top">
+              <span class="w-label">Craft</span>
+              <span class="liquid-glass w-card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></span>
+            </div>
+            <h3>Design &amp; Execution</h3>
+            <p>From concept to launch, we obsess over every detail to deliver experiences that feel effortless and look extraordinary.</p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <p class="w-foot">Authorized users only · <button type="button" class="w-nav-text" style="display:inline;padding:0;text-decoration:underline" data-welcome-login>Sign in to continue</button></p>
+</div>
+<!-- ===================== /welcome screen ===================== -->
 </body>
 </html>
